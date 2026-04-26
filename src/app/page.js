@@ -761,25 +761,88 @@ function IPCTab({inflData}){
 }
 
 // ── USD ───────────────────────────────────────────────────────────────────────
+function USDGrafico({br,W,PL,PR,PT,PB,cH,H}){
+  const n=br.length;
+  const maxTC=Math.max(...br.map(x=>Math.max(x.of||0,x.bl||0)),1);
+  const xOf=br.filter(x=>x.of).map(x=>({x:PL+(br.indexOf(x)/(n-1||1))*(W-PL-PR),y:PT+cH*(1-x.of/maxTC)}));
+  const xBl=br.filter(x=>x.bl).map(x=>({x:PL+(br.indexOf(x)/(n-1||1))*(W-PL-PR),y:PT+cH*(1-x.bl/maxTC)}));
+  const pOf=xOf.map((p,i)=>(i===0?"M":"L")+p.x+","+p.y).join(" ");
+  const pBl=xBl.map((p,i)=>(i===0?"M":"L")+p.x+","+p.y).join(" ");
+  return <>
+    <svg viewBox={"0 0 "+W+" "+H} style={{width:"100%",maxHeight:170,display:"block"}}>
+      {[0,.5,1].map((f,i)=>{
+        const v=Math.round(maxTC*f),y=PT+cH*(1-f);
+        const label=v>=1000?Math.round(v/1000)+"K":String(v);
+        return <g key={i}>
+          <line x1={PL} y1={y} x2={W-PR} y2={y} stroke={C.bd2} strokeWidth=".5"/>
+          <text x={PL-4} y={y+4} textAnchor="end" fill={C.t3} fontSize="8" fontFamily="sans-serif">{label}</text>
+        </g>;
+      })}
+      {xBl.length>1&&<path d={pBl} fill="none" stroke={C.lima} strokeWidth="2" strokeLinejoin="round"/>}
+      {xOf.length>1&&<path d={pOf} fill="none" stroke={C.green} strokeWidth="2" strokeLinejoin="round"/>}
+      {xOf.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r="2.5" fill={C.green}/>)}
+      {xBl.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r="2.5" fill={C.lima}/>)}
+      {br.map((b,i)=>{
+        const x=PL+(i/(n-1||1))*(W-PL-PR);
+        const show=i===0||i===n-1||i%4===0;
+        return show?<text key={i} x={x} y={H-4} textAnchor="middle" fill={C.t3} fontSize="8" fontFamily="sans-serif">{b.label}</text>:null;
+      })}
+    </svg>
+    <div style={{display:"flex",gap:14,fontSize:11,color:C.t2,marginTop:6}}>
+      <span><span style={{display:"inline-block",width:14,height:2,background:C.green,borderRadius:2,marginRight:5,verticalAlign:"middle"}}/>Oficial</span>
+      <span><span style={{display:"inline-block",width:14,height:2,background:C.lima,borderRadius:2,marginRight:5,verticalAlign:"middle"}}/>Blue</span>
+    </div>
+  </>;
+}
+
 function USDTab({tcHistData,inflData,tcOficial,tcBlue}){
   const agM=arr=>{const m={};if(!arr)return m;arr.forEach(x=>{const ym=x.fecha.slice(0,7);if(!m[ym]){m[ym]={sum:0,count:0};}m[ym].sum+=(x.venta||0);m[ym].count++;});Object.keys(m).forEach(k=>{m[k].avg=Math.round(m[k].sum/m[k].count);});return m;};
   const ofM=agM(tcHistData?.oficial),blM=agM(tcHistData?.blue);
   const ipcM={};if(inflData)inflData.forEach(x=>{ipcM[x.fecha.slice(0,7)]=x.valor;});
-  const hoy=new Date(),serie=[];for(let i=23;i>=0;i--){const d=new Date(hoy.getFullYear(),hoy.getMonth()-i,1);serie.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);}
+  const hoy=new Date(),serie=[];
+  for(let i=23;i>=0;i--){const d=new Date(hoy.getFullYear(),hoy.getMonth()-i,1);serie.push(d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"));}
   const sF=serie.filter(ym=>ofM[ym]||blM[ym]);
   const br=sF.map(ym=>({ym,of:ofM[ym]?.avg||null,bl:blM[ym]?.avg||null,gap:ofM[ym]?.avg&&blM[ym]?.avg?Math.round(((blM[ym].avg-ofM[ym].avg)/ofM[ym].avg)*100):null,ipc:ipcM[ym]||null,label:ym.slice(5,7)+"/"+ym.slice(2,4)}));
-  const last=br[br.length-1];const W=540,PL=50,PR=12,PT=20,PB=26,cH=96,H=PT+cH+PB;
+  const last=br[br.length-1];
+  const W=540,PL=50,PR=12,PT=20,PB=26,cH=96,H=PT+cH+PB;
+  const brechaColor=last?.gap>100?C.red:last?.gap>50?C.amber:C.green;
+
   return <div className="fu">
     <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:4}}>💵 Dólar & Tipo de Cambio</div>
     <div style={{fontSize:12,color:C.t3,marginBottom:16}}>dolarapi.com & argentinadatos.com</div>
     {!tcHistData&&<Card><div style={{textAlign:"center",padding:"32px 0",color:C.t3}}>Cargando cotizaciones...</div></Card>}
     {tcHistData&&<>
-      <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}><StatCard label="Oficial hoy" value={tcOficial?`$${tcOficial.toLocaleString("es-AR")}`:last?.of?`$${last.of.toLocaleString("es-AR")}`:"—"} color={C.green} icon="🏛️"/><StatCard label="Blue hoy" value={tcBlue?`$${tcBlue.toLocaleString("es-AR")}`:last?.bl?`$${last.bl.toLocaleString("es-AR")}`:"—"} color={C.lima} icon="💵"/><StatCard label="Brecha" value={last?.gap!=null?`${last.gap}%`:"—"} color={last?.gap>100?C.red:last?.gap>50?C.amber:C.green} icon="📊"/><StatCard label="IPC último mes" value={last?.ipc!=null?`${last.ipc}%`:"—"} color={C.amber} icon="📈"/></div>
+      <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
+        <StatCard label="Oficial hoy" value={tcOficial?("$"+tcOficial.toLocaleString("es-AR")):last?.of?("$"+last.of.toLocaleString("es-AR")):"—"} color={C.green} icon="🏛️"/>
+        <StatCard label="Blue hoy" value={tcBlue?("$"+tcBlue.toLocaleString("es-AR")):last?.bl?("$"+last.bl.toLocaleString("es-AR")):"—"} color={C.lima} icon="💵"/>
+        <StatCard label="Brecha" value={last?.gap!=null?(last.gap+"%"):"—"} color={brechaColor} icon="📊"/>
+        <StatCard label="IPC último mes" value={last?.ipc!=null?(last.ipc+"%"):"—"} color={C.amber} icon="📈"/>
+      </div>
       {sF.length>1&&<Card style={{marginBottom:14}}>
         <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:10,fontWeight:600}}>Oficial vs Blue — últimos 24 meses</div>
-        {(()=>{const maxTC=Math.max(...br.map(x=>Math.max(x.of||0,x.bl||0)),1),n=br.length;const xOf=br.filter(x=>x.of).map(x=>({x:PL+(br.indexOf(x)/(n-1||1))*(W-PL-PR),y:PT+cH*(1-x.of/maxTC)}));const xBl=br.filter(x=>x.bl).map(x=>({x:PL+(br.indexOf(x)/(n-1||1))*(W-PL-PR),y:PT+cH*(1-x.bl/maxTC)}));const pOf=xOf.map((p,i)=>`${i===0?"M":"L"}${p.x},${p.y}`).join(" ");const pBl=xBl.map((p,i)=>`${i===0?"M":"L"}${p.x},${p.y}`).join(" ");return <><svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",maxHeight:170,display:"block"}}>{[0,.5,1].map((f,i)=>{const v=Math.round(maxTC*f),y=PT+cH*(1-f);return<g key={i}><line x1={PL} y1={y} x2={W-PR} y2={y} stroke={C.bd2} strokeWidth=".5"/><text x={PL-4} y={y+4} textAnchor="end" fill={C.t3} fontSize="8" fontFamily="sans-serif">{v>=1000?Math.round(v/1000)+"K":v}</text></g>;})}>{xBl.length>1&&<path d={pBl} fill="none" stroke={C.lima} strokeWidth="2" strokeLinejoin="round"/>}{xOf.length>1&&<path d={pOf} fill="none" stroke={C.green} strokeWidth="2" strokeLinejoin="round"/>}{xOf.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r="2.5" fill={C.green}/>)}{xBl.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r="2.5" fill={C.lima}/>)}{br.map((b,i)=>{const x=PL+(i/(n-1||1))*(W-PL-PR);const s=i===0||i===n-1||i%4===0;return s?<text key={i} x={x} y={H-4} textAnchor="middle" fill={C.t3} fontSize="8" fontFamily="sans-serif">{b.label}</text>:null;})}</svg><div style={{display:"flex",gap:14,fontSize:11,color:C.t2,marginTop:6}}><span><span style={{display:"inline-block",width:14,height:2,background:C.green,borderRadius:2,marginRight:5,verticalAlign:"middle"}}/>Oficial</span><span><span style={{display:"inline-block",width:14,height:2,background:C.lima,borderRadius:2,marginRight:5,verticalAlign:"middle"}}/>Blue</span></div></>;})()}
+        <USDGrafico br={br} W={W} PL={PL} PR={PR} PT={PT} PB={PB} cH={cH} H={H}/>
       </Card>}
-      <Card><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:380}}><thead><tr style={{borderBottom:`2px solid ${C.bd2}`}}>{["Mes","Oficial","Blue","Brecha","IPC"].map((h,i)=><th key={i} style={{padding:"7px 10px",textAlign:i>=1?"right":"left",fontSize:10,fontWeight:700,color:C.t3,textTransform:"uppercase",letterSpacing:".05em"}}>{h}</th>)}</tr></thead><tbody>{[...br].reverse().slice(0,18).map((b,i)=><tr key={i} style={{borderBottom:`1px solid ${C.bd}`}}><td style={{padding:"8px 10px",color:C.t2,fontWeight:500}}>{b.ym}</td><td style={{padding:"8px 10px",textAlign:"right",color:C.green,fontWeight:600}}>{b.of?`$${b.of.toLocaleString("es-AR")}`:"—"}</td><td style={{padding:"8px 10px",textAlign:"right",color:C.lima,fontWeight:600}}>{b.bl?`$${b.bl.toLocaleString("es-AR")}`:"—"}</td><td style={{padding:"8px 10px",textAlign:"right",color:b.gap>100?C.red:b.gap>50?C.amber:C.t2,fontWeight:b.gap?600:400}}>{b.gap!=null?`${b.gap}%`:"—"}</td><td style={{padding:"8px 10px",textAlign:"right",color:C.amber}}>{b.ipc!=null?`${b.ipc}%`:"—"}</td></tr>)}</tbody></table></div></Card>
+      <Card>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:380}}>
+            <thead><tr style={{borderBottom:"2px solid "+C.bd2}}>
+              {["Mes","Oficial","Blue","Brecha","IPC"].map((h,i)=><th key={i} style={{padding:"7px 10px",textAlign:i>=1?"right":"left",fontSize:10,fontWeight:700,color:C.t3,textTransform:"uppercase",letterSpacing:".05em"}}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {[...br].reverse().slice(0,18).map((b,i)=>{
+                const gapColor=b.gap>100?C.red:b.gap>50?C.amber:C.t2;
+                return <tr key={i} style={{borderBottom:"1px solid "+C.bd}}>
+                  <td style={{padding:"8px 10px",color:C.t2,fontWeight:500}}>{b.ym}</td>
+                  <td style={{padding:"8px 10px",textAlign:"right",color:C.green,fontWeight:600}}>{b.of?("$"+b.of.toLocaleString("es-AR")):"—"}</td>
+                  <td style={{padding:"8px 10px",textAlign:"right",color:C.lima,fontWeight:600}}>{b.bl?("$"+b.bl.toLocaleString("es-AR")):"—"}</td>
+                  <td style={{padding:"8px 10px",textAlign:"right",color:gapColor,fontWeight:b.gap?600:400}}>{b.gap!=null?(b.gap+"%"):"—"}</td>
+                  <td style={{padding:"8px 10px",textAlign:"right",color:C.amber}}>{b.ipc!=null?(b.ipc+"%"):"—"}</td>
+                </tr>;
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
     </>}
   </div>;
 }
