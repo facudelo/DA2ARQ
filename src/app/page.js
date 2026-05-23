@@ -126,7 +126,7 @@ function ObrasScreen({user,onSelect,onLogout,toast}){
   const [loading,setLoading]=useState(true);
   const [modal,setModal]=useState(false);
   const [saving,setSaving]=useState(false);
-  const [draft,setDraft]=useState({nombre:"",direccion:"",estado:"En ejecución",presupuesto_total:"",moneda_presupuesto:"ARS"});
+  const [draft,setDraft]=useState({nombre:"",direccion:"",estado:"En ejecución",presupuesto_total:"",moneda_presupuesto:"ARS",presup_tipo:"total"});
   const loadObras=useCallback(async()=>{setLoading(true);const{data,error}=await supabase.from("obras").select("*, participantes!inner(rol,puede_cargar,user_id)").eq("participantes.user_id",user.id).order("created_at",{ascending:false});if(!error)setObras(data||[]);setLoading(false);},[user.id]);
   useEffect(()=>{loadObras();},[loadObras]);
   const save=async()=>{
@@ -165,9 +165,22 @@ function ObrasScreen({user,onSelect,onLogout,toast}){
         <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Nombre *</div><input style={INP} placeholder="Ej: Residencia Palermo" value={draft.nombre} onChange={e=>setDraft(d=>({...d,nombre:e.target.value}))}/></div>
         <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Dirección</div><input style={INP} placeholder="Calle y número" value={draft.direccion} onChange={e=>setDraft(d=>({...d,direccion:e.target.value}))}/></div>
         <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Estado</div><select style={SEL} value={draft.estado} onChange={e=>setDraft(d=>({...d,estado:e.target.value}))}>{["Relevamiento","En proyecto","En ejecución","Finalizada"].map(s=><option key={s}>{s}</option>)}</select></div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 90px",gap:8}}>
-          <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Presupuesto</div><input style={INP} type="number" placeholder="0" value={draft.presupuesto_total} onChange={e=>setDraft(d=>({...d,presupuesto_total:e.target.value}))}/></div>
-          <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Moneda</div><select style={SEL} value={draft.moneda_presupuesto} onChange={e=>setDraft(d=>({...d,moneda_presupuesto:e.target.value}))}><option>ARS</option><option>USD</option></select></div>
+        {/* Tipo de presupuesto */}
+        <div>
+          <div style={{fontSize:11,color:C.t2,marginBottom:8,fontWeight:600}}>Tipo de presupuesto</div>
+          <div style={{display:"flex",gap:8,marginBottom:10}}>
+            {[{v:"total",label:"💰 Monto total",desc:"Un presupuesto global para toda la obra"},{v:"categorias",label:"📂 Por categorías",desc:"Desglose por rubro (definís después)"}].map(o=>(
+              <div key={o.v} onClick={()=>setDraft(d=>({...d,presup_tipo:o.v}))} style={{flex:1,border:`2px solid ${draft.presup_tipo===o.v?C.green:C.bd2}`,borderRadius:10,padding:"10px 12px",cursor:"pointer",background:draft.presup_tipo===o.v?C.limaBg:"transparent",transition:"all .2s"}}>
+                <div style={{fontSize:12,fontWeight:700,color:draft.presup_tipo===o.v?C.green:C.t,marginBottom:3}}>{o.label}</div>
+                <div style={{fontSize:10,color:C.t3}}>{o.desc}</div>
+              </div>
+            ))}
+          </div>
+          {draft.presup_tipo==="total"&&<div style={{display:"grid",gridTemplateColumns:"1fr 90px",gap:8}}>
+            <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Monto</div><input style={INP} type="number" placeholder="0" value={draft.presupuesto_total} onChange={e=>setDraft(d=>({...d,presupuesto_total:e.target.value}))}/></div>
+            <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Moneda</div><select style={SEL} value={draft.moneda_presupuesto} onChange={e=>setDraft(d=>({...d,moneda_presupuesto:e.target.value}))}><option>ARS</option><option>USD</option></select></div>
+          </div>}
+          {draft.presup_tipo==="categorias"&&<div style={{background:C.bg3,borderRadius:8,padding:"10px 12px",fontSize:12,color:C.t3}}>✓ Vas a poder cargar el presupuesto por categoría desde el tab <b style={{color:C.t}}>Presupuesto</b> una vez creada la obra.</div>}
         </div>
         <div style={{display:"flex",gap:8,marginTop:4}}><Btn primary onClick={save} loading={saving}>Crear</Btn><Btn onClick={()=>setModal(false)}>Cancelar</Btn></div>
       </div>
@@ -183,7 +196,7 @@ function ObraApp(props){
   const [presup,setPresup]=useState([]);
   const [cats,setCats]=useState([]);
   const [fotos,setFotos]=useState([]);
-  const [Objetivos,setObjetivos]=useState([]);
+  const [hitos,setHitos]=useState([]);
   const [comentarios,setComentarios]=useState([]);
   const [loadingData,setLoadingData]=useState(true);
   const [mobileMenu,setMobileMenu]=useState(false);
@@ -199,13 +212,13 @@ function ObraApp(props){
       supabase.from("categorias").select("*, subcategorias(*)").eq("obra_id",obra.id).order("orden"),
       supabase.from("fotos").select("*").eq("obra_id",obra.id).order("fecha",{ascending:false}),
       supabase.from("participantes").select("*").eq("obra_id",obra.id),
-      supabase.from("Objetivos").select("*").eq("obra_id",obra.id).order("fecha_estimada"),
+      supabase.from("hitos").select("*").eq("obra_id",obra.id).order("fecha_estimada"),
       supabase.from("comentarios_gasto").select("*").eq("obra_id",obra.id).order("created_at"),
     ]);
     setGastos(gRes.data||[]);setPresup(prRes.data||[]);
     setCats((cRes.data||[]).map(c=>({...c,subs:c.subcategorias||[]})));
     setFotos(fRes.data||[]);setPartic(partRes.data||[]);
-    setObjetivos(hRes.data||[]);setComentarios(cRes2.data||[]);
+    setHitos(hRes.data||[]);setComentarios(cRes2.data||[]);
     setLoadingData(false);
   },[obra.id]);
   useEffect(()=>{loadAll();},[loadAll]);
@@ -227,11 +240,12 @@ function ObraApp(props){
     {id:"gastos",label:"Gastos",icon:"💸",badge:totalNotifs},
     ...(esAdmin?[{id:"presupuesto",label:"Presupuesto",icon:"📐"}]:[]),
     {id:"fotos",label:"Fotos",icon:"📷"},
-    {id:"Objetivos",label:"Objetivos",icon:"🏁"},
+    {id:"objetivos",label:"Objetivos",icon:"🏁"},
+    {id:"reportes",label:"Reportes",icon:"📈"},
     ...(!esAdmin?[{id:"resumen",label:"Mi Resumen",icon:"📋"}]:[]),
     ...(esAdmin?[{id:"categorias",label:"Categorías",icon:"🏷️"}]:[]),
     ...(esAdmin?[{id:"participantes",label:"Participantes",icon:"👥"}]:[]),
-    {id:"ipc",label:"IPC",icon:"📈"},
+    {id:"ipc",label:"IPC",icon:"📉"},
     {id:"usd",label:"USD",icon:"💵"},
   ];
   const goTab=id=>{setTab(id);setMobileMenu(false);if(id==="ipc")fetchIPC();if(id==="usd"){fetchIPC();fetchTCHist();}if(id==="gastos")marcarTodosVistos();};
@@ -293,12 +307,13 @@ function ObraApp(props){
 
     <div style={{padding:20,paddingBottom:100,maxWidth:1040,margin:"0 auto"}}>
       {loadingData?<Spinner/>:<>
-        {tab==="dashboard"&&<DashboardTab obra={obra} gastos={gastosVis} esAdmin={esAdmin} presup={presup} tcRef={tcRef} partic={partic} cats={cats} fotos={fotos} Objetivos={Objetivos} monedaVista={monedaVista}/>}
+        {tab==="dashboard"&&<DashboardTab obra={obra} gastos={gastosVis} esAdmin={esAdmin} presup={presup} tcRef={tcRef} partic={partic} cats={cats} fotos={fotos} hitos={hitos} monedaVista={monedaVista}/>}
         {tab==="gastos"&&<GastosTab user={user} obra={obra} gastos={gastos} esAdmin={esAdmin} puedoCargar={puedoCargar} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} externalOpen={showGastoModal} onExternalClose={()=>setShowGastoModal(false)} comentarios={comentarios} miUserId={user.id}/>}
         {tab==="presupuesto"&&esAdmin&&<PresupuestoTab obra={obra} gastos={gastos} presup={presup} tcRef={tcRef} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista}/>}
         {tab==="fotos"&&<FotosTab obra={obra} fotos={fotos} puedoCargar={puedoCargar||esAdmin} user={user} toast={toast} reload={loadAll}/>}
-        {tab==="Objetivos"&&<ObjetivosTab obra={obra} Objetivos={Objetivos} esAdmin={esAdmin} toast={toast} reload={loadAll}/>}
-        {tab==="resumen"&&!esAdmin&&<ResumenClienteTab obra={obra} gastos={gastosVis} presup={presup} tcRef={tcRef} cats={cats} fotos={fotos} Objetivos={Objetivos} monedaVista={monedaVista}/>}
+        {tab==="objetivos"&&<HitosTab obra={obra} hitos={hitos} esAdmin={esAdmin} toast={toast} reload={loadAll}/>}
+        {tab==="reportes"&&<ReportesTab obra={obra} gastos={gastosVis} presup={presup} tcRef={tcRef} cats={cats} esAdmin={esAdmin} monedaVista={monedaVista}/>}
+        {tab==="resumen"&&!esAdmin&&<ResumenClienteTab obra={obra} gastos={gastosVis} presup={presup} tcRef={tcRef} cats={cats} fotos={fotos} hitos={hitos} monedaVista={monedaVista}/>}
         {tab==="categorias"&&esAdmin&&<CategoriasTab cats={cats} obra={obra} toast={toast} reload={loadAll}/>}
         {tab==="participantes"&&esAdmin&&<ParticipantesTab obra={obra} partic={partic} toast={toast} reload={loadAll}/>}
         {tab==="ipc"&&<IPCTab inflData={inflData}/>}
@@ -306,13 +321,13 @@ function ObraApp(props){
       </>}
     </div>
 
-    {/* FAB — botón flotante cargar gasto */}
-    {(puedoCargar||esAdmin)&&<button onClick={()=>{setTab("gastos");setShowGastoModal(true);}} style={{position:"fixed",bottom:28,right:28,width:56,height:56,borderRadius:"50%",background:C.green,color:"#fff",border:"none",cursor:"pointer",fontSize:26,boxShadow:"0 4px 20px rgba(46,110,24,.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:150,transition:"transform .2s"}} onMouseEnter={e=>e.currentTarget.style.transform="scale(1.1)"} onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"} title="Cargar gasto">+</button>}
+    {/* FAB — speed dial */}
+    {(puedoCargar||esAdmin)&&<FABMenu onGasto={()=>{setTab("gastos");setShowGastoModal(true);}} onObjetivo={()=>setTab("objetivos")} esAdmin={esAdmin}/>}
   </div>;
 }
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
-function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,Objetivos=[],monedaVista}){
+function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=[],monedaVista}){
   const enUSD=monedaVista==="USD";
   const conv=g=>enUSD?toUSD(g,tcRef):toARS(g,tcRef);
   const totalMV=gastos.reduce((s,g)=>s+conv(g),0);
@@ -324,8 +339,8 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,Objeti
   const ultimos=gastos.slice(0,6);
   const ultimaFoto=fotos.length>0?fotos[0]:null;
   const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
-  const ObjetivosActivos=Objetivos.filter(h=>h.estado!=="completado").slice(0,3);
-  const ObjetivosComp=Objetivos.filter(h=>h.estado==="completado").length;
+  const hitosActivos=hitos.filter(h=>h.estado!=="completado").slice(0,3);
+  const hitosComp=hitos.filter(h=>h.estado==="completado").length;
 
   return <div className="fu">
     <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
@@ -333,7 +348,7 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,Objeti
       {presupTotalMV>0&&<StatCard label="Presupuesto" value={fmt(presupTotalMV)} sub={pct!==null?`${pct}% ejecutado`:""} color={C.blue} icon="📐"/>}
       {presupTotalMV>0&&<StatCard label="Disponible" value={fmt(Math.max(0,presupTotalMV-totalMV))} sub={pct>=90?"⚠ Límite cercano":""} color={presupTotalMV-totalMV<0?C.red:C.lima} icon="📊"/>}
       <StatCard label="Participantes" value={partic.length} sub={`${fotos.length} foto${fotos.length!==1?"s":""}`} color={C.amber} icon="👥"/>
-      {Objetivos.length>0&&<StatCard label="Objetivos" value={`${ObjetivosComp}/${Objetivos.length}`} sub={`${Math.round((ObjetivosComp/Objetivos.length)*100)}% completados`} color={C.blue} icon="🏁"/>}
+      {hitos.length>0&&<StatCard label="Hitos" value={`${hitosComp}/${hitos.length}`} sub={`${Math.round((hitosComp/hitos.length)*100)}% completados`} color={C.blue} icon="🏁"/>}
     </div>
 
     {presupTotalMV>0&&<Card style={{marginBottom:14}}>
@@ -360,18 +375,30 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,Objeti
         </div>}
       </Card>
       <Card style={{flex:"2 1 280px"}}>
-        <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:12,fontWeight:600}}>Gasto por categoría ({monedaVista})</div>
-        {cats.filter(c=>byCat[c.id]>0).sort((a,b)=>(byCat[b.id]||0)-(byCat[a.id]||0)).map(c=>{
+        <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:12,fontWeight:600}}>Gasto por categoría — ordenado por monto</div>
+        {cats.filter(c=>byCat[c.id]>0).sort((a,b)=>(byCat[b.id]||0)-(byCat[a.id]||0)).map((c,i)=>{
           const p2=totalMV>0?Math.round((byCat[c.id]/totalMV)*100):0;
-          return <div key={c.id} style={{marginBottom:10}}>
-            <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4}}>
-              <span style={{color:C.t2,display:"flex",alignItems:"center",gap:5}}><span>{c.icon}</span>{c.label}</span>
-              <span style={{color:c.color,fontWeight:700}}>{fmt(byCat[c.id])}</span>
+          return <div key={c.id} style={{marginBottom:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4,alignItems:"center"}}>
+              <span style={{color:C.t2,display:"flex",alignItems:"center",gap:6}}>
+                <span style={{width:18,height:18,borderRadius:4,background:c.color+"22",border:`1px solid ${c.color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,flexShrink:0}}>{i+1}</span>
+                <span>{c.icon}</span>{c.label}
+              </span>
+              <span style={{display:"flex",gap:8,alignItems:"center"}}>
+                <span style={{fontSize:10,color:C.t3,background:C.bg3,borderRadius:10,padding:"1px 7px",fontWeight:600}}>{p2}%</span>
+                <span style={{color:c.color,fontWeight:700}}>{fmt(byCat[c.id])}</span>
+              </span>
             </div>
-            <div style={{height:6,borderRadius:3,background:C.bg3}}><div style={{height:"100%",borderRadius:3,background:c.color,width:`${p2}%`,transition:"width .5s"}}/></div>
+            <div style={{height:7,borderRadius:4,background:C.bg3}}>
+              <div style={{height:"100%",borderRadius:4,background:c.color,width:`${p2}%`,transition:"width .5s"}}/>
+            </div>
           </div>;
         })}
         {donutData.length===0&&<div style={{color:C.t3,fontSize:12}}>Sin datos aún</div>}
+        {donutData.length>0&&<div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.bd}`,display:"flex",justifyContent:"space-between",fontSize:12}}>
+          <span style={{color:C.t3}}>Total</span>
+          <span style={{fontWeight:700,color:C.t}}>{fmt(totalMV)}</span>
+        </div>}
       </Card>
     </div>
 
@@ -400,9 +427,9 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,Objeti
         <div style={{marginTop:8,fontSize:12,fontWeight:600,color:C.t}}>{ultimaFoto.titulo}</div>
         <div style={{fontSize:11,color:C.t3,marginTop:2}}>{ultimaFoto.fecha}{ultimaFoto.etapa&&` · ${ultimaFoto.etapa}`}</div>
       </Card>}
-      {ObjetivosActivos.length>0&&<Card style={{flex:"1 1 200px"}}>
-        <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:10,fontWeight:600}}>Próximos Objetivos</div>
-        {ObjetivosActivos.map(h=>{
+      {hitosActivos.length>0&&<Card style={{flex:"1 1 200px"}}>
+        <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:10,fontWeight:600}}>Próximos hitos</div>
+        {hitosActivos.map(h=>{
           const col=h.estado==="en_progreso"?C.amber:C.t3;
           return <div key={h.id} style={{display:"flex",gap:8,alignItems:"flex-start",marginBottom:10,paddingBottom:10,borderBottom:`1px solid ${C.bd}`}}>
             <div style={{width:8,height:8,borderRadius:"50%",background:col,marginTop:4,flexShrink:0}}/>
@@ -868,25 +895,25 @@ function ComentariosModal({gasto,comentarios,obra,user,esAdmin,toast,reload,onCl
   </Modal>;
 }
 
-// ── Objetivos ─────────────────────────────────────────────────────────────────────
-function ObjetivosTab({obra,Objetivos,esAdmin,toast,reload}){
+// ── HITOS ─────────────────────────────────────────────────────────────────────
+function HitosTab({obra,hitos,esAdmin,toast,reload}){
   const [modal,setModal]=useState(false);
   const [saving,setSaving]=useState(false);
   const [draft,setDraft]=useState({titulo:"",descripcion:"",fecha_estimada:"",estado:"pendiente"});
 
   const save=async()=>{
     if(!draft.titulo.trim()||!draft.fecha_estimada)return;setSaving(true);
-    const{error}=await supabase.from("Objetivos").insert({obra_id:obra.id,...draft,titulo:draft.titulo.trim()});
+    const{error}=await supabase.from("hitos").insert({obra_id:obra.id,...draft,titulo:draft.titulo.trim()});
     if(error)toast.error("Error: "+error.message);
-    else{toast.success("Objetivo creado");await reload();}
+    else{toast.success("Hito creado");await reload();}
     setDraft({titulo:"",descripcion:"",fecha_estimada:"",estado:"pendiente"});setModal(false);setSaving(false);
   };
   const updateEstado=async(id,estado)=>{
-    const{error}=await supabase.from("Objetivos").update({estado}).eq("id",id);
+    const{error}=await supabase.from("hitos").update({estado}).eq("id",id);
     if(error)toast.error("Error");else await reload();
   };
   const deleteH=async(id)=>{
-    const{error}=await supabase.from("Objetivos").delete().eq("id",id);
+    const{error}=await supabase.from("hitos").delete().eq("id",id);
     if(error)toast.error("Error");else{toast.success("Eliminado");await reload();}
   };
 
@@ -895,19 +922,19 @@ function ObjetivosTab({obra,Objetivos,esAdmin,toast,reload}){
     en_progreso:{color:C.amber,label:"En progreso",dot:"◑"},
     completado:{color:C.green,label:"Completado",dot:"●"},
   };
-  const completados=Objetivos.filter(h=>h.estado==="completado").length;
-  const pct=Objetivos.length>0?Math.round((completados/Objetivos.length)*100):0;
+  const completados=hitos.filter(h=>h.estado==="completado").length;
+  const pct=hitos.length>0?Math.round((completados/hitos.length)*100):0;
 
   return <div className="fu">
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
       <div>
-        <div style={{fontSize:16,fontWeight:700,color:C.t}}>Objetivos de Obra</div>
-        <div style={{fontSize:12,color:C.t3}}>{completados}/{Objetivos.length} completados · {pct}% avanzado</div>
+        <div style={{fontSize:16,fontWeight:700,color:C.t}}>Hitos de Obra</div>
+        <div style={{fontSize:12,color:C.t3}}>{completados}/{hitos.length} completados · {pct}% avanzado</div>
       </div>
-      {esAdmin&&<Btn primary onClick={()=>setModal(true)}>+ Nuevo Objetivo</Btn>}
+      {esAdmin&&<Btn primary onClick={()=>setModal(true)}>+ Nuevo hito</Btn>}
     </div>
 
-    {Objetivos.length>0&&<Card style={{marginBottom:16}}>
+    {hitos.length>0&&<Card style={{marginBottom:16}}>
       <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:8,fontWeight:600}}>Avance general de obra</div>
       <div style={{height:10,borderRadius:5,background:C.bg3,overflow:"hidden",marginBottom:6}}>
         <div style={{height:"100%",borderRadius:5,background:pct===100?C.green:C.lima,width:`${pct}%`,transition:"width .6s ease"}}/>
@@ -915,18 +942,18 @@ function ObjetivosTab({obra,Objetivos,esAdmin,toast,reload}){
       <div style={{fontSize:11,color:C.t3,textAlign:"right",fontWeight:600,color:pct===100?C.green:C.t3}}>{pct}%{pct===100?" ✓ Obra finalizada":""}</div>
     </Card>}
 
-    {Objetivos.length===0&&<Card><div style={{textAlign:"center",padding:"48px 0"}}>
+    {hitos.length===0&&<Card><div style={{textAlign:"center",padding:"48px 0"}}>
       <div style={{fontSize:44,marginBottom:12}}>🏁</div>
-      <div style={{fontSize:14,fontWeight:600,color:C.t2,marginBottom:6}}>Sin Objetivos definidos</div>
-      <div style={{fontSize:12,color:C.t3,marginBottom:16}}>Los Objetivos marcan las etapas clave de la obra y son visibles para todos</div>
-      {esAdmin&&<Btn primary onClick={()=>setModal(true)}>+ Crear primer Objetivo</Btn>}
+      <div style={{fontSize:14,fontWeight:600,color:C.t2,marginBottom:6}}>Sin hitos definidos</div>
+      <div style={{fontSize:12,color:C.t3,marginBottom:16}}>Los hitos marcan las etapas clave de la obra y son visibles para todos</div>
+      {esAdmin&&<Btn primary onClick={()=>setModal(true)}>+ Crear primer hito</Btn>}
     </div></Card>}
 
     {/* Timeline */}
     <div style={{display:"flex",flexDirection:"column",gap:0}}>
-      {Objetivos.map((h,i)=>{
+      {hitos.map((h,i)=>{
         const ec=EC[h.estado]||EC.pendiente;
-        const isLast=i===Objetivos.length-1;
+        const isLast=i===hitos.length-1;
         return <div key={h.id} style={{display:"flex",gap:14,alignItems:"flex-start"}}>
           {/* Línea vertical */}
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",flexShrink:0,width:28}}>
@@ -955,7 +982,7 @@ function ObjetivosTab({obra,Objetivos,esAdmin,toast,reload}){
       })}
     </div>
 
-    {modal&&<Modal title="Nuevo Objetivo" onClose={()=>setModal(false)}>
+    {modal&&<Modal title="Nuevo hito" onClose={()=>setModal(false)}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
         <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Título *</div><input style={INP} placeholder="Ej: Losa planta alta terminada" value={draft.titulo} onChange={e=>setDraft(d=>({...d,titulo:e.target.value}))}/></div>
         <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Descripción</div><input style={INP} placeholder="Detalle opcional..." value={draft.descripcion} onChange={e=>setDraft(d=>({...d,descripcion:e.target.value}))}/></div>
@@ -974,7 +1001,7 @@ function ObjetivosTab({obra,Objetivos,esAdmin,toast,reload}){
 }
 
 // ── RESUMEN CLIENTE ───────────────────────────────────────────────────────────
-function ResumenClienteTab({obra,gastos,presup,tcRef,cats,fotos,Objetivos=[],monedaVista}){
+function ResumenClienteTab({obra,gastos,presup,tcRef,cats,fotos,hitos=[],monedaVista}){
   const enUSD=monedaVista==="USD";
   const conv=g=>enUSD?toUSD(g,tcRef):toARS(g,tcRef);
   const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
@@ -984,8 +1011,8 @@ function ResumenClienteTab({obra,gastos,presup,tcRef,cats,fotos,Objetivos=[],mon
   const pct=presupTotalMV>0?Math.min(Math.round((totalGastado/presupTotalMV)*100),200):null;
   const byCat=cats.map(c=>({...c,total:gastos.filter(g=>g.cat_id===c.id).reduce((s,g)=>s+conv(g),0)})).filter(c=>c.total>0).sort((a,b)=>b.total-a.total);
   const ultimaFoto=fotos[0]||null;
-  const ObjetivosComp=Objetivos.filter(h=>h.estado==="completado").length;
-  const ObjetivoPct=Objetivos.length>0?Math.round((ObjetivosComp/Objetivos.length)*100):null;
+  const hitosComp=hitos.filter(h=>h.estado==="completado").length;
+  const hitoPct=hitos.length>0?Math.round((hitosComp/hitos.length)*100):null;
   const ultimoGasto=gastos[0]||null;
 
   return <div className="fu">
@@ -1044,16 +1071,16 @@ function ResumenClienteTab({obra,gastos,presup,tcRef,cats,fotos,Objetivos=[],mon
     </Card>}
 
     <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
-      {/* Objetivos */}
-      {Objetivos.length>0&&<Card style={{flex:"1 1 250px"}}>
+      {/* Hitos */}
+      {hitos.length>0&&<Card style={{flex:"1 1 250px"}}>
         <div style={{fontSize:13,fontWeight:700,color:C.t,marginBottom:12}}>🏁 Avance de obra</div>
-        {ObjetivoPct!==null&&<>
+        {hitoPct!==null&&<>
           <div style={{height:10,borderRadius:5,background:C.bg3,overflow:"hidden",marginBottom:6}}>
-            <div style={{height:"100%",borderRadius:5,background:ObjetivoPct===100?C.green:C.lima,width:`${ObjetivoPct}%`,transition:"width .6s"}}/>
+            <div style={{height:"100%",borderRadius:5,background:hitoPct===100?C.green:C.lima,width:`${hitoPct}%`,transition:"width .6s"}}/>
           </div>
-          <div style={{fontSize:12,color:C.t3,marginBottom:12}}>{ObjetivosComp} de {Objetivos.length} etapas completadas ({ObjetivoPct}%)</div>
+          <div style={{fontSize:12,color:C.t3,marginBottom:12}}>{hitosComp} de {hitos.length} etapas completadas ({hitoPct}%)</div>
         </>}
-        {Objetivos.slice(0,5).map(h=>{
+        {hitos.slice(0,5).map(h=>{
           const col=h.estado==="completado"?C.green:h.estado==="en_progreso"?C.amber:C.t3;
           return <div key={h.id} style={{display:"flex",gap:8,alignItems:"center",marginBottom:8,fontSize:12}}>
             <span style={{fontSize:14,color:col}}>{h.estado==="completado"?"✅":h.estado==="en_progreso"?"🔄":"⏳"}</span>
@@ -1084,6 +1111,150 @@ function ResumenClienteTab({obra,gastos,presup,tcRef,cats,fotos,Objetivos=[],mon
   </div>;
 }
 
+
+
+
+// ── FAB SPEED DIAL ────────────────────────────────────────────────────────────
+function FABMenu({onGasto,onObjetivo,esAdmin}){
+  const [open,setOpen]=useState(false);
+  const items=[
+    {icon:"💸",label:"Cargar gasto",action:onGasto,color:C.green},
+    ...(esAdmin?[{icon:"🏁",label:"Nuevo objetivo",action:onObjetivo,color:C.blue}]:[]),
+  ];
+  return <div style={{position:"fixed",bottom:28,right:28,zIndex:150,display:"flex",flexDirection:"column-reverse",alignItems:"flex-end",gap:10}}>
+    {open&&items.map((it,i)=>(
+      <div key={i} className="fu" style={{display:"flex",alignItems:"center",gap:8}}>
+        <span style={{background:"rgba(0,0,0,.65)",color:"#fff",fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:20,whiteSpace:"nowrap"}}>{it.label}</span>
+        <button onClick={()=>{setOpen(false);it.action();}} style={{width:44,height:44,borderRadius:"50%",background:it.color,color:"#fff",border:"none",cursor:"pointer",fontSize:20,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 3px 12px ${it.color}88`}}>{it.icon}</button>
+      </div>
+    ))}
+    <button onClick={()=>setOpen(v=>!v)}
+      style={{width:56,height:56,borderRadius:"50%",background:open?"#333":C.green,color:"#fff",border:"none",cursor:"pointer",fontSize:28,boxShadow:"0 4px 20px rgba(46,110,24,.5)",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .25s",transform:open?"rotate(45deg)":"rotate(0)"}}
+    >+</button>
+  </div>;
+}
+
+// ── REPORTES ──────────────────────────────────────────────────────────────────
+function ReportesTab({obra,gastos,presup,tcRef,cats,esAdmin,monedaVista}){
+  const [vistaR,setVistaR]=useState("mensual");
+  const enUSD=monedaVista==="USD";
+  const conv=useCallback(g=>enUSD?toUSD(g,tcRef):toARS(g,tcRef),[enUSD,tcRef]);
+  const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
+
+  const porMes=useMemo(()=>{
+    const m={};
+    gastos.forEach(g=>{const ym=g.fecha?.slice(0,7)||"";if(!m[ym])m[ym]={ym,total:0,items:[]};m[ym].total+=conv(g);m[ym].items.push(g);});
+    return Object.values(m).sort((a,b)=>a.ym>b.ym?1:-1);
+  },[gastos,conv]);
+
+  const porAnio=useMemo(()=>{
+    const a={};
+    gastos.forEach(g=>{const y=g.fecha?.slice(0,4)||"";if(!a[y])a[y]={anio:y,total:0,count:0};a[y].total+=conv(g);a[y].count++;});
+    return Object.values(a).sort((a,b)=>a.anio>b.anio?1:-1);
+  },[gastos,conv]);
+
+  const porCat=useMemo(()=>
+    cats.map(c=>({...c,total:gastos.filter(g=>g.cat_id===c.id).reduce((s,g)=>s+conv(g),0),count:gastos.filter(g=>g.cat_id===c.id).length})).filter(c=>c.total>0).sort((a,b)=>b.total-a.total)
+  ,[gastos,cats,conv]);
+
+  const totalGlobal=gastos.reduce((s,g)=>s+conv(g),0);
+  const topGastos=[...gastos].sort((a,b)=>conv(b)-conv(a)).slice(0,5);
+  const promMensual=porMes.length>0?totalGlobal/porMes.length:0;
+  const maxMes=porMes.length>0?porMes.reduce((mx,m)=>m.total>mx.total?m:mx,porMes[0]):null;
+
+  const W=540,PL=44,PR=12,PT=16,PB=28,cH=100,H=PT+cH+PB;
+  const maxBar=Math.max(...porMes.map(m=>m.total),1);
+  const VISTAS=[{id:"mensual",label:"Por mes"},{id:"anual",label:"Por año"},{id:"categorias",label:"Por categoría"},{id:"top",label:"Top gastos"}];
+
+  return <div className="fu">
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
+      <div><div style={{fontSize:16,fontWeight:700,color:C.t}}>📈 Reportes</div><div style={{fontSize:12,color:C.t3}}>{gastos.length} movimientos · {fmt(totalGlobal)} total</div></div>
+      <Btn small onClick={()=>exportCSV(gastos.map(g=>({Fecha:g.fecha,Categoria:cats.find(c=>c.id===g.cat_id)?.label||"",Monto:g.monto,Moneda:g.moneda,TC:g.tc_valor,Monto_ARS:toARS(g,tcRef),Descripcion:g.descripcion||"",Cargado_por:g.cargado_por})),`reporte_${obra.nombre.replace(/\s+/g,"_")}.csv`)}>⬇ Exportar todo</Btn>
+    </div>
+    <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
+      <StatCard label="Total ejecutado" value={fmt(totalGlobal)} sub={`${gastos.length} movimientos`} color={C.green} icon="💸"/>
+      <StatCard label="Promedio mensual" value={fmt(promMensual)} sub={`${porMes.length} meses activos`} color={C.blue} icon="📅"/>
+      {maxMes&&<StatCard label="Mes más alto" value={maxMes.ym} sub={fmt(maxMes.total)} color={C.amber} icon="📌"/>}
+      {porCat[0]&&<StatCard label="Categoría #1" value={porCat[0].label} sub={`${fmt(porCat[0].total)} · ${totalGlobal>0?Math.round((porCat[0].total/totalGlobal)*100):0}%`} color={porCat[0].color} icon={porCat[0].icon}/>}
+    </div>
+    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
+      {VISTAS.map(v=><button key={v.id} onClick={()=>setVistaR(v.id)} style={{padding:"6px 16px",fontSize:12,border:`1px solid ${vistaR===v.id?C.green:C.bd2}`,borderRadius:20,cursor:"pointer",background:vistaR===v.id?C.green:"transparent",color:vistaR===v.id?"#fff":C.t2,fontWeight:vistaR===v.id?600:400}}>{v.label}</button>)}
+    </div>
+
+    {vistaR==="mensual"&&<>
+      {porMes.length>0&&<Card style={{marginBottom:14}}>
+        <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:12,fontWeight:600}}>Gasto mensual ({monedaVista})</div>
+        <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",maxHeight:160,display:"block"}}>
+          {[0,.5,1].map((f,i)=>{const v=maxBar*f,y=PT+cH*(1-f);return <g key={i}><line x1={PL} y1={y} x2={W-PR} y2={y} stroke={C.bd2} strokeWidth=".5"/><text x={PL-4} y={y+4} textAnchor="end" fill={C.t3} fontSize="7" fontFamily="sans-serif">{Math.round(v/1000)+"k"}</text></g>;})}
+          {porMes.map((m,i)=>{
+            const bW=Math.max(6,(W-PL-PR)/porMes.length-3);
+            const x=PL+(i/porMes.length)*(W-PL-PR)+(W-PL-PR)/porMes.length/2-bW/2;
+            const bH=Math.max(2,(m.total/maxBar)*cH);const y=PT+cH-bH;
+            const show=i===0||i===porMes.length-1||porMes.length<=12||i%3===0;
+            const isMax=m.ym===maxMes?.ym;
+            return <g key={i}><rect x={x} y={y} width={bW} height={bH} fill={isMax?C.amber:C.green} rx="2" opacity=".85"/>{show&&<text x={x+bW/2} y={H-4} textAnchor="middle" fill={C.t3} fontSize="7" fontFamily="sans-serif">{m.ym.slice(5,7)+"/"+m.ym.slice(2,4)}</text>}</g>;
+          })}
+        </svg>
+      </Card>}
+      <Card>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:400}}>
+            <thead><tr style={{borderBottom:`2px solid ${C.bd2}`}}>{["Mes","Movim.","Total","% total",""].map((h,i)=><th key={i} style={{padding:"7px 10px",textAlign:i>=2?"right":"left",fontSize:10,fontWeight:700,color:C.t3,textTransform:"uppercase",letterSpacing:".05em"}}>{h}</th>)}</tr></thead>
+            <tbody>{[...porMes].reverse().map(m=>{const p=totalGlobal>0?Math.round((m.total/totalGlobal)*100):0;const isMax=m.ym===maxMes?.ym;return <tr key={m.ym} style={{borderBottom:`1px solid ${C.bd}`,background:isMax?C.amber+"08":"transparent"}}>
+              <td style={{padding:"8px 10px",fontWeight:600,color:C.t}}>{m.ym}{isMax&&<span style={{marginLeft:6,fontSize:9,background:C.amber+"22",color:C.amber,padding:"1px 6px",borderRadius:10,fontWeight:700}}>MAX</span>}</td>
+              <td style={{padding:"8px 10px",color:C.t3}}>{m.items.length}</td>
+              <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,color:C.green}}>{fmt(m.total)}</td>
+              <td style={{padding:"8px 10px",textAlign:"right",color:C.t3}}>{p}%</td>
+              <td style={{padding:"8px 10px",minWidth:90}}><div style={{height:6,borderRadius:3,background:C.bg3}}><div style={{height:"100%",borderRadius:3,background:isMax?C.amber:C.green,width:`${p}%`}}/></div></td>
+            </tr>;})}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </>}
+
+    {vistaR==="anual"&&<Card>
+      <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:12,fontWeight:600}}>Resumen anual</div>
+      {porAnio.length===0&&<div style={{textAlign:"center",padding:"24px",color:C.t3}}>Sin datos</div>}
+      {porAnio.map(a=>{const p=totalGlobal>0?Math.round((a.total/totalGlobal)*100):0;const mesesAnio=porMes.filter(m=>m.ym.startsWith(a.anio)).length;return <div key={a.anio} style={{marginBottom:16,paddingBottom:16,borderBottom:`1px solid ${C.bd}`}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}><span style={{fontWeight:700,fontSize:15,color:C.t}}>{a.anio}</span><span style={{fontWeight:700,color:C.green,fontSize:15}}>{fmt(a.total)}</span></div>
+        <div style={{display:"flex",gap:14,fontSize:11,color:C.t3,marginBottom:7}}><span>{a.count} movimientos</span><span>{p}% del total</span><span>Prom: {fmt(a.total/Math.max(mesesAnio,1))}/mes</span></div>
+        <div style={{height:8,borderRadius:4,background:C.bg3}}><div style={{height:"100%",borderRadius:4,background:C.green,width:`${p}%`}}/></div>
+      </div>;})}
+    </Card>}
+
+    {vistaR==="categorias"&&<Card>
+      <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:12,fontWeight:600}}>Ranking por categoría</div>
+      {porCat.length===0&&<div style={{textAlign:"center",padding:"24px",color:C.t3}}>Sin datos</div>}
+      {porCat.map((c,i)=>{const p=totalGlobal>0?Math.round((c.total/totalGlobal)*100):0;const promCat=c.count>0?c.total/c.count:0;return <div key={c.id} style={{marginBottom:14,paddingBottom:14,borderBottom:`1px solid ${C.bd}`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+          <span style={{display:"flex",alignItems:"center",gap:8}}><span style={{width:24,height:24,borderRadius:6,background:c.color+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13}}>{c.icon}</span><span style={{fontWeight:700,fontSize:13,color:C.t}}>{c.label}</span><span style={{fontSize:10,color:C.t3,background:C.bg3,padding:"1px 7px",borderRadius:10}}>#{i+1}</span></span>
+          <span style={{fontWeight:700,color:c.color,fontSize:14}}>{fmt(c.total)}</span>
+        </div>
+        <div style={{display:"flex",gap:14,fontSize:11,color:C.t3,marginBottom:6}}><span>{c.count} movimientos</span><span>{p}% del total</span><span>Promedio: {fmt(promCat)}</span></div>
+        <div style={{height:8,borderRadius:4,background:C.bg3}}><div style={{height:"100%",borderRadius:4,background:c.color,width:`${p}%`,transition:"width .5s"}}/></div>
+      </div>;})}
+      <div style={{paddingTop:10,borderTop:`1px solid ${C.bd2}`,display:"flex",justifyContent:"space-between",fontSize:12}}><span style={{color:C.t3}}>Total general</span><span style={{fontWeight:700,color:C.t}}>{fmt(totalGlobal)}</span></div>
+    </Card>}
+
+    {vistaR==="top"&&<Card>
+      <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:12,fontWeight:600}}>Top 5 gastos individuales más altos</div>
+      {topGastos.length===0&&<div style={{textAlign:"center",padding:"24px",color:C.t3}}>Sin datos</div>}
+      {topGastos.map((g,i)=>{const cat=cats.find(c=>c.id===g.cat_id);const sub=cat?.subs?.find(s=>s.id===g.sub_id);const p=totalGlobal>0?Math.round((conv(g)/totalGlobal)*100):0;return <div key={g.id} style={{display:"flex",gap:12,alignItems:"center",marginBottom:12,paddingBottom:12,borderBottom:`1px solid ${C.bd}`}}>
+        <div style={{width:28,height:28,borderRadius:"50%",background:C.green+"18",border:`2px solid ${C.green}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:C.green,flexShrink:0}}>#{i+1}</div>
+        <div style={{width:32,height:32,borderRadius:8,background:(cat?.color||C.green)+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{cat?.icon||"📦"}</div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:13,fontWeight:600,color:C.t,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.descripcion||sub?.label||cat?.label||"—"}</div>
+          <div style={{fontSize:11,color:C.t3,marginTop:2}}>{g.fecha} · {cat?.label}</div>
+        </div>
+        <div style={{textAlign:"right",flexShrink:0}}>
+          <div style={{fontSize:14,fontWeight:700,color:cat?.color||C.green}}>{fmt(conv(g))}</div>
+          <div style={{fontSize:10,color:C.t3}}>{p}% del total</div>
+        </div>
+      </div>;})}
+    </Card>}
+  </div>;
+}
 
 function CategoriasTab({cats,obra,toast,reload}){
   const [catM,setCatM]=useState(null);const [subM,setSubM]=useState(null);const [catD,setCatD]=useState({label:"",color:C.green,icon:"📦"});const [subD,setSubD]=useState({label:""});const [saving,setSaving]=useState(false);
