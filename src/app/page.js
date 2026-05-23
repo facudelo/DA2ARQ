@@ -183,23 +183,29 @@ function ObraApp(props){
   const [presup,setPresup]=useState([]);
   const [cats,setCats]=useState([]);
   const [fotos,setFotos]=useState([]);
+  const [hitos,setHitos]=useState([]);
+  const [comentarios,setComentarios]=useState([]);
   const [loadingData,setLoadingData]=useState(true);
   const [mobileMenu,setMobileMenu]=useState(false);
   const [showGastoModal,setShowGastoModal]=useState(false);
   const [monedaVista,setMonedaVista]=useState("ARS");
+  const [notifVistas,setNotifVistas]=useState(()=>{try{return JSON.parse(localStorage.getItem("nv_"+obra.id)||"{}")}catch{return {}}});
 
   const loadAll=useCallback(async()=>{
     setLoadingData(true);
-    const[gRes,prRes,cRes,fRes,partRes]=await Promise.all([
+    const[gRes,prRes,cRes,fRes,partRes,hRes,cRes2]=await Promise.all([
       supabase.from("gastos").select("*").eq("obra_id",obra.id).order("fecha",{ascending:false}),
       supabase.from("presupuestos").select("*").eq("obra_id",obra.id),
       supabase.from("categorias").select("*, subcategorias(*)").eq("obra_id",obra.id).order("orden"),
       supabase.from("fotos").select("*").eq("obra_id",obra.id).order("fecha",{ascending:false}),
       supabase.from("participantes").select("*").eq("obra_id",obra.id),
+      supabase.from("hitos").select("*").eq("obra_id",obra.id).order("fecha_estimada"),
+      supabase.from("comentarios_gasto").select("*").eq("obra_id",obra.id).order("created_at"),
     ]);
     setGastos(gRes.data||[]);setPresup(prRes.data||[]);
     setCats((cRes.data||[]).map(c=>({...c,subs:c.subcategorias||[]})));
     setFotos(fRes.data||[]);setPartic(partRes.data||[]);
+    setHitos(hRes.data||[]);setComentarios(cRes2.data||[]);
     setLoadingData(false);
   },[obra.id]);
   useEffect(()=>{loadAll();},[loadAll]);
@@ -211,8 +217,24 @@ function ObraApp(props){
   const tcRef=tcOficial||tcManual;
   const gastosVis=esAdmin?gastos:gastos.filter(g=>g.visibilidad==="publico");
 
-  const TABS=[{id:"dashboard",label:"Dashboard",icon:"📊"},{id:"gastos",label:"Gastos",icon:"💸"},...(esAdmin?[{id:"presupuesto",label:"Presupuesto",icon:"📐"}]:[]),{id:"fotos",label:"Fotos",icon:"📷"},...(esAdmin?[{id:"categorias",label:"Categorías",icon:"🏷️"}]:[]),...(esAdmin?[{id:"participantes",label:"Participantes",icon:"👥"}]:[]),{id:"ipc",label:"IPC",icon:"📈"},{id:"usd",label:"USD",icon:"💵"}];
-  const goTab=id=>{setTab(id);setMobileMenu(false);if(id==="ipc")fetchIPC();if(id==="usd"){fetchIPC();fetchTCHist();}};
+  // Notificaciones: gastos nuevos no vistos
+  const gastosNuevos=gastosVis.filter(g=>!notifVistas[g.id]).length;
+  const totalNotifs=gastosNuevos;
+  const marcarTodosVistos=()=>{const nv={...notifVistas};gastosVis.forEach(g=>{nv[g.id]=1;});comentarios.forEach(c=>{nv["c_"+c.id]=1;});setNotifVistas(nv);try{localStorage.setItem("nv_"+obra.id,JSON.stringify(nv));}catch{}};
+
+  const TABS=[
+    {id:"dashboard",label:"Dashboard",icon:"📊"},
+    {id:"gastos",label:"Gastos",icon:"💸",badge:totalNotifs},
+    ...(esAdmin?[{id:"presupuesto",label:"Presupuesto",icon:"📐"}]:[]),
+    {id:"fotos",label:"Fotos",icon:"📷"},
+    {id:"hitos",label:"Hitos",icon:"🏁"},
+    ...(!esAdmin?[{id:"resumen",label:"Mi Resumen",icon:"📋"}]:[]),
+    ...(esAdmin?[{id:"categorias",label:"Categorías",icon:"🏷️"}]:[]),
+    ...(esAdmin?[{id:"participantes",label:"Participantes",icon:"👥"}]:[]),
+    {id:"ipc",label:"IPC",icon:"📈"},
+    {id:"usd",label:"USD",icon:"💵"},
+  ];
+  const goTab=id=>{setTab(id);setMobileMenu(false);if(id==="ipc")fetchIPC();if(id==="usd"){fetchIPC();fetchTCHist();}if(id==="gastos")marcarTodosVistos();};
 
   return <div style={{minHeight:"100vh",background:C.bg}}>
     <div style={{background:C.bg2,borderBottom:`1px solid ${C.bd}`,padding:"0 16px",position:"sticky",top:0,zIndex:100}}>
@@ -248,25 +270,35 @@ function ObraApp(props){
       </div>
       {/* TABS desktop */}
       <div className="hide-mobile" style={{display:"flex",overflowX:"auto",marginBottom:-1}}>
-        {TABS.map(t=><button key={t.id} onClick={()=>goTab(t.id)} style={{padding:"8px 14px",fontSize:12,border:"none",borderBottom:tab===t.id?`2px solid ${C.green}`:"2px solid transparent",cursor:"pointer",background:"transparent",color:tab===t.id?C.green:C.t3,fontWeight:tab===t.id?600:400,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:5}}><span>{t.icon}</span>{t.label}</button>)}
+        {TABS.map(t=><button key={t.id} onClick={()=>goTab(t.id)} style={{padding:"8px 14px",fontSize:12,border:"none",borderBottom:tab===t.id?`2px solid ${C.green}`:"2px solid transparent",cursor:"pointer",background:"transparent",color:tab===t.id?C.green:C.t3,fontWeight:tab===t.id?600:400,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:5,position:"relative"}}>
+          <span>{t.icon}</span>{t.label}
+          {t.badge>0&&<span style={{background:C.red,color:"#fff",fontSize:9,fontWeight:700,borderRadius:10,padding:"1px 5px",marginLeft:2,lineHeight:1.4}}>{t.badge}</span>}
+        </button>)}
       </div>
       {/* TABS mobile */}
       <div className="show-mobile" style={{paddingBottom:8,flexDirection:"column",gap:4}}>
         <button onClick={()=>setMobileMenu(v=>!v)} style={{background:C.bg3,border:`1px solid ${C.bd2}`,borderRadius:7,padding:"6px 12px",cursor:"pointer",color:C.t2,fontSize:12,display:"flex",alignItems:"center",gap:6,width:"100%"}}>
-          <span>{TABS.find(t=>t.id===tab)?.icon}</span><span>{TABS.find(t=>t.id===tab)?.label}</span><span style={{marginLeft:"auto",fontSize:10}}>▾</span>
+          <span>{TABS.find(t=>t.id===tab)?.icon}</span><span>{TABS.find(t=>t.id===tab)?.label}</span>
+          {totalNotifs>0&&<span style={{background:C.red,color:"#fff",fontSize:9,fontWeight:700,borderRadius:10,padding:"1px 5px",lineHeight:1.4}}>{totalNotifs}</span>}
+          <span style={{marginLeft:"auto",fontSize:10}}>▾</span>
         </button>
         {mobileMenu&&<div style={{background:C.bg2,border:`1px solid ${C.bd2}`,borderRadius:10,padding:8,display:"flex",flexWrap:"wrap",gap:4}}>
-          {TABS.map(t=><button key={t.id} onClick={()=>goTab(t.id)} style={{padding:"7px 12px",fontSize:12,border:`1px solid ${tab===t.id?C.green:C.bd}`,borderRadius:20,cursor:"pointer",background:tab===t.id?C.green+"18":"transparent",color:tab===t.id?C.green:C.t2,fontWeight:tab===t.id?600:400,display:"flex",alignItems:"center",gap:5}}><span>{t.icon}</span>{t.label}</button>)}
+          {TABS.map(t=><button key={t.id} onClick={()=>goTab(t.id)} style={{padding:"7px 12px",fontSize:12,border:`1px solid ${tab===t.id?C.green:C.bd}`,borderRadius:20,cursor:"pointer",background:tab===t.id?C.green+"18":"transparent",color:tab===t.id?C.green:C.t2,fontWeight:tab===t.id?600:400,display:"flex",alignItems:"center",gap:5}}>
+            <span>{t.icon}</span>{t.label}
+            {t.badge>0&&<span style={{background:C.red,color:"#fff",fontSize:9,fontWeight:700,borderRadius:10,padding:"1px 5px",lineHeight:1.4}}>{t.badge}</span>}
+          </button>)}
         </div>}
       </div>
     </div>
 
     <div style={{padding:20,paddingBottom:100,maxWidth:1040,margin:"0 auto"}}>
       {loadingData?<Spinner/>:<>
-        {tab==="dashboard"&&<DashboardTab obra={obra} gastos={gastosVis} esAdmin={esAdmin} presup={presup} tcRef={tcRef} partic={partic} cats={cats} fotos={fotos} monedaVista={monedaVista}/>}
-        {tab==="gastos"&&<GastosTab user={user} obra={obra} gastos={gastos} esAdmin={esAdmin} puedoCargar={puedoCargar} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} externalOpen={showGastoModal} onExternalClose={()=>setShowGastoModal(false)}/>}
+        {tab==="dashboard"&&<DashboardTab obra={obra} gastos={gastosVis} esAdmin={esAdmin} presup={presup} tcRef={tcRef} partic={partic} cats={cats} fotos={fotos} hitos={hitos} monedaVista={monedaVista}/>}
+        {tab==="gastos"&&<GastosTab user={user} obra={obra} gastos={gastos} esAdmin={esAdmin} puedoCargar={puedoCargar} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} externalOpen={showGastoModal} onExternalClose={()=>setShowGastoModal(false)} comentarios={comentarios} miUserId={user.id}/>}
         {tab==="presupuesto"&&esAdmin&&<PresupuestoTab obra={obra} gastos={gastos} presup={presup} tcRef={tcRef} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista}/>}
         {tab==="fotos"&&<FotosTab obra={obra} fotos={fotos} puedoCargar={puedoCargar||esAdmin} user={user} toast={toast} reload={loadAll}/>}
+        {tab==="hitos"&&<HitosTab obra={obra} hitos={hitos} esAdmin={esAdmin} toast={toast} reload={loadAll}/>}
+        {tab==="resumen"&&!esAdmin&&<ResumenClienteTab obra={obra} gastos={gastosVis} presup={presup} tcRef={tcRef} cats={cats} fotos={fotos} hitos={hitos} monedaVista={monedaVista}/>}
         {tab==="categorias"&&esAdmin&&<CategoriasTab cats={cats} obra={obra} toast={toast} reload={loadAll}/>}
         {tab==="participantes"&&esAdmin&&<ParticipantesTab obra={obra} partic={partic} toast={toast} reload={loadAll}/>}
         {tab==="ipc"&&<IPCTab inflData={inflData}/>}
@@ -280,7 +312,7 @@ function ObraApp(props){
 }
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
-function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,monedaVista}){
+function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=[],monedaVista}){
   const enUSD=monedaVista==="USD";
   const conv=g=>enUSD?toUSD(g,tcRef):toARS(g,tcRef);
   const totalMV=gastos.reduce((s,g)=>s+conv(g),0);
@@ -292,6 +324,8 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,moneda
   const ultimos=gastos.slice(0,6);
   const ultimaFoto=fotos.length>0?fotos[0]:null;
   const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
+  const hitosActivos=hitos.filter(h=>h.estado!=="completado").slice(0,3);
+  const hitosComp=hitos.filter(h=>h.estado==="completado").length;
 
   return <div className="fu">
     <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
@@ -299,6 +333,7 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,moneda
       {presupTotalMV>0&&<StatCard label="Presupuesto" value={fmt(presupTotalMV)} sub={pct!==null?`${pct}% ejecutado`:""} color={C.blue} icon="📐"/>}
       {presupTotalMV>0&&<StatCard label="Disponible" value={fmt(Math.max(0,presupTotalMV-totalMV))} sub={pct>=90?"⚠ Límite cercano":""} color={presupTotalMV-totalMV<0?C.red:C.lima} icon="📊"/>}
       <StatCard label="Participantes" value={partic.length} sub={`${fotos.length} foto${fotos.length!==1?"s":""}`} color={C.amber} icon="👥"/>
+      {hitos.length>0&&<StatCard label="Hitos" value={`${hitosComp}/${hitos.length}`} sub={`${Math.round((hitosComp/hitos.length)*100)}% completados`} color={C.blue} icon="🏁"/>}
     </div>
 
     {presupTotalMV>0&&<Card style={{marginBottom:14}}>
@@ -365,18 +400,33 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,moneda
         <div style={{marginTop:8,fontSize:12,fontWeight:600,color:C.t}}>{ultimaFoto.titulo}</div>
         <div style={{fontSize:11,color:C.t3,marginTop:2}}>{ultimaFoto.fecha}{ultimaFoto.etapa&&` · ${ultimaFoto.etapa}`}</div>
       </Card>}
+      {hitosActivos.length>0&&<Card style={{flex:"1 1 200px"}}>
+        <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:10,fontWeight:600}}>Próximos hitos</div>
+        {hitosActivos.map(h=>{
+          const col=h.estado==="en_progreso"?C.amber:C.t3;
+          return <div key={h.id} style={{display:"flex",gap:8,alignItems:"flex-start",marginBottom:10,paddingBottom:10,borderBottom:`1px solid ${C.bd}`}}>
+            <div style={{width:8,height:8,borderRadius:"50%",background:col,marginTop:4,flexShrink:0}}/>
+            <div style={{flex:1}}>
+              <div style={{fontSize:12,fontWeight:600,color:C.t}}>{h.titulo}</div>
+              <div style={{fontSize:10,color:C.t3,marginTop:1}}>📅 {h.fecha_estimada}</div>
+            </div>
+            <Tag label={h.estado==="en_progreso"?"En curso":"Pendiente"} color={col}/>
+          </div>;
+        })}
+      </Card>}
     </div>
   </div>;
 }
 
 // ── GASTOS ────────────────────────────────────────────────────────────────────
-function GastosTab({user,obra,gastos,esAdmin,puedoCargar,tcOficial,tcBlue,tcManual,setTcManual,cats,toast,reload,monedaVista,externalOpen,onExternalClose}){
+function GastosTab({user,obra,gastos,esAdmin,puedoCargar,tcOficial,tcBlue,tcManual,setTcManual,cats,toast,reload,monedaVista,externalOpen,onExternalClose,comentarios=[],miUserId}){
   const vis=gastos.filter(g=>esAdmin||g.visibilidad==="publico");
   const [showForm,setShowForm]=useState(false);
   const [filtro,setFiltro]=useState({cat:"todas",moneda:"todas",vis:"todas",q:""});
   const [tcTipo,setTcTipo]=useState("oficial");
   const [editM,setEditM]=useState(null);
   const [saving,setSaving]=useState(false);
+  const [gastoComent,setGastoComent]=useState(null); // gasto seleccionado para comentarios
   const tcRef=tcOficial||tcManual;
   const tcVal=tcTipo==="oficial"?(tcOficial||tcManual):tcTipo==="blue"?(tcBlue||tcManual):tcManual;
   const enUSD=monedaVista==="USD";
@@ -494,10 +544,11 @@ function GastosTab({user,obra,gastos,esAdmin,puedoCargar,tcOficial,tcBlue,tcManu
                 {esAdmin&&<td style={{padding:"9px 10px"}}><Tag label={g.visibilidad==="privado"?"🔒":"🌐"} color={g.visibilidad==="privado"?C.t3:C.green}/></td>}
                 <td style={{padding:"9px 10px",color:C.t3,fontSize:11,whiteSpace:"nowrap"}}>{g.cargado_por}</td>
                 <td style={{padding:"9px 10px",textAlign:"right"}}>
-                  {esAdmin&&<div style={{display:"flex",gap:4}}>
-                    <button onClick={()=>setEditM({...g,monto:String(g.monto)})} style={{background:C.bg3,border:`1px solid ${C.bd2}`,borderRadius:5,padding:"3px 8px",cursor:"pointer",color:C.t2,fontSize:11}}>✎</button>
-                    <button onClick={()=>deleteG(g.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.t3,fontSize:16,padding:"0 3px"}}>×</button>
-                  </div>}
+                  <div style={{display:"flex",gap:4,justifyContent:"flex-end"}}>
+                    {(()=>{const cnt=comentarios.filter(c=>c.gasto_id===g.id).length;return cnt>0?<button onClick={()=>setGastoComent(g)} style={{background:C.blue+"18",border:`1px solid ${C.blue}44`,borderRadius:5,padding:"3px 8px",cursor:"pointer",color:C.blue,fontSize:11}}>💬 {cnt}</button>:<button onClick={()=>setGastoComent(g)} style={{background:C.bg3,border:`1px solid ${C.bd2}`,borderRadius:5,padding:"3px 8px",cursor:"pointer",color:C.t3,fontSize:11}}>💬</button>;})()}
+                    {esAdmin&&<button onClick={()=>setEditM({...g,monto:String(g.monto)})} style={{background:C.bg3,border:`1px solid ${C.bd2}`,borderRadius:5,padding:"3px 8px",cursor:"pointer",color:C.t2,fontSize:11}}>✎</button>}
+                    {esAdmin&&<button onClick={()=>deleteG(g.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.t3,fontSize:16,padding:"0 3px"}}>×</button>}
+                  </div>
                 </td>
               </tr>;
             })}
@@ -533,6 +584,7 @@ function GastosTab({user,obra,gastos,esAdmin,puedoCargar,tcOficial,tcBlue,tcManu
         <div style={{display:"flex",gap:8}}><Btn primary onClick={saveEdit} loading={saving}>Guardar</Btn><Btn onClick={()=>setEditM(null)}>Cancelar</Btn></div>
       </div>
     </Modal>}
+    {gastoComent&&<ComentariosModal gasto={gastoComent} comentarios={comentarios.filter(c=>c.gasto_id===gastoComent.id)} obra={obra} user={user} esAdmin={esAdmin} toast={toast} reload={reload} onClose={()=>setGastoComent(null)}/>}
   </div>;
 }
 
@@ -631,6 +683,8 @@ function FotosTab({obra,fotos,puedoCargar,user,toast,reload}){
   const [draft,setDraft]=useState({titulo:"",fecha:todayISO(),etapa:"",file:null,preview:null,nombre:""});
   const [etapaF,setEtapaF]=useState("todas");
   const [saving,setSaving]=useState(false);
+  const [lightbox,setLightbox]=useState(null);
+  const [vistaGrilla,setVistaGrilla]=useState(true);
   const fileRef=useRef();
   const etapas=[...new Set(fotos.map(f=>f.etapa).filter(Boolean))];
   const handleFile=e=>{const file=e.target.files[0];if(!file)return;setDraft(d=>({...d,file,preview:URL.createObjectURL(file),nombre:file.name}));};
@@ -646,19 +700,94 @@ function FotosTab({obra,fotos,puedoCargar,user,toast,reload}){
   };
   const deleteFoto=async(foto)=>{if(foto.storage_path)await supabase.storage.from("obra-fotos").remove([foto.storage_path]);const{error}=await supabase.from("fotos").delete().eq("id",foto.id);if(error)toast.error("Error");else{toast.success("Foto eliminada");await reload();}};
   const filtradas=fotos.filter(f=>etapaF==="todas"||f.etapa===etapaF);
+
+  // Agrupar por etapa para vista cronológica
+  const porEtapa=etapas.reduce((acc,e)=>{acc[e]=filtradas.filter(f=>f.etapa===e);return acc;},{});
+  const sinEtapa=filtradas.filter(f=>!f.etapa);
+
+  const FotoCard=({f})=>(
+    <div style={{background:C.bg2,border:`1px solid ${C.bd}`,borderRadius:14,overflow:"hidden",boxShadow:"0 1px 6px rgba(42,80,28,.07)"}}>
+      <div style={{position:"relative",cursor:"zoom-in"}} onClick={()=>setLightbox(f)}>
+        <img src={f.url} alt={f.titulo} style={{width:"100%",height:175,objectFit:"cover",display:"block"}}/>
+        {f.etapa&&<div style={{position:"absolute",top:8,left:8}}><Tag label={f.etapa} color={C.green}/></div>}
+        {puedoCargar&&<button onClick={e=>{e.stopPropagation();deleteFoto(f);}} style={{position:"absolute",top:8,right:8,background:"rgba(0,0,0,.55)",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",color:"#fff",fontSize:12}}>×</button>}
+        <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(transparent,rgba(0,0,0,.5)",padding:"20px 12px 8px"}}>
+          <div style={{color:"#fff",fontWeight:700,fontSize:12}}>{f.titulo}</div>
+          <div style={{color:"rgba(255,255,255,.7)",fontSize:10}}>{f.fecha}</div>
+        </div>
+      </div>
+    </div>
+  );
+
   return <div className="fu">
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
-      <div><div style={{fontSize:16,fontWeight:700,color:C.t}}>Fotos de Obra</div><div style={{fontSize:12,color:C.t3}}>{fotos.length} foto{fotos.length!==1?"s":""}</div></div>
-      {puedoCargar&&<Btn primary onClick={()=>{setDraft({titulo:"",fecha:todayISO(),etapa:"",file:null,preview:null,nombre:""});setModal(true);}}>+ Subir foto</Btn>}
+      <div><div style={{fontSize:16,fontWeight:700,color:C.t}}>Fotos de Obra</div><div style={{fontSize:12,color:C.t3}}>{fotos.length} foto{fotos.length!==1?"s":""} · {etapas.length} etapa{etapas.length!==1?"s":""}</div></div>
+      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <div style={{display:"flex",background:C.bg3,borderRadius:8,padding:2,border:`1px solid ${C.bd2}`}}>
+          {[{v:true,icon:"⊞"},{v:false,icon:"☰"}].map(o=><button key={String(o.v)} onClick={()=>setVistaGrilla(o.v)} style={{padding:"4px 10px",fontSize:14,border:"none",borderRadius:6,cursor:"pointer",background:vistaGrilla===o.v?C.bg2:"transparent",color:vistaGrilla===o.v?C.t:C.t3}}>{o.icon}</button>)}
+        </div>
+        {puedoCargar&&<Btn primary onClick={()=>{setDraft({titulo:"",fecha:todayISO(),etapa:"",file:null,preview:null,nombre:""});setModal(true);}}>+ Subir foto</Btn>}
+      </div>
     </div>
-    {etapas.length>0&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>{["todas",...etapas].map(e=><button key={e} onClick={()=>setEtapaF(e)} style={{padding:"5px 14px",fontSize:12,border:`1px solid ${etapaF===e?C.green:C.bd2}`,borderRadius:20,cursor:"pointer",background:etapaF===e?C.green+"18":"transparent",color:etapaF===e?C.green:C.t2,fontWeight:etapaF===e?700:400}}>{e==="todas"?"Todas":e}</button>)}</div>}
+
+    {/* Filtro por etapa */}
+    {etapas.length>0&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
+      {["todas",...etapas].map(e=><button key={e} onClick={()=>setEtapaF(e)} style={{padding:"5px 14px",fontSize:12,border:`1px solid ${etapaF===e?C.green:C.bd2}`,borderRadius:20,cursor:"pointer",background:etapaF===e?C.green+"18":"transparent",color:etapaF===e?C.green:C.t2,fontWeight:etapaF===e?700:400,display:"flex",alignItems:"center",gap:5}}>
+        {e==="todas"?"📷 Todas":e}
+        <span style={{fontSize:10,color:etapaF===e?C.green:C.t3}}>{e==="todas"?fotos.length:fotos.filter(f=>f.etapa===e).length}</span>
+      </button>)}
+    </div>}
+
     {filtradas.length===0&&<Card><div style={{textAlign:"center",padding:"48px 0"}}><div style={{fontSize:44,marginBottom:12}}>📷</div><div style={{fontSize:14,fontWeight:600,color:C.t2,marginBottom:6}}>Sin fotos cargadas</div><div style={{fontSize:12,color:C.t3,marginBottom:16}}>Subí fotos para registrar el avance</div>{puedoCargar&&<Btn primary onClick={()=>setModal(true)}>+ Subir primera foto</Btn>}</div></Card>}
-    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(230px,1fr))",gap:14}}>
-      {filtradas.map(f=><div key={f.id} style={{background:C.bg2,border:`1px solid ${C.bd}`,borderRadius:14,overflow:"hidden",boxShadow:"0 1px 6px rgba(42,80,28,.07)"}}>
-        <div style={{position:"relative"}}><img src={f.url} alt={f.titulo} style={{width:"100%",height:175,objectFit:"cover",display:"block"}}/>{f.etapa&&<div style={{position:"absolute",top:8,left:8}}><Tag label={f.etapa} color={C.green}/></div>}{puedoCargar&&<button onClick={()=>deleteFoto(f)} style={{position:"absolute",top:8,right:8,background:"rgba(0,0,0,.55)",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",color:"#fff",fontSize:12}}>×</button>}</div>
-        <div style={{padding:"12px 14px"}}><div style={{fontWeight:700,fontSize:13,color:C.t,marginBottom:2}}>{f.titulo}</div><div style={{fontSize:11,color:C.t3}}>{f.fecha}</div></div>
+
+    {/* Vista grilla agrupada por etapa */}
+    {vistaGrilla&&etapaF==="todas"&&etapas.length>0?<>
+      {etapas.map(etapa=><div key={etapa} style={{marginBottom:24}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.t}}>{etapa}</div>
+          <div style={{height:1,flex:1,background:C.bd2}}/>
+          <span style={{fontSize:11,color:C.t3}}>{porEtapa[etapa]?.length||0} foto{(porEtapa[etapa]?.length||0)!==1?"s":""}</span>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:12}}>
+          {(porEtapa[etapa]||[]).map(f=><FotoCard key={f.id} f={f}/>)}
+        </div>
       </div>)}
-    </div>
+      {sinEtapa.length>0&&<div style={{marginBottom:24}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.t}}>Sin etapa</div>
+          <div style={{height:1,flex:1,background:C.bd2}}/>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:12}}>
+          {sinEtapa.map(f=><FotoCard key={f.id} f={f}/>)}
+        </div>
+      </div>}
+    </>:<div style={{display:vistaGrilla?"grid":"flex",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",flexDirection:"column",gap:vistaGrilla?12:8}}>
+      {filtradas.map(f=>vistaGrilla?<FotoCard key={f.id} f={f}/>:
+        <div key={f.id} style={{background:C.bg2,border:`1px solid ${C.bd}`,borderRadius:10,padding:"10px 14px",display:"flex",gap:12,alignItems:"center",cursor:"zoom-in"}} onClick={()=>setLightbox(f)}>
+          <img src={f.url} alt={f.titulo} style={{width:60,height:60,borderRadius:8,objectFit:"cover",flexShrink:0}}/>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:700,fontSize:13,color:C.t}}>{f.titulo}</div>
+            <div style={{fontSize:11,color:C.t3,marginTop:2}}>{f.fecha}{f.etapa&&` · ${f.etapa}`}</div>
+          </div>
+          {puedoCargar&&<button onClick={e=>{e.stopPropagation();deleteFoto(f);}} style={{background:"none",border:"none",cursor:"pointer",color:C.t3,fontSize:18}}>×</button>}
+        </div>
+      )}
+    </div>}
+
+    {/* Lightbox */}
+    {lightbox&&<div onClick={()=>setLightbox(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.88)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{maxWidth:900,width:"100%",position:"relative"}} onClick={e=>e.stopPropagation()}>
+        <img src={lightbox.url} alt={lightbox.titulo} style={{width:"100%",borderRadius:12,maxHeight:"80vh",objectFit:"contain",display:"block"}}/>
+        <div style={{color:"#fff",marginTop:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontWeight:700,fontSize:15}}>{lightbox.titulo}</div>
+            <div style={{fontSize:12,opacity:.6,marginTop:3}}>{lightbox.fecha}{lightbox.etapa&&` · ${lightbox.etapa}`}</div>
+          </div>
+          <button onClick={()=>setLightbox(null)} style={{background:"rgba(255,255,255,.15)",border:"none",borderRadius:8,width:36,height:36,cursor:"pointer",color:"#fff",fontSize:20}}>×</button>
+        </div>
+      </div>
+    </div>}
+
     {modal&&<Modal title="Subir foto" onClose={()=>setModal(false)}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
         <div onClick={()=>fileRef.current.click()} style={{border:`2px dashed ${draft.preview?C.green:C.bd2}`,borderRadius:12,padding:"24px 16px",textAlign:"center",cursor:"pointer",background:draft.preview?C.bg3:"transparent"}}>
@@ -676,7 +805,286 @@ function FotosTab({obra,fotos,puedoCargar,user,toast,reload}){
   </div>;
 }
 
-// ── CATEGORÍAS ────────────────────────────────────────────────────────────────
+// ── COMENTARIOS MODAL ─────────────────────────────────────────────────────────
+function ComentariosModal({gasto,comentarios,obra,user,esAdmin,toast,reload,onClose}){
+  const [texto,setTexto]=useState("");
+  const [visib,setVisib]=useState("publico");
+  const [saving,setSaving]=useState(false);
+  const textRef=useRef();
+  useEffect(()=>{textRef.current?.focus();},[]);
+
+  const save=async()=>{
+    if(!texto.trim())return;setSaving(true);
+    const{error}=await supabase.from("comentarios_gasto").insert({
+      obra_id:obra.id,gasto_id:gasto.id,
+      texto:texto.trim(),visibilidad:esAdmin?visib:"publico",
+      autor:user.email,user_id:user.id,
+      created_at:new Date().toISOString()
+    });
+    if(error)toast.error("Error: "+error.message);
+    else{toast.success("Comentario guardado");await reload();}
+    setTexto("");setSaving(false);
+  };
+  const del=async(id)=>{await supabase.from("comentarios_gasto").delete().eq("id",id);await reload();};
+
+  const visComments=esAdmin?comentarios:comentarios.filter(c=>c.visibilidad==="publico");
+
+  return <Modal title={`💬 Notas — ${gasto.descripcion||gasto.sub_id||"Gasto"}`} onClose={onClose} wide>
+    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+      {/* Lista comentarios */}
+      <div style={{maxHeight:260,overflowY:"auto",display:"flex",flexDirection:"column",gap:8}}>
+        {visComments.length===0&&<div style={{textAlign:"center",padding:"20px 0",color:C.t3,fontSize:12}}>Sin notas todavía.</div>}
+        {visComments.map(c=>(
+          <div key={c.id} style={{background:c.visibilidad==="privado"?C.bg3:C.bg2,border:`1px solid ${c.visibilidad==="privado"?C.amber+"44":C.bd}`,borderRadius:10,padding:"10px 14px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:5}}>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <span style={{fontSize:12,fontWeight:600,color:C.t2}}>{c.autor}</span>
+                {c.visibilidad==="privado"&&<Tag label="🔒 Solo arquitecto" color={C.amber}/>}
+              </div>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <span style={{fontSize:10,color:C.t3}}>{c.created_at?.slice(0,10)}</span>
+                {(esAdmin||c.user_id===user.id)&&<button onClick={()=>del(c.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.t3,fontSize:14}}>×</button>}
+              </div>
+            </div>
+            <div style={{fontSize:13,color:C.t,lineHeight:1.5}}>{c.texto}</div>
+          </div>
+        ))}
+      </div>
+      {/* Nueva nota */}
+      <div style={{borderTop:`1px solid ${C.bd}`,paddingTop:12}}>
+        <div style={{fontSize:11,color:C.t2,marginBottom:6,fontWeight:600}}>Nueva nota</div>
+        <textarea ref={textRef} style={{...INP,resize:"vertical",minHeight:70}} placeholder="Escribí una nota sobre este gasto..." value={texto} onChange={e=>setTexto(e.target.value)}/>
+        {esAdmin&&<div style={{display:"flex",gap:8,marginTop:8,alignItems:"center"}}>
+          {[{v:"publico",label:"🌐 Visible para el cliente"},{v:"privado",label:"🔒 Solo para mí"}].map(o=>(
+            <button key={o.v} onClick={()=>setVisib(o.v)} style={{padding:"5px 12px",fontSize:11,border:`1px solid ${visib===o.v?(o.v==="privado"?C.amber:C.green):C.bd2}`,borderRadius:20,cursor:"pointer",background:visib===o.v?(o.v==="privado"?C.amber+"18":C.green+"18"):"transparent",color:visib===o.v?(o.v==="privado"?C.amber:C.green):C.t2,fontWeight:visib===o.v?700:400}}>{o.label}</button>
+          ))}
+        </div>}
+        <div style={{display:"flex",gap:8,marginTop:10}}>
+          <Btn primary onClick={save} loading={saving} disabled={!texto.trim()}>Guardar nota</Btn>
+          <Btn onClick={onClose}>Cerrar</Btn>
+        </div>
+      </div>
+    </div>
+  </Modal>;
+}
+
+// ── HITOS ─────────────────────────────────────────────────────────────────────
+function HitosTab({obra,hitos,esAdmin,toast,reload}){
+  const [modal,setModal]=useState(false);
+  const [saving,setSaving]=useState(false);
+  const [draft,setDraft]=useState({titulo:"",descripcion:"",fecha_estimada:"",estado:"pendiente"});
+
+  const save=async()=>{
+    if(!draft.titulo.trim()||!draft.fecha_estimada)return;setSaving(true);
+    const{error}=await supabase.from("hitos").insert({obra_id:obra.id,...draft,titulo:draft.titulo.trim()});
+    if(error)toast.error("Error: "+error.message);
+    else{toast.success("Hito creado");await reload();}
+    setDraft({titulo:"",descripcion:"",fecha_estimada:"",estado:"pendiente"});setModal(false);setSaving(false);
+  };
+  const updateEstado=async(id,estado)=>{
+    const{error}=await supabase.from("hitos").update({estado}).eq("id",id);
+    if(error)toast.error("Error");else await reload();
+  };
+  const deleteH=async(id)=>{
+    const{error}=await supabase.from("hitos").delete().eq("id",id);
+    if(error)toast.error("Error");else{toast.success("Eliminado");await reload();}
+  };
+
+  const EC={
+    pendiente:{color:C.t3,label:"Pendiente",dot:"○"},
+    en_progreso:{color:C.amber,label:"En progreso",dot:"◑"},
+    completado:{color:C.green,label:"Completado",dot:"●"},
+  };
+  const completados=hitos.filter(h=>h.estado==="completado").length;
+  const pct=hitos.length>0?Math.round((completados/hitos.length)*100):0;
+
+  return <div className="fu">
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+      <div>
+        <div style={{fontSize:16,fontWeight:700,color:C.t}}>Hitos de Obra</div>
+        <div style={{fontSize:12,color:C.t3}}>{completados}/{hitos.length} completados · {pct}% avanzado</div>
+      </div>
+      {esAdmin&&<Btn primary onClick={()=>setModal(true)}>+ Nuevo hito</Btn>}
+    </div>
+
+    {hitos.length>0&&<Card style={{marginBottom:16}}>
+      <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:8,fontWeight:600}}>Avance general de obra</div>
+      <div style={{height:10,borderRadius:5,background:C.bg3,overflow:"hidden",marginBottom:6}}>
+        <div style={{height:"100%",borderRadius:5,background:pct===100?C.green:C.lima,width:`${pct}%`,transition:"width .6s ease"}}/>
+      </div>
+      <div style={{fontSize:11,color:C.t3,textAlign:"right",fontWeight:600,color:pct===100?C.green:C.t3}}>{pct}%{pct===100?" ✓ Obra finalizada":""}</div>
+    </Card>}
+
+    {hitos.length===0&&<Card><div style={{textAlign:"center",padding:"48px 0"}}>
+      <div style={{fontSize:44,marginBottom:12}}>🏁</div>
+      <div style={{fontSize:14,fontWeight:600,color:C.t2,marginBottom:6}}>Sin hitos definidos</div>
+      <div style={{fontSize:12,color:C.t3,marginBottom:16}}>Los hitos marcan las etapas clave de la obra y son visibles para todos</div>
+      {esAdmin&&<Btn primary onClick={()=>setModal(true)}>+ Crear primer hito</Btn>}
+    </div></Card>}
+
+    {/* Timeline */}
+    <div style={{display:"flex",flexDirection:"column",gap:0}}>
+      {hitos.map((h,i)=>{
+        const ec=EC[h.estado]||EC.pendiente;
+        const isLast=i===hitos.length-1;
+        return <div key={h.id} style={{display:"flex",gap:14,alignItems:"flex-start"}}>
+          {/* Línea vertical */}
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",flexShrink:0,width:28}}>
+            <div style={{width:28,height:28,borderRadius:"50%",background:ec.color+"22",border:`2px solid ${ec.color}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:ec.color,fontWeight:700,zIndex:1}}>{ec.dot}</div>
+            {!isLast&&<div style={{width:2,flexGrow:1,background:C.bd2,minHeight:24,marginTop:2}}/>}
+          </div>
+          {/* Contenido */}
+          <div style={{flex:1,paddingBottom:isLast?0:16}}>
+            <Card style={{padding:"12px 16px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8}}>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:700,fontSize:13,color:h.estado==="completado"?C.t3:C.t,textDecoration:h.estado==="completado"?"line-through":"none"}}>{h.titulo}</div>
+                  {h.descripcion&&<div style={{fontSize:12,color:C.t3,marginTop:3}}>{h.descripcion}</div>}
+                  <div style={{fontSize:11,color:C.t3,marginTop:5}}>📅 Estimado: {h.fecha_estimada}</div>
+                </div>
+                <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                  {esAdmin?<select value={h.estado} onChange={e=>updateEstado(h.id,e.target.value)} style={{...SEL,width:"auto",padding:"5px 8px",fontSize:11,borderColor:ec.color+"66"}}>
+                    {Object.entries(EC).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+                  </select>:<Tag label={ec.label} color={ec.color}/>}
+                  {esAdmin&&<button onClick={()=>deleteH(h.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.t3,fontSize:18}}>×</button>}
+                </div>
+              </div>
+            </Card>
+          </div>
+        </div>;
+      })}
+    </div>
+
+    {modal&&<Modal title="Nuevo hito" onClose={()=>setModal(false)}>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Título *</div><input style={INP} placeholder="Ej: Losa planta alta terminada" value={draft.titulo} onChange={e=>setDraft(d=>({...d,titulo:e.target.value}))}/></div>
+        <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Descripción</div><input style={INP} placeholder="Detalle opcional..." value={draft.descripcion} onChange={e=>setDraft(d=>({...d,descripcion:e.target.value}))}/></div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Fecha estimada *</div><input style={INP} type="date" value={draft.fecha_estimada} onChange={e=>setDraft(d=>({...d,fecha_estimada:e.target.value}))}/></div>
+          <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Estado inicial</div>
+            <select style={SEL} value={draft.estado} onChange={e=>setDraft(d=>({...d,estado:e.target.value}))}>
+              {Object.entries(EC).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8}}><Btn primary onClick={save} loading={saving}>Crear</Btn><Btn onClick={()=>setModal(false)}>Cancelar</Btn></div>
+      </div>
+    </Modal>}
+  </div>;
+}
+
+// ── RESUMEN CLIENTE ───────────────────────────────────────────────────────────
+function ResumenClienteTab({obra,gastos,presup,tcRef,cats,fotos,hitos=[],monedaVista}){
+  const enUSD=monedaVista==="USD";
+  const conv=g=>enUSD?toUSD(g,tcRef):toARS(g,tcRef);
+  const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
+  const totalGastado=gastos.reduce((s,g)=>s+conv(g),0);
+  const presupTotalARS=obra.presupuesto_total?(obra.moneda_presupuesto==="USD"?obra.presupuesto_total*tcRef:obra.presupuesto_total):0;
+  const presupTotalMV=enUSD?presupTotalARS/tcRef:presupTotalARS;
+  const pct=presupTotalMV>0?Math.min(Math.round((totalGastado/presupTotalMV)*100),200):null;
+  const byCat=cats.map(c=>({...c,total:gastos.filter(g=>g.cat_id===c.id).reduce((s,g)=>s+conv(g),0)})).filter(c=>c.total>0).sort((a,b)=>b.total-a.total);
+  const ultimaFoto=fotos[0]||null;
+  const hitosComp=hitos.filter(h=>h.estado==="completado").length;
+  const hitoPct=hitos.length>0?Math.round((hitosComp/hitos.length)*100):null;
+  const ultimoGasto=gastos[0]||null;
+
+  return <div className="fu">
+    <div style={{marginBottom:20}}>
+      <div style={{fontSize:18,fontWeight:700,color:C.t,marginBottom:4}}>📋 Tu resumen de obra</div>
+      <div style={{fontSize:13,color:C.t3}}>{obra.nombre} · {obra.direccion}</div>
+    </div>
+
+    {/* Estado general */}
+    <Card style={{marginBottom:14,background:`linear-gradient(135deg, ${C.limaBg} 0%, #fff 100%)`,border:`1px solid ${C.lima}44`}}>
+      <div style={{display:"flex",gap:16,alignItems:"center",flexWrap:"wrap"}}>
+        <div style={{fontSize:44}}>🏗️</div>
+        <div style={{flex:1}}>
+          <div style={{fontWeight:700,fontSize:16,color:C.t,marginBottom:4}}>{obra.nombre}</div>
+          <Tag label={obra.estado} color={obra.estado==="En ejecución"?C.green:obra.estado==="Finalizada"?C.blue:C.amber}/>
+          <div style={{fontSize:12,color:C.t3,marginTop:6}}>{obra.direccion}</div>
+        </div>
+        {obra.presupuesto_total>0&&<div style={{textAlign:"right"}}>
+          <div style={{fontSize:11,color:C.t3}}>Presupuesto total</div>
+          <div style={{fontSize:18,fontWeight:700,color:C.t}}>{fmtM(obra.presupuesto_total,obra.moneda_presupuesto)}</div>
+        </div>}
+      </div>
+    </Card>
+
+    {/* Avance financiero */}
+    {presupTotalMV>0&&<Card style={{marginBottom:14}}>
+      <div style={{fontSize:13,fontWeight:700,color:C.t,marginBottom:12}}>💰 Avance financiero</div>
+      <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
+        <StatCard label="Ejecutado" value={fmt(totalGastado)} sub={`${gastos.length} movimientos`} color={C.green} icon="💸"/>
+        <StatCard label="Presupuesto" value={fmt(presupTotalMV)} color={C.blue} icon="📐"/>
+        <StatCard label="Disponible" value={fmt(Math.max(0,presupTotalMV-totalGastado))} color={totalGastado>presupTotalMV?C.red:C.lima} icon="✅"/>
+      </div>
+      <div style={{height:14,borderRadius:7,background:C.bg3,overflow:"hidden",marginBottom:6}}>
+        <div style={{height:"100%",borderRadius:7,background:pct>=100?C.red:pct>=80?C.amber:C.green,width:`${Math.min(pct,100)}%`,transition:"width .6s ease"}}/>
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.t3}}>
+        <span>Inicio</span>
+        <span style={{fontWeight:700,color:pct>=100?C.red:pct>=80?C.amber:C.green}}>{pct}% ejecutado</span>
+        <span>Presupuesto</span>
+      </div>
+    </Card>}
+
+    {/* Gastos por categoría — simplificado */}
+    {byCat.length>0&&<Card style={{marginBottom:14}}>
+      <div style={{fontSize:13,fontWeight:700,color:C.t,marginBottom:12}}>📊 En qué se gastó</div>
+      {byCat.map(c=>{
+        const p=totalGastado>0?Math.round((c.total/totalGastado)*100):0;
+        return <div key={c.id} style={{marginBottom:12}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:5,fontSize:13}}>
+            <span style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontSize:16}}>{c.icon}</span><span style={{color:C.t2,fontWeight:500}}>{c.label}</span></span>
+            <span style={{fontWeight:700,color:c.color}}>{fmt(c.total)} <span style={{fontSize:10,color:C.t3,fontWeight:400}}>({p}%)</span></span>
+          </div>
+          <div style={{height:8,borderRadius:4,background:C.bg3}}><div style={{height:"100%",borderRadius:4,background:c.color,width:`${p}%`,transition:"width .5s"}}/></div>
+        </div>;
+      })}
+    </Card>}
+
+    <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+      {/* Hitos */}
+      {hitos.length>0&&<Card style={{flex:"1 1 250px"}}>
+        <div style={{fontSize:13,fontWeight:700,color:C.t,marginBottom:12}}>🏁 Avance de obra</div>
+        {hitoPct!==null&&<>
+          <div style={{height:10,borderRadius:5,background:C.bg3,overflow:"hidden",marginBottom:6}}>
+            <div style={{height:"100%",borderRadius:5,background:hitoPct===100?C.green:C.lima,width:`${hitoPct}%`,transition:"width .6s"}}/>
+          </div>
+          <div style={{fontSize:12,color:C.t3,marginBottom:12}}>{hitosComp} de {hitos.length} etapas completadas ({hitoPct}%)</div>
+        </>}
+        {hitos.slice(0,5).map(h=>{
+          const col=h.estado==="completado"?C.green:h.estado==="en_progreso"?C.amber:C.t3;
+          return <div key={h.id} style={{display:"flex",gap:8,alignItems:"center",marginBottom:8,fontSize:12}}>
+            <span style={{fontSize:14,color:col}}>{h.estado==="completado"?"✅":h.estado==="en_progreso"?"🔄":"⏳"}</span>
+            <span style={{flex:1,color:h.estado==="completado"?C.t3:C.t,textDecoration:h.estado==="completado"?"line-through":"none"}}>{h.titulo}</span>
+            <span style={{fontSize:10,color:C.t3}}>{h.fecha_estimada}</span>
+          </div>;
+        })}
+      </Card>}
+
+      {/* Última foto */}
+      {ultimaFoto&&<Card style={{flex:"1 1 220px"}}>
+        <div style={{fontSize:13,fontWeight:700,color:C.t,marginBottom:10}}>📷 Última actualización visual</div>
+        <img src={ultimaFoto.url} alt={ultimaFoto.titulo} style={{width:"100%",borderRadius:10,objectFit:"cover",maxHeight:160}}/>
+        <div style={{marginTop:8,fontSize:12,fontWeight:600,color:C.t}}>{ultimaFoto.titulo}</div>
+        <div style={{fontSize:11,color:C.t3,marginTop:2}}>{ultimaFoto.fecha}{ultimaFoto.etapa&&` · ${ultimaFoto.etapa}`}</div>
+      </Card>}
+    </div>
+
+    {/* Último gasto */}
+    {ultimoGasto&&<Card style={{marginTop:14}}>
+      <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:8,fontWeight:600}}>Último movimiento registrado</div>
+      {(()=>{const cat=cats.find(c=>c.id===ultimoGasto.cat_id);return <div style={{display:"flex",gap:12,alignItems:"center"}}>
+        <div style={{width:40,height:40,borderRadius:10,background:(cat?.color||C.green)+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>{cat?.icon||"📦"}</div>
+        <div style={{flex:1}}><div style={{fontWeight:600,color:C.t}}>{ultimoGasto.descripcion||cat?.label||"—"}</div><div style={{fontSize:11,color:C.t3,marginTop:2}}>{ultimoGasto.fecha} · {cat?.label}</div></div>
+        <div style={{fontSize:16,fontWeight:700,color:cat?.color||C.green}}>{fmt(conv(ultimoGasto))}</div>
+      </div>;})()} 
+    </Card>}
+  </div>;
+}
+
+
 function CategoriasTab({cats,obra,toast,reload}){
   const [catM,setCatM]=useState(null);const [subM,setSubM]=useState(null);const [catD,setCatD]=useState({label:"",color:C.green,icon:"📦"});const [subD,setSubD]=useState({label:""});const [saving,setSaving]=useState(false);
   const ICONS=["🏗️","👷","📦","🔧","⚙️","🪵","🏠","💡","🛁","🪟","🚪","🔌","🪣","🏛️","📐","📋","🚛","🔨","🧱","🪚"];
