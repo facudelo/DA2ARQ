@@ -309,7 +309,7 @@ function ObraApp(props){
       {loadingData?<Spinner/>:<>
         {tab==="dashboard"&&<DashboardTab obra={obra} gastos={gastosVis} esAdmin={esAdmin} presup={presup} tcRef={tcRef} partic={partic} cats={cats} fotos={fotos} hitos={hitos} monedaVista={monedaVista}/>}
         {tab==="gastos"&&<GastosTab user={user} obra={obra} gastos={gastos} esAdmin={esAdmin} puedoCargar={puedoCargar} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} externalOpen={showGastoModal} onExternalClose={()=>setShowGastoModal(false)} comentarios={comentarios} miUserId={user.id}/>}
-        {tab==="presupuesto"&&esAdmin&&<PresupuestoTab obra={obra} gastos={gastos} presup={presup} tcRef={tcRef} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista}/>}
+        {tab==="presupuesto"&&esAdmin&&<PresupuestoTab obra={obra} gastos={gastos} presup={presup} tcRef={tcRef} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} inflData={inflData} fetchIPC={fetchIPC}/>}
         {tab==="fotos"&&<FotosTab obra={obra} fotos={fotos} puedoCargar={puedoCargar||esAdmin} user={user} toast={toast} reload={loadAll}/>}
         {tab==="objetivos"&&<HitosTab obra={obra} hitos={hitos} esAdmin={esAdmin} toast={toast} reload={loadAll}/>}
         {tab==="reportes"&&<ReportesTab obra={obra} gastos={gastosVis} presup={presup} tcRef={tcRef} cats={cats} esAdmin={esAdmin} monedaVista={monedaVista}/>}
@@ -321,8 +321,20 @@ function ObraApp(props){
       </>}
     </div>
 
-    {/* FAB — speed dial */}
-    {(puedoCargar||esAdmin)&&<FABMenu onGasto={()=>{setTab("gastos");setShowGastoModal(true);}} onObjetivo={()=>setTab("objetivos")} esAdmin={esAdmin}/>}
+    {/* FAB — abre modal de carga rápida directo */}
+    {(puedoCargar||esAdmin)&&<>
+      <button onClick={()=>setShowGastoModal(true)}
+        style={{position:"fixed",bottom:28,right:28,width:56,height:56,borderRadius:"50%",background:C.green,color:"#fff",border:"none",cursor:"pointer",fontSize:28,boxShadow:"0 4px 20px rgba(46,110,24,.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:150,transition:"transform .2s"}}
+        onMouseEnter={e=>e.currentTarget.style.transform="scale(1.1)"}
+        onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}
+        title="Cargar gasto">+</button>
+      {showGastoModal&&<GastoRapidoModal
+        user={user} obra={obra} cats={cats}
+        tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual}
+        esAdmin={esAdmin} toast={toast} reload={loadAll}
+        onClose={()=>setShowGastoModal(false)}
+      />}
+    </>}
   </div>;
 }
 
@@ -616,16 +628,139 @@ function GastosTab({user,obra,gastos,esAdmin,puedoCargar,tcOficial,tcBlue,tcManu
 }
 
 // ── PRESUPUESTO ───────────────────────────────────────────────────────────────
-function PresupuestoTab({obra,gastos,presup,tcRef,cats,toast,reload,monedaVista}){
+// ── GASTO RÁPIDO MODAL (FAB) ──────────────────────────────────────────────────
+function GastoRapidoModal({user,obra,cats,tcOficial,tcBlue,tcManual,setTcManual,esAdmin,toast,reload,onClose}){
+  const [tcTipo,setTcTipo]=useState("oficial");
+  const tcRef=tcOficial||tcManual;
+  const tcVal=tcTipo==="oficial"?(tcOficial||tcManual):tcTipo==="blue"?(tcBlue||tcManual):tcManual;
+  const initD=()=>({fecha:todayISO(),cat_id:cats[0]?.id||"",sub_id:cats[0]?.subs?.[0]?.id||"",descripcion:"",monto:"",moneda:"ARS",visibilidad:"publico"});
+  const [draft,setDraft]=useState(initD);
+  const [saving,setSaving]=useState(false);
+  const catD=cats.find(c=>c.id===draft.cat_id)||cats[0];
+  const montoNum=parseFloat(draft.monto)||0;
+
+  const save=async()=>{
+    if(!draft.monto||montoNum<=0)return;setSaving(true);
+    const{error}=await supabase.from("gastos").insert({
+      obra_id:obra.id,fecha:draft.fecha,cat_id:draft.cat_id,sub_id:draft.sub_id,
+      descripcion:draft.descripcion,monto:montoNum,moneda:draft.moneda,
+      tc_tipo:tcTipo,tc_valor:tcVal,
+      visibilidad:esAdmin?draft.visibilidad:"publico",
+      cargado_por:user.email,user_id:user.id
+    });
+    if(error)toast.error("Error: "+error.message);
+    else{toast.success("Gasto registrado ✓");await reload();onClose();}
+    setSaving(false);
+  };
+
+  return <div onClick={e=>{if(e.target===e.currentTarget)onClose();}} style={{position:"fixed",inset:0,background:"rgba(10,30,5,.55)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:200,padding:"0 0 80px"}}>
+    <div className="fu" style={{background:C.bg2,border:`1px solid ${C.bd2}`,borderRadius:"20px 20px 16px 16px",padding:24,width:"100%",maxWidth:520,boxShadow:"0 -4px 40px rgba(0,0,0,.22)"}}>
+      {/* Handle */}
+      <div style={{width:40,height:4,borderRadius:2,background:C.bd2,margin:"-10px auto 18px",display:"block"}}/>
+      <div style={{fontSize:15,fontWeight:700,color:C.t,marginBottom:18,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <span>💸 Carga rápida</span>
+        <button onClick={onClose} style={{background:"none",border:"none",color:C.t3,cursor:"pointer",fontSize:22,lineHeight:1}}>×</button>
+      </div>
+
+      {/* Monto grande centrado */}
+      <div style={{textAlign:"center",marginBottom:20}}>
+        <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,fontWeight:600}}>Monto</div>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+          <span style={{fontSize:28,fontWeight:300,color:C.t3}}>{draft.moneda==="USD"?"US$":"$"}</span>
+          <input
+            type="number"
+            value={draft.monto}
+            onChange={e=>setDraft(d=>({...d,monto:e.target.value}))}
+            placeholder="0"
+            autoFocus
+            onKeyDown={e=>e.key==="Enter"&&save()}
+            style={{background:"transparent",border:"none",outline:"none",fontSize:42,fontWeight:700,color:C.t,width:"160px",textAlign:"center"}}
+          />
+          {/* ARS / USD toggle */}
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            {["ARS","USD"].map(m=><button key={m} onClick={()=>setDraft(d=>({...d,moneda:m}))} style={{padding:"3px 8px",fontSize:10,border:`1px solid ${draft.moneda===m?C.green:C.bd2}`,borderRadius:6,cursor:"pointer",background:draft.moneda===m?C.green:"transparent",color:draft.moneda===m?"#fff":C.t3,fontWeight:600}}>{m}</button>)}
+          </div>
+        </div>
+        {/* Equivalencia */}
+        {montoNum>0&&<div style={{fontSize:12,color:C.t3,marginTop:4}}>
+          {draft.moneda==="USD"?`≈ ${fmtARS(montoNum*tcVal)} al TC $${tcVal?.toLocaleString("es-AR")}`:`≈ ${fmtUSD(montoNum/tcVal)}`}
+        </div>}
+      </div>
+
+      {/* TC selector compacto */}
+      <div style={{display:"flex",gap:6,justifyContent:"center",marginBottom:18,flexWrap:"wrap"}}>
+        {[{id:"oficial",label:`Oficial $${tcOficial?.toLocaleString("es-AR")||"—"}`,color:C.green},{id:"blue",label:`Blue $${tcBlue?.toLocaleString("es-AR")||"—"}`,color:C.lima},{id:"manual",label:"Manual",color:C.blue}].map(t=>(
+          <button key={t.id} onClick={()=>setTcTipo(t.id)} style={{padding:"5px 12px",fontSize:11,border:`1px solid ${tcTipo===t.id?t.color:C.bd2}`,borderRadius:20,cursor:"pointer",background:tcTipo===t.id?t.color+"18":"transparent",color:tcTipo===t.id?t.color:C.t2,fontWeight:tcTipo===t.id?700:400}}>{t.label}</button>
+        ))}
+        {tcTipo==="manual"&&<input type="number" value={tcManual} onChange={e=>setTcManual(+e.target.value)} style={{...INP,width:88,padding:"4px 8px",fontSize:11}}/>}
+      </div>
+
+      {/* Categoría y subcategoría */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+        <div>
+          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Categoría</div>
+          <select style={SEL} value={draft.cat_id} onChange={e=>{const c=cats.find(x=>x.id===e.target.value);setDraft(d=>({...d,cat_id:e.target.value,sub_id:c?.subs?.[0]?.id||""}));}}>
+            {cats.map(c=><option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Subcategoría</div>
+          <select style={SEL} value={draft.sub_id} onChange={e=>setDraft(d=>({...d,sub_id:e.target.value}))}>
+            {(catD?.subs||[]).map(s=><option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Fecha</div>
+          <input style={INP} type="date" value={draft.fecha} onChange={e=>setDraft(d=>({...d,fecha:e.target.value}))}/>
+        </div>
+        {esAdmin&&<div>
+          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Visibilidad</div>
+          <select style={SEL} value={draft.visibilidad} onChange={e=>setDraft(d=>({...d,visibilidad:e.target.value}))}>
+            <option value="publico">🌐 Público</option>
+            <option value="privado">🔒 Privado</option>
+          </select>
+        </div>}
+      </div>
+
+      <div style={{marginBottom:16}}>
+        <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Descripción (opcional)</div>
+        <input style={INP} placeholder="Ej: Cuadrilla lunes..." value={draft.descripcion} onChange={e=>setDraft(d=>({...d,descripcion:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&save()}/>
+      </div>
+
+      <Btn primary full onClick={save} loading={saving} disabled={montoNum<=0}>
+        {saving?"Guardando...":"Guardar gasto"}
+      </Btn>
+      <div style={{textAlign:"center",fontSize:11,color:C.t3,marginTop:8}}>TC al guardar: ${tcVal?.toLocaleString("es-AR")} · Enter para guardar</div>
+    </div>
+  </div>;
+}
+
+// ── PRESUPUESTO ───────────────────────────────────────────────────────────────
+function PresupuestoTab({obra,gastos,presup,tcRef,cats,toast,reload,monedaVista,inflData,fetchIPC}){
   const [modal,setModal]=useState(false);
   const [draft,setDraft]=useState({cat_id:cats[0]?.id||"",monto:"",moneda:"ARS"});
   const [saving,setSaving]=useState(false);
+  const [showInfl,setShowInfl]=useState(false);
   const enUSD=monedaVista==="USD";
   const conv=g=>enUSD?toUSD(g,tcRef):toARS(g,tcRef);
   const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
   const toMV=p=>enUSD?(p.moneda==="USD"?p.monto:p.monto/tcRef):(p.moneda==="USD"?p.monto*tcRef:p.monto);
   const totalPMV=presup.reduce((s,p)=>s+toMV(p),0);
   const totalEMV=gastos.reduce((s,g)=>s+conv(g),0);
+
+  // Ajuste por inflación desde inicio de obra
+  const calcInflacion=useMemo(()=>{
+    if(!inflData||!obra.created_at)return null;
+    const inicio=obra.created_at.slice(0,7);
+    const serie=[],ipcFilt=inflData.filter(x=>x.fecha?.slice(0,7)>=inicio).sort((a,b)=>a.fecha>b.fecha?1:-1);
+    if(!ipcFilt.length)return null;
+    let acum=1;
+    ipcFilt.forEach(x=>{acum*=(1+x.valor/100);serie.push({ym:x.fecha.slice(0,7),ipc:x.valor,acum:Math.round((acum-1)*100*10)/10,factor:acum});});
+    return serie;
+  },[inflData,obra.created_at]);
+  const presupBaseARS=obra.presupuesto_total?(obra.moneda_presupuesto==="USD"?obra.presupuesto_total*tcRef:obra.presupuesto_total):totalPMV>0?totalPMV:0;
+  const inflAcum=calcInflacion?calcInflacion[calcInflacion.length-1]?.acum:null;
+  const presupAjustado=presupBaseARS>0&&inflAcum!=null?Math.round(presupBaseARS*(1+inflAcum/100)):null;
 
   const save=async()=>{
     if(!draft.monto||parseFloat(draft.monto)<=0)return;setSaving(true);
@@ -650,6 +785,64 @@ function PresupuestoTab({obra,gastos,presup,tcRef,cats,toast,reload,monedaVista}
       <StatCard label={`Disponible (${monedaVista})`} value={fmt(Math.max(0,totalPMV-totalEMV))} color={totalPMV-totalEMV<0?C.red:C.lima} icon="✅"/>
       {obra.presupuesto_total>0&&<StatCard label="Presup. general obra" value={fmtM(obra.presupuesto_total,obra.moneda_presupuesto)} color={C.amber} icon="🏗️"/>}
     </div>
+
+    {/* Ajuste por inflación */}
+    <Card style={{marginBottom:14,border:`1px solid ${C.amber}44`,background:C.amber+"08"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:22}}>📈</span>
+          <div>
+            <div style={{fontWeight:700,fontSize:13,color:C.t}}>Ajuste por inflación acumulada</div>
+            <div style={{fontSize:11,color:C.t3}}>Desde inicio de obra ({obra.created_at?.slice(0,7)||"—"}) · IPC INDEC</div>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          {!inflData&&<Btn small onClick={()=>{fetchIPC();setShowInfl(true);}}>Cargar datos IPC</Btn>}
+          {inflData&&<button onClick={()=>setShowInfl(v=>!v)} style={{background:C.amber+"18",border:`1px solid ${C.amber}44`,borderRadius:8,padding:"5px 12px",cursor:"pointer",color:C.amber,fontSize:11,fontWeight:600}}>{showInfl?"Ocultar":"Ver detalle"}</button>}
+        </div>
+      </div>
+      {inflData&&calcInflacion&&<>
+        <div style={{display:"flex",gap:12,flexWrap:"wrap",marginTop:14}}>
+          <div style={{flex:"1 1 130px",background:C.bg2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.bd}`}}>
+            <div style={{fontSize:10,color:C.t3,marginBottom:4,fontWeight:600,textTransform:"uppercase"}}>Inflación acumulada</div>
+            <div style={{fontSize:22,fontWeight:700,color:C.amber}}>{inflAcum}%</div>
+            <div style={{fontSize:10,color:C.t3,marginTop:2}}>{calcInflacion.length} meses</div>
+          </div>
+          {presupBaseARS>0&&<div style={{flex:"1 1 180px",background:C.bg2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.bd}`}}>
+            <div style={{fontSize:10,color:C.t3,marginBottom:4,fontWeight:600,textTransform:"uppercase"}}>Presup. original</div>
+            <div style={{fontSize:18,fontWeight:700,color:C.blue}}>{fmtARS(presupBaseARS)}</div>
+            <div style={{fontSize:10,color:C.t3,marginTop:2}}>al inicio de obra</div>
+          </div>}
+          {presupAjustado&&<div style={{flex:"1 1 180px",background:C.bg2,borderRadius:10,padding:"12px 14px",border:`2px solid ${C.amber}`,boxShadow:`0 0 12px ${C.amber}22`}}>
+            <div style={{fontSize:10,color:C.amber,marginBottom:4,fontWeight:700,textTransform:"uppercase"}}>Presup. ajustado hoy</div>
+            <div style={{fontSize:18,fontWeight:700,color:C.amber}}>{fmtARS(presupAjustado)}</div>
+            <div style={{fontSize:10,color:C.t3,marginTop:2}}>+{fmtARS(presupAjustado-presupBaseARS)} vs original</div>
+          </div>}
+        </div>
+        {showInfl&&calcInflacion.length>0&&<div style={{marginTop:14}}>
+          <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:8,fontWeight:600}}>Evolución mensual del presupuesto ajustado</div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:480}}>
+              <thead><tr style={{borderBottom:`2px solid ${C.bd2}`}}>
+                {["Mes","IPC mes","Acum. %","Presup. ajustado","Incremento vs original"].map((h,i)=><th key={i} style={{padding:"6px 10px",textAlign:i>=2?"right":"left",fontSize:9,fontWeight:700,color:C.t3,textTransform:"uppercase",letterSpacing:".05em",whiteSpace:"nowrap"}}>{h}</th>)}
+              </tr></thead>
+              <tbody>{[...calcInflacion].reverse().slice(0,18).map(r=>{
+                const ajust=presupBaseARS>0?Math.round(presupBaseARS*r.factor):null;
+                const incr=ajust&&presupBaseARS>0?ajust-presupBaseARS:null;
+                return <tr key={r.ym} style={{borderBottom:`1px solid ${C.bd}`}}>
+                  <td style={{padding:"7px 10px",fontWeight:600,color:C.t}}>{r.ym}</td>
+                  <td style={{padding:"7px 10px",color:r.ipc>10?C.red:r.ipc>5?C.amber:C.t2}}>{r.ipc}%</td>
+                  <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.amber}}>{r.acum}%</td>
+                  <td style={{padding:"7px 10px",textAlign:"right",color:C.t}}>{ajust?fmtARS(ajust):"—"}</td>
+                  <td style={{padding:"7px 10px",textAlign:"right",color:C.red}}>{incr?"+"+fmtARS(incr):"—"}</td>
+                </tr>;
+              })}</tbody>
+            </table>
+          </div>
+        </div>}
+      </>}
+      {!inflData&&<div style={{fontSize:12,color:C.t3,marginTop:10}}>Presioná "Cargar datos IPC" para ver el presupuesto ajustado por inflación desde el inicio de obra.</div>}
+    </Card>
 
     <Card>
       <div style={{overflowX:"auto"}}>
