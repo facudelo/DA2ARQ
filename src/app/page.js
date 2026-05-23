@@ -183,7 +183,7 @@ function ObraApp(props){
   const [presup,setPresup]=useState([]);
   const [cats,setCats]=useState([]);
   const [fotos,setFotos]=useState([]);
-  const [hitos,setHitos]=useState([]);
+  const [Objetivos,setObjetivos]=useState([]);
   const [comentarios,setComentarios]=useState([]);
   const [loadingData,setLoadingData]=useState(true);
   const [mobileMenu,setMobileMenu]=useState(false);
@@ -199,13 +199,13 @@ function ObraApp(props){
       supabase.from("categorias").select("*, subcategorias(*)").eq("obra_id",obra.id).order("orden"),
       supabase.from("fotos").select("*").eq("obra_id",obra.id).order("fecha",{ascending:false}),
       supabase.from("participantes").select("*").eq("obra_id",obra.id),
-      supabase.from("hitos").select("*").eq("obra_id",obra.id).order("fecha_estimada"),
+      supabase.from("Objetivos").select("*").eq("obra_id",obra.id).order("fecha_estimada"),
       supabase.from("comentarios_gasto").select("*").eq("obra_id",obra.id).order("created_at"),
     ]);
     setGastos(gRes.data||[]);setPresup(prRes.data||[]);
     setCats((cRes.data||[]).map(c=>({...c,subs:c.subcategorias||[]})));
     setFotos(fRes.data||[]);setPartic(partRes.data||[]);
-    setHitos(hRes.data||[]);setComentarios(cRes2.data||[]);
+    setObjetivos(hRes.data||[]);setComentarios(cRes2.data||[]);
     setLoadingData(false);
   },[obra.id]);
   useEffect(()=>{loadAll();},[loadAll]);
@@ -227,7 +227,7 @@ function ObraApp(props){
     {id:"gastos",label:"Gastos",icon:"💸",badge:totalNotifs},
     ...(esAdmin?[{id:"presupuesto",label:"Presupuesto",icon:"📐"}]:[]),
     {id:"fotos",label:"Fotos",icon:"📷"},
-    {id:"hitos",label:"Hitos",icon:"🏁"},
+    {id:"Objetivos",label:"Objetivos",icon:"🏁"},
     ...(!esAdmin?[{id:"resumen",label:"Mi Resumen",icon:"📋"}]:[]),
     ...(esAdmin?[{id:"categorias",label:"Categorías",icon:"🏷️"}]:[]),
     ...(esAdmin?[{id:"participantes",label:"Participantes",icon:"👥"}]:[]),
@@ -293,12 +293,12 @@ function ObraApp(props){
 
     <div style={{padding:20,paddingBottom:100,maxWidth:1040,margin:"0 auto"}}>
       {loadingData?<Spinner/>:<>
-        {tab==="dashboard"&&<DashboardTab obra={obra} gastos={gastosVis} esAdmin={esAdmin} presup={presup} tcRef={tcRef} partic={partic} cats={cats} fotos={fotos} hitos={hitos} monedaVista={monedaVista}/>}
+        {tab==="dashboard"&&<DashboardTab obra={obra} gastos={gastosVis} esAdmin={esAdmin} presup={presup} tcRef={tcRef} partic={partic} cats={cats} fotos={fotos} Objetivos={Objetivos} monedaVista={monedaVista}/>}
         {tab==="gastos"&&<GastosTab user={user} obra={obra} gastos={gastos} esAdmin={esAdmin} puedoCargar={puedoCargar} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} externalOpen={showGastoModal} onExternalClose={()=>setShowGastoModal(false)} comentarios={comentarios} miUserId={user.id}/>}
         {tab==="presupuesto"&&esAdmin&&<PresupuestoTab obra={obra} gastos={gastos} presup={presup} tcRef={tcRef} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista}/>}
         {tab==="fotos"&&<FotosTab obra={obra} fotos={fotos} puedoCargar={puedoCargar||esAdmin} user={user} toast={toast} reload={loadAll}/>}
-        {tab==="hitos"&&<HitosTab obra={obra} hitos={hitos} esAdmin={esAdmin} toast={toast} reload={loadAll}/>}
-        {tab==="resumen"&&!esAdmin&&<ResumenClienteTab obra={obra} gastos={gastosVis} presup={presup} tcRef={tcRef} cats={cats} fotos={fotos} hitos={hitos} monedaVista={monedaVista}/>}
+        {tab==="Objetivos"&&<ObjetivosTab obra={obra} Objetivos={Objetivos} esAdmin={esAdmin} toast={toast} reload={loadAll}/>}
+        {tab==="resumen"&&!esAdmin&&<ResumenClienteTab obra={obra} gastos={gastosVis} presup={presup} tcRef={tcRef} cats={cats} fotos={fotos} Objetivos={Objetivos} monedaVista={monedaVista}/>}
         {tab==="categorias"&&esAdmin&&<CategoriasTab cats={cats} obra={obra} toast={toast} reload={loadAll}/>}
         {tab==="participantes"&&esAdmin&&<ParticipantesTab obra={obra} partic={partic} toast={toast} reload={loadAll}/>}
         {tab==="ipc"&&<IPCTab inflData={inflData}/>}
@@ -312,7 +312,7 @@ function ObraApp(props){
 }
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
-function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=[],monedaVista}){
+function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,Objetivos=[],monedaVista}){
   const enUSD=monedaVista==="USD";
   const conv=g=>enUSD?toUSD(g,tcRef):toARS(g,tcRef);
   const totalMV=gastos.reduce((s,g)=>s+conv(g),0);
@@ -324,8 +324,8 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=
   const ultimos=gastos.slice(0,6);
   const ultimaFoto=fotos.length>0?fotos[0]:null;
   const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
-  const hitosActivos=hitos.filter(h=>h.estado!=="completado").slice(0,3);
-  const hitosComp=hitos.filter(h=>h.estado==="completado").length;
+  const ObjetivosActivos=Objetivos.filter(h=>h.estado!=="completado").slice(0,3);
+  const ObjetivosComp=Objetivos.filter(h=>h.estado==="completado").length;
 
   return <div className="fu">
     <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
@@ -333,7 +333,7 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=
       {presupTotalMV>0&&<StatCard label="Presupuesto" value={fmt(presupTotalMV)} sub={pct!==null?`${pct}% ejecutado`:""} color={C.blue} icon="📐"/>}
       {presupTotalMV>0&&<StatCard label="Disponible" value={fmt(Math.max(0,presupTotalMV-totalMV))} sub={pct>=90?"⚠ Límite cercano":""} color={presupTotalMV-totalMV<0?C.red:C.lima} icon="📊"/>}
       <StatCard label="Participantes" value={partic.length} sub={`${fotos.length} foto${fotos.length!==1?"s":""}`} color={C.amber} icon="👥"/>
-      {hitos.length>0&&<StatCard label="Hitos" value={`${hitosComp}/${hitos.length}`} sub={`${Math.round((hitosComp/hitos.length)*100)}% completados`} color={C.blue} icon="🏁"/>}
+      {Objetivos.length>0&&<StatCard label="Objetivos" value={`${ObjetivosComp}/${Objetivos.length}`} sub={`${Math.round((ObjetivosComp/Objetivos.length)*100)}% completados`} color={C.blue} icon="🏁"/>}
     </div>
 
     {presupTotalMV>0&&<Card style={{marginBottom:14}}>
@@ -400,9 +400,9 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=
         <div style={{marginTop:8,fontSize:12,fontWeight:600,color:C.t}}>{ultimaFoto.titulo}</div>
         <div style={{fontSize:11,color:C.t3,marginTop:2}}>{ultimaFoto.fecha}{ultimaFoto.etapa&&` · ${ultimaFoto.etapa}`}</div>
       </Card>}
-      {hitosActivos.length>0&&<Card style={{flex:"1 1 200px"}}>
-        <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:10,fontWeight:600}}>Próximos hitos</div>
-        {hitosActivos.map(h=>{
+      {ObjetivosActivos.length>0&&<Card style={{flex:"1 1 200px"}}>
+        <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:10,fontWeight:600}}>Próximos Objetivos</div>
+        {ObjetivosActivos.map(h=>{
           const col=h.estado==="en_progreso"?C.amber:C.t3;
           return <div key={h.id} style={{display:"flex",gap:8,alignItems:"flex-start",marginBottom:10,paddingBottom:10,borderBottom:`1px solid ${C.bd}`}}>
             <div style={{width:8,height:8,borderRadius:"50%",background:col,marginTop:4,flexShrink:0}}/>
@@ -868,25 +868,25 @@ function ComentariosModal({gasto,comentarios,obra,user,esAdmin,toast,reload,onCl
   </Modal>;
 }
 
-// ── HITOS ─────────────────────────────────────────────────────────────────────
-function HitosTab({obra,hitos,esAdmin,toast,reload}){
+// ── Objetivos ─────────────────────────────────────────────────────────────────────
+function ObjetivosTab({obra,Objetivos,esAdmin,toast,reload}){
   const [modal,setModal]=useState(false);
   const [saving,setSaving]=useState(false);
   const [draft,setDraft]=useState({titulo:"",descripcion:"",fecha_estimada:"",estado:"pendiente"});
 
   const save=async()=>{
     if(!draft.titulo.trim()||!draft.fecha_estimada)return;setSaving(true);
-    const{error}=await supabase.from("hitos").insert({obra_id:obra.id,...draft,titulo:draft.titulo.trim()});
+    const{error}=await supabase.from("Objetivos").insert({obra_id:obra.id,...draft,titulo:draft.titulo.trim()});
     if(error)toast.error("Error: "+error.message);
-    else{toast.success("Hito creado");await reload();}
+    else{toast.success("Objetivo creado");await reload();}
     setDraft({titulo:"",descripcion:"",fecha_estimada:"",estado:"pendiente"});setModal(false);setSaving(false);
   };
   const updateEstado=async(id,estado)=>{
-    const{error}=await supabase.from("hitos").update({estado}).eq("id",id);
+    const{error}=await supabase.from("Objetivos").update({estado}).eq("id",id);
     if(error)toast.error("Error");else await reload();
   };
   const deleteH=async(id)=>{
-    const{error}=await supabase.from("hitos").delete().eq("id",id);
+    const{error}=await supabase.from("Objetivos").delete().eq("id",id);
     if(error)toast.error("Error");else{toast.success("Eliminado");await reload();}
   };
 
@@ -895,19 +895,19 @@ function HitosTab({obra,hitos,esAdmin,toast,reload}){
     en_progreso:{color:C.amber,label:"En progreso",dot:"◑"},
     completado:{color:C.green,label:"Completado",dot:"●"},
   };
-  const completados=hitos.filter(h=>h.estado==="completado").length;
-  const pct=hitos.length>0?Math.round((completados/hitos.length)*100):0;
+  const completados=Objetivos.filter(h=>h.estado==="completado").length;
+  const pct=Objetivos.length>0?Math.round((completados/Objetivos.length)*100):0;
 
   return <div className="fu">
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
       <div>
-        <div style={{fontSize:16,fontWeight:700,color:C.t}}>Hitos de Obra</div>
-        <div style={{fontSize:12,color:C.t3}}>{completados}/{hitos.length} completados · {pct}% avanzado</div>
+        <div style={{fontSize:16,fontWeight:700,color:C.t}}>Objetivos de Obra</div>
+        <div style={{fontSize:12,color:C.t3}}>{completados}/{Objetivos.length} completados · {pct}% avanzado</div>
       </div>
-      {esAdmin&&<Btn primary onClick={()=>setModal(true)}>+ Nuevo hito</Btn>}
+      {esAdmin&&<Btn primary onClick={()=>setModal(true)}>+ Nuevo Objetivo</Btn>}
     </div>
 
-    {hitos.length>0&&<Card style={{marginBottom:16}}>
+    {Objetivos.length>0&&<Card style={{marginBottom:16}}>
       <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:8,fontWeight:600}}>Avance general de obra</div>
       <div style={{height:10,borderRadius:5,background:C.bg3,overflow:"hidden",marginBottom:6}}>
         <div style={{height:"100%",borderRadius:5,background:pct===100?C.green:C.lima,width:`${pct}%`,transition:"width .6s ease"}}/>
@@ -915,18 +915,18 @@ function HitosTab({obra,hitos,esAdmin,toast,reload}){
       <div style={{fontSize:11,color:C.t3,textAlign:"right",fontWeight:600,color:pct===100?C.green:C.t3}}>{pct}%{pct===100?" ✓ Obra finalizada":""}</div>
     </Card>}
 
-    {hitos.length===0&&<Card><div style={{textAlign:"center",padding:"48px 0"}}>
+    {Objetivos.length===0&&<Card><div style={{textAlign:"center",padding:"48px 0"}}>
       <div style={{fontSize:44,marginBottom:12}}>🏁</div>
-      <div style={{fontSize:14,fontWeight:600,color:C.t2,marginBottom:6}}>Sin hitos definidos</div>
-      <div style={{fontSize:12,color:C.t3,marginBottom:16}}>Los hitos marcan las etapas clave de la obra y son visibles para todos</div>
-      {esAdmin&&<Btn primary onClick={()=>setModal(true)}>+ Crear primer hito</Btn>}
+      <div style={{fontSize:14,fontWeight:600,color:C.t2,marginBottom:6}}>Sin Objetivos definidos</div>
+      <div style={{fontSize:12,color:C.t3,marginBottom:16}}>Los Objetivos marcan las etapas clave de la obra y son visibles para todos</div>
+      {esAdmin&&<Btn primary onClick={()=>setModal(true)}>+ Crear primer Objetivo</Btn>}
     </div></Card>}
 
     {/* Timeline */}
     <div style={{display:"flex",flexDirection:"column",gap:0}}>
-      {hitos.map((h,i)=>{
+      {Objetivos.map((h,i)=>{
         const ec=EC[h.estado]||EC.pendiente;
-        const isLast=i===hitos.length-1;
+        const isLast=i===Objetivos.length-1;
         return <div key={h.id} style={{display:"flex",gap:14,alignItems:"flex-start"}}>
           {/* Línea vertical */}
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",flexShrink:0,width:28}}>
@@ -955,7 +955,7 @@ function HitosTab({obra,hitos,esAdmin,toast,reload}){
       })}
     </div>
 
-    {modal&&<Modal title="Nuevo hito" onClose={()=>setModal(false)}>
+    {modal&&<Modal title="Nuevo Objetivo" onClose={()=>setModal(false)}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
         <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Título *</div><input style={INP} placeholder="Ej: Losa planta alta terminada" value={draft.titulo} onChange={e=>setDraft(d=>({...d,titulo:e.target.value}))}/></div>
         <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Descripción</div><input style={INP} placeholder="Detalle opcional..." value={draft.descripcion} onChange={e=>setDraft(d=>({...d,descripcion:e.target.value}))}/></div>
@@ -974,7 +974,7 @@ function HitosTab({obra,hitos,esAdmin,toast,reload}){
 }
 
 // ── RESUMEN CLIENTE ───────────────────────────────────────────────────────────
-function ResumenClienteTab({obra,gastos,presup,tcRef,cats,fotos,hitos=[],monedaVista}){
+function ResumenClienteTab({obra,gastos,presup,tcRef,cats,fotos,Objetivos=[],monedaVista}){
   const enUSD=monedaVista==="USD";
   const conv=g=>enUSD?toUSD(g,tcRef):toARS(g,tcRef);
   const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
@@ -984,8 +984,8 @@ function ResumenClienteTab({obra,gastos,presup,tcRef,cats,fotos,hitos=[],monedaV
   const pct=presupTotalMV>0?Math.min(Math.round((totalGastado/presupTotalMV)*100),200):null;
   const byCat=cats.map(c=>({...c,total:gastos.filter(g=>g.cat_id===c.id).reduce((s,g)=>s+conv(g),0)})).filter(c=>c.total>0).sort((a,b)=>b.total-a.total);
   const ultimaFoto=fotos[0]||null;
-  const hitosComp=hitos.filter(h=>h.estado==="completado").length;
-  const hitoPct=hitos.length>0?Math.round((hitosComp/hitos.length)*100):null;
+  const ObjetivosComp=Objetivos.filter(h=>h.estado==="completado").length;
+  const ObjetivoPct=Objetivos.length>0?Math.round((ObjetivosComp/Objetivos.length)*100):null;
   const ultimoGasto=gastos[0]||null;
 
   return <div className="fu">
@@ -1044,16 +1044,16 @@ function ResumenClienteTab({obra,gastos,presup,tcRef,cats,fotos,hitos=[],monedaV
     </Card>}
 
     <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
-      {/* Hitos */}
-      {hitos.length>0&&<Card style={{flex:"1 1 250px"}}>
+      {/* Objetivos */}
+      {Objetivos.length>0&&<Card style={{flex:"1 1 250px"}}>
         <div style={{fontSize:13,fontWeight:700,color:C.t,marginBottom:12}}>🏁 Avance de obra</div>
-        {hitoPct!==null&&<>
+        {ObjetivoPct!==null&&<>
           <div style={{height:10,borderRadius:5,background:C.bg3,overflow:"hidden",marginBottom:6}}>
-            <div style={{height:"100%",borderRadius:5,background:hitoPct===100?C.green:C.lima,width:`${hitoPct}%`,transition:"width .6s"}}/>
+            <div style={{height:"100%",borderRadius:5,background:ObjetivoPct===100?C.green:C.lima,width:`${ObjetivoPct}%`,transition:"width .6s"}}/>
           </div>
-          <div style={{fontSize:12,color:C.t3,marginBottom:12}}>{hitosComp} de {hitos.length} etapas completadas ({hitoPct}%)</div>
+          <div style={{fontSize:12,color:C.t3,marginBottom:12}}>{ObjetivosComp} de {Objetivos.length} etapas completadas ({ObjetivoPct}%)</div>
         </>}
-        {hitos.slice(0,5).map(h=>{
+        {Objetivos.slice(0,5).map(h=>{
           const col=h.estado==="completado"?C.green:h.estado==="en_progreso"?C.amber:C.t3;
           return <div key={h.id} style={{display:"flex",gap:8,alignItems:"center",marginBottom:8,fontSize:12}}>
             <span style={{fontSize:14,color:col}}>{h.estado==="completado"?"✅":h.estado==="en_progreso"?"🔄":"⏳"}</span>
