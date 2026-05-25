@@ -475,7 +475,7 @@ function GastosTab({user,obra,gastos,esAdmin,puedoCargar,tcOficial,tcBlue,tcManu
   // Abrir form desde FAB externo
   useEffect(()=>{if(externalOpen){setShowForm(true);onExternalClose();}},[externalOpen]);
 
-  const initD=()=>({fecha:todayISO(),cat_id:cats[0]?.id||"",sub_id:cats[0]?.subs?.[0]?.id||"",descripcion:"",monto:"",moneda:"ARS",visibilidad:"publico"});
+  const initD=()=>({fecha:todayISO(),cat_id:cats[0]?.id||"",sub_id:cats[0]?.subs?.[0]?.id||"",descripcion:"",monto:"",monto_cliente:"",moneda:"ARS",visibilidad:"publico"});
   const [draft,setDraft]=useState(initD);
   const catD=cats.find(c=>c.id===draft.cat_id)||cats[0];
   const catE=editM?cats.find(c=>c.id===editM.cat_id)||cats[0]:null;
@@ -487,28 +487,43 @@ function GastosTab({user,obra,gastos,esAdmin,puedoCargar,tcOficial,tcBlue,tcManu
     if(filtro.q){const q=filtro.q.toLowerCase();const sl=cats.find(c=>c.id===g.cat_id)?.subs?.find(s=>s.id===g.sub_id)?.label||"";if(!(g.descripcion||"").toLowerCase().includes(q)&&!sl.toLowerCase().includes(q))return false;}
     return true;
   });
-  const total=filtered.reduce((s,g)=>s+conv(g),0);
+  // admin ve monto real; cliente ve monto_cliente si existe, sino monto real
+  const convVis=g=>{
+    const base=esAdmin?g.monto:(g.monto_cliente??g.monto);
+    return enUSD?toUSD({...g,monto:base},tcRef):toARS({...g,monto:base},tcRef);
+  };
+  const total=filtered.reduce((s,g)=>s+convVis(g),0);
+  const totalReal=esAdmin?filtered.reduce((s,g)=>s+conv(g),0):null;
+  const margen=esAdmin?filtered.reduce((s,g)=>{const mc=g.monto_cliente??g.monto;const diff=mc-g.monto;return s+(enUSD?diff/(g.tc_valor||tcRef):diff);},0):null;
 
   const save=async()=>{
     if(!draft.monto||parseFloat(draft.monto)<=0)return;setSaving(true);
-    const{error}=await supabase.from("gastos").insert({obra_id:obra.id,fecha:draft.fecha,cat_id:draft.cat_id,sub_id:draft.sub_id,descripcion:draft.descripcion,monto:parseFloat(draft.monto),moneda:draft.moneda,tc_tipo:tcTipo,tc_valor:tcVal,visibilidad:esAdmin?draft.visibilidad:"publico",cargado_por:user.email,user_id:user.id});
+    const mcVal=draft.monto_cliente&&parseFloat(draft.monto_cliente)>0?parseFloat(draft.monto_cliente):null;
+    const{error}=await supabase.from("gastos").insert({obra_id:obra.id,fecha:draft.fecha,cat_id:draft.cat_id,sub_id:draft.sub_id,descripcion:draft.descripcion,monto:parseFloat(draft.monto),monto_cliente:mcVal,moneda:draft.moneda,tc_tipo:tcTipo,tc_valor:tcVal,visibilidad:esAdmin?draft.visibilidad:"publico",cargado_por:user.email,user_id:user.id});
     if(error)toast.error("Error: "+error.message);else{toast.success("Gasto registrado");await reload();}
     setDraft(initD());setShowForm(false);setSaving(false);
   };
 
   const saveEdit=async()=>{
     if(!editM||parseFloat(editM.monto)<=0)return;setSaving(true);
-    const{error}=await supabase.from("gastos").update({fecha:editM.fecha,cat_id:editM.cat_id,sub_id:editM.sub_id,descripcion:editM.descripcion,monto:parseFloat(editM.monto),moneda:editM.moneda,visibilidad:editM.visibilidad}).eq("id",editM.id);
+    const mcVal=editM.monto_cliente&&parseFloat(editM.monto_cliente)>0?parseFloat(editM.monto_cliente):null;
+    const{error}=await supabase.from("gastos").update({fecha:editM.fecha,cat_id:editM.cat_id,sub_id:editM.sub_id,descripcion:editM.descripcion,monto:parseFloat(editM.monto),monto_cliente:mcVal,moneda:editM.moneda,visibilidad:editM.visibilidad}).eq("id",editM.id);
     if(error)toast.error("Error: "+error.message);else{toast.success("Gasto actualizado");await reload();}
     setEditM(null);setSaving(false);
   };
 
   const deleteG=async(id)=>{const{error}=await supabase.from("gastos").delete().eq("id",id);if(error)toast.error("Error al eliminar");else{toast.success("Gasto eliminado");await reload();}};
-  const doExport=()=>exportCSV(filtered.map(g=>({Fecha:g.fecha,Categoria:cats.find(c=>c.id===g.cat_id)?.label||"",Subcategoria:cats.find(c=>c.id===g.cat_id)?.subs?.find(s=>s.id===g.sub_id)?.label||"",Descripcion:g.descripcion||"",Monto:g.monto,Moneda:g.moneda,TC_Tipo:g.tc_tipo,TC_Valor:g.tc_valor,Monto_ARS:toARS(g,tcRef),Visibilidad:g.visibilidad,Cargado_por:g.cargado_por})),`gastos_${obra.nombre.replace(/\s+/g,"_")}.csv`);
+  const doExport=()=>exportCSV(filtered.map(g=>({Fecha:g.fecha,Categoria:cats.find(c=>c.id===g.cat_id)?.label||"",Subcategoria:cats.find(c=>c.id===g.cat_id)?.subs?.find(s=>s.id===g.sub_id)?.label||"",Descripcion:g.descripcion||"",Monto_Real:g.monto,Monto_Cliente:g.monto_cliente??g.monto,Moneda:g.moneda,TC_Tipo:g.tc_tipo,TC_Valor:g.tc_valor,Monto_ARS:toARS(g,tcRef),Visibilidad:g.visibilidad,Cargado_por:g.cargado_por})),`gastos_${obra.nombre.replace(/\s+/g,"_")}.csv`);
 
   return <div className="fu">
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
-      <div><div style={{fontSize:16,fontWeight:700,color:C.t}}>Gastos</div><div style={{fontSize:12,color:C.t3}}>{filtered.length} registros · {fmt(total)}</div></div>
+      <div>
+        <div style={{fontSize:16,fontWeight:700,color:C.t}}>Gastos</div>
+        <div style={{fontSize:12,color:C.t3,display:"flex",gap:12,flexWrap:"wrap",marginTop:2}}>
+          <span>{filtered.length} registros · {fmt(total)}</span>
+          {esAdmin&&margen!==0&&<span style={{color:margen>0?C.lima:C.red,fontWeight:600}}>{margen>0?"▲ Margen:":"▼ Diff:"} {fmt(Math.abs(margen))}</span>}
+        </div>
+      </div>
       <div style={{display:"flex",gap:8}}><Btn small onClick={doExport}>⬇ CSV</Btn>{puedoCargar&&<Btn primary onClick={()=>{setDraft(initD());setShowForm(v=>!v);}}>+ Nuevo gasto</Btn>}</div>
     </div>
 
@@ -535,7 +550,6 @@ function GastosTab({user,obra,gastos,esAdmin,puedoCargar,tcOficial,tcBlue,tcManu
             {(catD?.subs||[]).map(s=><option key={s.id} value={s.id}>{s.label}</option>)}
           </select>
         </div>
-        <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Monto</div><input style={INP} type="number" placeholder="0" value={draft.monto} onChange={e=>setDraft(d=>({...d,monto:e.target.value}))}/></div>
         <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Moneda</div><select style={SEL} value={draft.moneda} onChange={e=>setDraft(d=>({...d,moneda:e.target.value}))}><option>ARS</option><option>USD</option></select></div>
         {esAdmin&&<div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Visibilidad</div>
           <select style={SEL} value={draft.visibilidad} onChange={e=>setDraft(d=>({...d,visibilidad:e.target.value}))}>
@@ -544,8 +558,28 @@ function GastosTab({user,obra,gastos,esAdmin,puedoCargar,tcOficial,tcBlue,tcManu
         </div>}
         <div style={{gridColumn:"1/-1"}}><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Descripción</div><input style={INP} placeholder="Detalle opcional..." value={draft.descripcion} onChange={e=>setDraft(d=>({...d,descripcion:e.target.value}))}/></div>
       </div>
+      {/* DOBLE MONTO — solo admin */}
+      {esAdmin?<div style={{background:"#1a3d0a18",border:`1px solid ${C.green}33`,borderRadius:10,padding:"14px",marginBottom:12}}>
+        <div style={{fontSize:12,fontWeight:700,color:C.green,marginBottom:10}}>💰 Montos</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <div>
+            <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>🔒 Monto real <span style={{color:C.t3,fontWeight:400}}>(solo vos)</span></div>
+            <input style={{...INP,borderColor:C.green+"66"}} type="number" placeholder="0" value={draft.monto} onChange={e=>setDraft(d=>({...d,monto:e.target.value}))}/>
+            {parseFloat(draft.monto)>0&&<div style={{fontSize:10,color:C.t3,marginTop:3}}>
+              {draft.moneda==="USD"?`≈ ${fmtARS(parseFloat(draft.monto)*tcVal)}`:`≈ ${fmtUSD(parseFloat(draft.monto)/tcVal)}`}
+            </div>}
+          </div>
+          <div>
+            <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>🌐 Monto cliente <span style={{color:C.t3,fontWeight:400}}>(opcional)</span></div>
+            <input style={{...INP,borderColor:C.lima+"66"}} type="number" placeholder={draft.monto||"igual al real"} value={draft.monto_cliente} onChange={e=>setDraft(d=>({...d,monto_cliente:e.target.value}))}/>
+            {parseFloat(draft.monto_cliente)>0&&parseFloat(draft.monto)>0&&<div style={{fontSize:10,marginTop:3,color:parseFloat(draft.monto_cliente)>parseFloat(draft.monto)?C.lima:C.red,fontWeight:600}}>
+              Diferencia: {parseFloat(draft.monto_cliente)>parseFloat(draft.monto)?"+":""}{fmtM(parseFloat(draft.monto_cliente)-parseFloat(draft.monto),draft.moneda)}
+            </div>}
+          </div>
+        </div>
+        {!draft.monto_cliente&&<div style={{fontSize:10,color:C.t3,marginTop:8,fontStyle:"italic"}}>Si dejás vacío "Monto cliente", el cliente verá el monto real.</div>}
+      </div>:<div style={{marginBottom:12}}><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Monto</div><input style={INP} type="number" placeholder="0" value={draft.monto} onChange={e=>setDraft(d=>({...d,monto:e.target.value}))}/></div>}
       {draft.moneda==="USD"&&parseFloat(draft.monto)>0&&<div style={{background:C.limaBg,border:`1px solid ${C.lima}44`,borderRadius:7,padding:"7px 11px",fontSize:11,color:C.t2,marginBottom:10}}>≈ <b>{fmtARS(parseFloat(draft.monto)*tcVal)}</b> al TC {tcTipo} ${tcVal?.toLocaleString("es-AR")}</div>}
-      {draft.moneda==="ARS"&&parseFloat(draft.monto)>0&&<div style={{background:C.limaBg,border:`1px solid ${C.lima}44`,borderRadius:7,padding:"7px 11px",fontSize:11,color:C.t2,marginBottom:10}}>≈ <b>{fmtUSD(parseFloat(draft.monto)/tcVal)}</b> al TC {tcTipo} ${tcVal?.toLocaleString("es-AR")}</div>}
       <div style={{display:"flex",gap:8}}><Btn primary onClick={save} loading={saving}>Guardar</Btn><Btn onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
     </Card>}
 
@@ -564,28 +598,46 @@ function GastosTab({user,obra,gastos,esAdmin,puedoCargar,tcOficial,tcBlue,tcManu
 
     <Card>
       <div className="hide-mobile" style={{overflowX:"auto"}}>
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:580}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:esAdmin?700:580}}>
           <thead><tr style={{borderBottom:`2px solid ${C.bd2}`}}>
-            {["Fecha","Categoría","Subcategoría","Descripción",`Monto (${monedaVista})`,"TC",esAdmin?"Vis.":null,"Por",""].filter(Boolean).map((h,i)=>(
+            {["Fecha","Categoría","Subcategoría","Descripción",
+              esAdmin?"Monto real":`Monto (${monedaVista})`,
+              esAdmin?"Monto cliente":null,
+              "TC",esAdmin?"Vis.":null,"Por",""].filter(Boolean).map((h,i)=>(
               <th key={i} style={{padding:"8px 10px",textAlign:"left",fontSize:10,fontWeight:700,color:C.t3,textTransform:"uppercase",letterSpacing:".05em",whiteSpace:"nowrap"}}>{h}</th>
             ))}
           </tr></thead>
           <tbody>
             {filtered.map(g=>{
               const cat=cats.find(c=>c.id===g.cat_id);const sub=cat?.subs?.find(s=>s.id===g.sub_id);
+              const montoReal=conv(g);
+              const montoCliente=g.monto_cliente!=null?conv({...g,monto:g.monto_cliente}):montoReal;
+              const diff=montoCliente-montoReal;
               return <tr key={g.id} style={{borderBottom:`1px solid ${C.bd}`}}>
                 <td style={{padding:"9px 10px",color:C.t3,fontSize:11,whiteSpace:"nowrap"}}>{g.fecha}</td>
                 <td style={{padding:"9px 10px",whiteSpace:"nowrap"}}><span style={{display:"flex",alignItems:"center",gap:5,color:cat?.color||C.t,fontWeight:600}}><span>{cat?.icon}</span>{cat?.label}</span></td>
                 <td style={{padding:"9px 10px",color:C.t2}}>{sub?.label||"—"}</td>
-                <td style={{padding:"9px 10px",color:C.t2,maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.descripcion||"—"}</td>
-                <td style={{padding:"9px 10px",fontWeight:700,color:cat?.color||C.green,whiteSpace:"nowrap"}}>{fmt(conv(g))}</td>
+                <td style={{padding:"9px 10px",color:C.t2,maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.descripcion||"—"}</td>
+                {/* Monto según rol */}
+                <td style={{padding:"9px 10px",fontWeight:700,color:cat?.color||C.green,whiteSpace:"nowrap"}}>
+                  {esAdmin?fmt(montoReal):fmt(montoCliente)}
+                </td>
+                {/* Columna monto cliente solo para admin */}
+                {esAdmin&&<td style={{padding:"9px 10px",whiteSpace:"nowrap"}}>
+                  {g.monto_cliente!=null
+                    ?<span style={{display:"flex",flexDirection:"column",gap:2}}>
+                        <span style={{fontWeight:600,color:C.lima}}>{fmt(montoCliente)}</span>
+                        <span style={{fontSize:9,color:diff>0?C.lima:diff<0?C.red:C.t3,fontWeight:600}}>{diff>0?"+":""}{fmt(diff)}</span>
+                      </span>
+                    :<span style={{fontSize:10,color:C.t3}}>= real</span>}
+                </td>}
                 <td style={{padding:"9px 10px",whiteSpace:"nowrap"}}><span style={{fontSize:10,padding:"2px 7px",borderRadius:10,background:g.tc_tipo==="blue"?C.limaBg:C.bg3,color:g.tc_tipo==="blue"?C.lima:C.green,fontWeight:600,border:`1px solid ${g.tc_tipo==="blue"?C.lima+"44":C.bd}`}}>{g.tc_tipo} ${(g.tc_valor||0).toLocaleString("es-AR")}</span></td>
                 {esAdmin&&<td style={{padding:"9px 10px"}}><Tag label={g.visibilidad==="privado"?"🔒":"🌐"} color={g.visibilidad==="privado"?C.t3:C.green}/></td>}
                 <td style={{padding:"9px 10px",color:C.t3,fontSize:11,whiteSpace:"nowrap"}}>{g.cargado_por}</td>
                 <td style={{padding:"9px 10px",textAlign:"right"}}>
                   <div style={{display:"flex",gap:4,justifyContent:"flex-end"}}>
                     {(()=>{const cnt=comentarios.filter(c=>c.gasto_id===g.id).length;return cnt>0?<button onClick={()=>setGastoComent(g)} style={{background:C.blue+"18",border:`1px solid ${C.blue}44`,borderRadius:5,padding:"3px 8px",cursor:"pointer",color:C.blue,fontSize:11}}>💬 {cnt}</button>:<button onClick={()=>setGastoComent(g)} style={{background:C.bg3,border:`1px solid ${C.bd2}`,borderRadius:5,padding:"3px 8px",cursor:"pointer",color:C.t3,fontSize:11}}>💬</button>;})()}
-                    {esAdmin&&<button onClick={()=>setEditM({...g,monto:String(g.monto)})} style={{background:C.bg3,border:`1px solid ${C.bd2}`,borderRadius:5,padding:"3px 8px",cursor:"pointer",color:C.t2,fontSize:11}}>✎</button>}
+                    {esAdmin&&<button onClick={()=>setEditM({...g,monto:String(g.monto),monto_cliente:g.monto_cliente!=null?String(g.monto_cliente):""})} style={{background:C.bg3,border:`1px solid ${C.bd2}`,borderRadius:5,padding:"3px 8px",cursor:"pointer",color:C.t2,fontSize:11}}>✎</button>}
                     {esAdmin&&<button onClick={()=>deleteG(g.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.t3,fontSize:16,padding:"0 3px"}}>×</button>}
                   </div>
                 </td>
@@ -605,7 +657,7 @@ function GastosTab({user,obra,gastos,esAdmin,puedoCargar,tcOficial,tcBlue,tcManu
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Fecha</div><input style={INP} type="date" value={editM.fecha} onChange={e=>setEditM(m=>({...m,fecha:e.target.value}))}/></div>
-          <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Monto</div><input style={INP} type="number" value={editM.monto} onChange={e=>setEditM(m=>({...m,monto:e.target.value}))}/></div>
+          <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Moneda</div><select style={SEL} value={editM.moneda} onChange={e=>setEditM(m=>({...m,moneda:e.target.value}))}><option>ARS</option><option>USD</option></select></div>
           <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Categoría</div>
             <select style={SEL} value={editM.cat_id} onChange={e=>{const c=cats.find(x=>x.id===e.target.value);setEditM(m=>({...m,cat_id:e.target.value,sub_id:c?.subs?.[0]?.id||""}));}}>
               {cats.map(c=><option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
@@ -616,9 +668,22 @@ function GastosTab({user,obra,gastos,esAdmin,puedoCargar,tcOficial,tcBlue,tcManu
               {(catE?.subs||[]).map(s=><option key={s.id} value={s.id}>{s.label}</option>)}
             </select>
           </div>
-          <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Moneda</div><select style={SEL} value={editM.moneda} onChange={e=>setEditM(m=>({...m,moneda:e.target.value}))}><option>ARS</option><option>USD</option></select></div>
           <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Visibilidad</div><select style={SEL} value={editM.visibilidad} onChange={e=>setEditM(m=>({...m,visibilidad:e.target.value}))}><option value="publico">🌐 Público</option><option value="privado">🔒 Privado</option></select></div>
           <div style={{gridColumn:"1/-1"}}><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Descripción</div><input style={INP} value={editM.descripcion||""} onChange={e=>setEditM(m=>({...m,descripcion:e.target.value}))}/></div>
+        </div>
+        {/* Doble monto en edición */}
+        <div style={{background:"#1a3d0a18",border:`1px solid ${C.green}33`,borderRadius:10,padding:"12px 14px"}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.green,marginBottom:10}}>💰 Montos</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <div>
+              <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>🔒 Monto real <span style={{color:C.t3,fontWeight:400}}>(solo vos)</span></div>
+              <input style={{...INP,borderColor:C.green+"66"}} type="number" value={editM.monto} onChange={e=>setEditM(m=>({...m,monto:e.target.value}))}/>
+            </div>
+            <div>
+              <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>🌐 Monto cliente <span style={{color:C.t3,fontWeight:400}}>(opcional)</span></div>
+              <input style={{...INP,borderColor:C.lima+"66"}} type="number" placeholder="igual al real" value={editM.monto_cliente||""} onChange={e=>setEditM(m=>({...m,monto_cliente:e.target.value}))}/>
+            </div>
+          </div>
         </div>
         <div style={{display:"flex",gap:8}}><Btn primary onClick={saveEdit} loading={saving}>Guardar</Btn><Btn onClick={()=>setEditM(null)}>Cancelar</Btn></div>
       </div>
@@ -909,53 +974,51 @@ function LightboxViewer({foto,fotos,onClose,onNav}){
       if(e.key==="ArrowRight"&&hasNext)onNav(fotos[idx+1]);
     };
     window.addEventListener("keydown",h);
-    return()=>window.removeEventListener("keydown",h);
-  },[idx,hasPrev,hasNext]);
+    document.body.style.overflow="hidden";
+    return()=>{window.removeEventListener("keydown",h);document.body.style.overflow="";};
+  },[idx,hasPrev,hasNext,onClose]);
 
   const download=async()=>{
     try{
-      const res=await fetch(foto.url);
-      const blob=await res.blob();
+      const res=await fetch(foto.url);const blob=await res.blob();
       const ext=foto.url.split(".").pop().split("?")[0]||"jpg";
       const a=document.createElement("a");
       a.href=URL.createObjectURL(blob);
-      a.download=`${foto.titulo||"foto"}.${ext}`;
-      a.click();
-    }catch{
-      window.open(foto.url,"_blank");
-    }
+      a.download=`${foto.titulo||"foto"}.${ext}`;a.click();
+    }catch{window.open(foto.url,"_blank");}
   };
 
-  return <div
-    style={{position:"fixed",inset:0,background:"rgba(0,0,0,.92)",zIndex:300,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}
-    onClick={onClose}
-  >
-    {/* Barra superior */}
-    <div onClick={e=>e.stopPropagation()} style={{position:"absolute",top:0,left:0,right:0,padding:"14px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",background:"linear-gradient(rgba(0,0,0,.6),transparent)"}}>
-      <div>
+  // Clic en overlay cierra; clic en imagen no hace nada (no propaga)
+  return <div style={{position:"fixed",inset:0,zIndex:9000,background:"rgba(0,0,0,.93)",display:"flex",flexDirection:"column"}}>
+
+    {/* Botón ✕ siempre visible arriba a la derecha */}
+    <div style={{position:"absolute",top:0,left:0,right:0,zIndex:9010,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",background:"linear-gradient(rgba(0,0,0,.7),transparent)",pointerEvents:"none"}}>
+      <div style={{pointerEvents:"none"}}>
         <div style={{color:"#fff",fontWeight:700,fontSize:14}}>{foto.titulo}</div>
-        <div style={{color:"rgba(255,255,255,.55)",fontSize:11,marginTop:2}}>{foto.fecha}{foto.etapa&&` · ${foto.etapa}`}{fotos.length>1&&` · ${idx+1}/${fotos.length}`}</div>
+        <div style={{color:"rgba(255,255,255,.5)",fontSize:11,marginTop:2}}>{foto.fecha}{foto.etapa&&` · ${foto.etapa}`}{fotos.length>1&&` · ${idx+1}/${fotos.length}`}</div>
       </div>
-      <div style={{display:"flex",gap:8}}>
-        <button onClick={e=>{e.stopPropagation();download();}} title="Descargar" style={{background:"rgba(255,255,255,.15)",border:"1px solid rgba(255,255,255,.25)",borderRadius:8,width:38,height:38,cursor:"pointer",color:"#fff",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>⬇</button>
-        <button onClick={e=>{e.stopPropagation();window.open(foto.url,"_blank");}} title="Abrir en nueva pestaña" style={{background:"rgba(255,255,255,.15)",border:"1px solid rgba(255,255,255,.25)",borderRadius:8,width:38,height:38,cursor:"pointer",color:"#fff",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>⤢</button>
-        <button onClick={e=>{e.stopPropagation();onClose();}} title="Cerrar (ESC)" style={{background:"rgba(255,255,255,.15)",border:"1px solid rgba(255,255,255,.25)",borderRadius:8,width:38,height:38,cursor:"pointer",color:"#fff",fontSize:22,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:300}}>×</button>
+      <div style={{display:"flex",gap:8,pointerEvents:"auto"}}>
+        <button onClick={download} title="Descargar" style={{background:"rgba(255,255,255,.2)",border:"1px solid rgba(255,255,255,.3)",borderRadius:8,width:42,height:42,cursor:"pointer",color:"#fff",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center"}}>⬇</button>
+        <button onClick={()=>window.open(foto.url,"_blank")} title="Nueva pestaña" style={{background:"rgba(255,255,255,.2)",border:"1px solid rgba(255,255,255,.3)",borderRadius:8,width:42,height:42,cursor:"pointer",color:"#fff",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center"}}>⤢</button>
+        <button onClick={onClose} title="Cerrar (ESC)" style={{background:"rgba(220,60,60,.8)",border:"none",borderRadius:8,width:42,height:42,cursor:"pointer",color:"#fff",fontSize:24,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,lineHeight:1}}>×</button>
       </div>
     </div>
 
-    {/* Imagen */}
-    <img
-      src={foto.url} alt={foto.titulo}
-      onClick={e=>e.stopPropagation()}
-      style={{maxWidth:"90vw",maxHeight:"80vh",objectFit:"contain",borderRadius:10,userSelect:"none"}}
-    />
+    {/* Zona central: click en fondo cierra, click en imagen no */}
+    <div onClick={onClose} style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",padding:"70px 60px 40px",cursor:"pointer"}}>
+      <img
+        src={foto.url} alt={foto.titulo}
+        onClick={e=>e.stopPropagation()}
+        style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",borderRadius:8,cursor:"default",userSelect:"none",boxShadow:"0 8px 40px rgba(0,0,0,.6)"}}
+      />
+    </div>
 
     {/* Navegación prev/next */}
-    {hasPrev&&<button onClick={e=>{e.stopPropagation();onNav(fotos[idx-1]);}} style={{position:"absolute",left:16,top:"50%",transform:"translateY(-50%)",background:"rgba(255,255,255,.15)",border:"1px solid rgba(255,255,255,.25)",borderRadius:10,width:44,height:44,cursor:"pointer",color:"#fff",fontSize:22,display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>}
-    {hasNext&&<button onClick={e=>{e.stopPropagation();onNav(fotos[idx+1]);}} style={{position:"absolute",right:16,top:"50%",transform:"translateY(-50%)",background:"rgba(255,255,255,.15)",border:"1px solid rgba(255,255,255,.25)",borderRadius:10,width:44,height:44,cursor:"pointer",color:"#fff",fontSize:22,display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>}
+    {hasPrev&&<button onClick={()=>onNav(fotos[idx-1])} style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",background:"rgba(255,255,255,.18)",border:"1px solid rgba(255,255,255,.3)",borderRadius:10,width:48,height:48,cursor:"pointer",color:"#fff",fontSize:26,display:"flex",alignItems:"center",justifyContent:"center",zIndex:9010}}>‹</button>}
+    {hasNext&&<button onClick={()=>onNav(fotos[idx+1])} style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"rgba(255,255,255,.18)",border:"1px solid rgba(255,255,255,.3)",borderRadius:10,width:48,height:48,cursor:"pointer",color:"#fff",fontSize:26,display:"flex",alignItems:"center",justifyContent:"center",zIndex:9010}}>›</button>}
 
-    {/* Hint cerrar */}
-    <div style={{position:"absolute",bottom:20,color:"rgba(255,255,255,.35)",fontSize:11}}>Click fuera para cerrar · ESC · ← → para navegar</div>
+    {/* Hint */}
+    <div style={{textAlign:"center",padding:"0 0 14px",color:"rgba(255,255,255,.3)",fontSize:11,pointerEvents:"none"}}>Click en el fondo para cerrar · ESC{fotos.length>1?" · ← → navegar":""}</div>
   </div>;
 }
 
