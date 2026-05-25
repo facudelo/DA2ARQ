@@ -334,7 +334,7 @@ function ObraApp(props){
         esAdmin={esAdmin} toast={toast} reload={loadAll}
         onClose={()=>setShowGastoModal(false)}
       />}
-    </>}
+    </>;}
   </div>;
 }
 
@@ -360,7 +360,7 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=
       {presupTotalMV>0&&<StatCard label="Presupuesto" value={fmt(presupTotalMV)} sub={pct!==null?`${pct}% ejecutado`:""} color={C.blue} icon="📐"/>}
       {presupTotalMV>0&&<StatCard label="Disponible" value={fmt(Math.max(0,presupTotalMV-totalMV))} sub={pct>=90?"⚠ Límite cercano":""} color={presupTotalMV-totalMV<0?C.red:C.lima} icon="📊"/>}
       <StatCard label="Participantes" value={partic.length} sub={`${fotos.length} foto${fotos.length!==1?"s":""}`} color={C.amber} icon="👥"/>
-      {hitos.length>0&&<StatCard label="Hitos" value={`${hitosComp}/${hitos.length}`} sub={`${Math.round((hitosComp/hitos.length)*100)}% completados`} color={C.blue} icon="🏁"/>}
+      {hitos.length>0&&<StatCard label="Objetivos" value={`${hitosComp}/${hitos.length}`} sub={`${Math.round((hitosComp/hitos.length)*100)}% completados`} color={C.blue} icon="🏁"/>}
     </div>
 
     {presupTotalMV>0&&<Card style={{marginBottom:14}}>
@@ -440,7 +440,7 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=
         <div style={{fontSize:11,color:C.t3,marginTop:2}}>{ultimaFoto.fecha}{ultimaFoto.etapa&&` · ${ultimaFoto.etapa}`}</div>
       </Card>}
       {hitosActivos.length>0&&<Card style={{flex:"1 1 200px"}}>
-        <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:10,fontWeight:600}}>Próximos hitos</div>
+        <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:10,fontWeight:600}}>Próximos objetivos</div>
         {hitosActivos.map(h=>{
           const col=h.estado==="en_progreso"?C.amber:C.t3;
           return <div key={h.id} style={{display:"flex",gap:8,alignItems:"flex-start",marginBottom:10,paddingBottom:10,borderBottom:`1px solid ${C.bd}`}}>
@@ -897,6 +897,68 @@ function PresupuestoTab({obra,gastos,presup,tcRef,cats,toast,reload,monedaVista,
   </div>;
 }
 
+// ── LIGHTBOX ──────────────────────────────────────────────────────────────────
+function LightboxViewer({foto,fotos,onClose,onNav}){
+  const idx=fotos.findIndex(f=>f.id===foto.id);
+  const hasPrev=idx>0,hasNext=idx<fotos.length-1;
+
+  useEffect(()=>{
+    const h=e=>{
+      if(e.key==="Escape")onClose();
+      if(e.key==="ArrowLeft"&&hasPrev)onNav(fotos[idx-1]);
+      if(e.key==="ArrowRight"&&hasNext)onNav(fotos[idx+1]);
+    };
+    window.addEventListener("keydown",h);
+    return()=>window.removeEventListener("keydown",h);
+  },[idx,hasPrev,hasNext]);
+
+  const download=async()=>{
+    try{
+      const res=await fetch(foto.url);
+      const blob=await res.blob();
+      const ext=foto.url.split(".").pop().split("?")[0]||"jpg";
+      const a=document.createElement("a");
+      a.href=URL.createObjectURL(blob);
+      a.download=`${foto.titulo||"foto"}.${ext}`;
+      a.click();
+    }catch{
+      window.open(foto.url,"_blank");
+    }
+  };
+
+  return <div
+    style={{position:"fixed",inset:0,background:"rgba(0,0,0,.92)",zIndex:300,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}
+    onClick={onClose}
+  >
+    {/* Barra superior */}
+    <div onClick={e=>e.stopPropagation()} style={{position:"absolute",top:0,left:0,right:0,padding:"14px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",background:"linear-gradient(rgba(0,0,0,.6),transparent)"}}>
+      <div>
+        <div style={{color:"#fff",fontWeight:700,fontSize:14}}>{foto.titulo}</div>
+        <div style={{color:"rgba(255,255,255,.55)",fontSize:11,marginTop:2}}>{foto.fecha}{foto.etapa&&` · ${foto.etapa}`}{fotos.length>1&&` · ${idx+1}/${fotos.length}`}</div>
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={e=>{e.stopPropagation();download();}} title="Descargar" style={{background:"rgba(255,255,255,.15)",border:"1px solid rgba(255,255,255,.25)",borderRadius:8,width:38,height:38,cursor:"pointer",color:"#fff",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>⬇</button>
+        <button onClick={e=>{e.stopPropagation();window.open(foto.url,"_blank");}} title="Abrir en nueva pestaña" style={{background:"rgba(255,255,255,.15)",border:"1px solid rgba(255,255,255,.25)",borderRadius:8,width:38,height:38,cursor:"pointer",color:"#fff",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>⤢</button>
+        <button onClick={e=>{e.stopPropagation();onClose();}} title="Cerrar (ESC)" style={{background:"rgba(255,255,255,.15)",border:"1px solid rgba(255,255,255,.25)",borderRadius:8,width:38,height:38,cursor:"pointer",color:"#fff",fontSize:22,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:300}}>×</button>
+      </div>
+    </div>
+
+    {/* Imagen */}
+    <img
+      src={foto.url} alt={foto.titulo}
+      onClick={e=>e.stopPropagation()}
+      style={{maxWidth:"90vw",maxHeight:"80vh",objectFit:"contain",borderRadius:10,userSelect:"none"}}
+    />
+
+    {/* Navegación prev/next */}
+    {hasPrev&&<button onClick={e=>{e.stopPropagation();onNav(fotos[idx-1]);}} style={{position:"absolute",left:16,top:"50%",transform:"translateY(-50%)",background:"rgba(255,255,255,.15)",border:"1px solid rgba(255,255,255,.25)",borderRadius:10,width:44,height:44,cursor:"pointer",color:"#fff",fontSize:22,display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>}
+    {hasNext&&<button onClick={e=>{e.stopPropagation();onNav(fotos[idx+1]);}} style={{position:"absolute",right:16,top:"50%",transform:"translateY(-50%)",background:"rgba(255,255,255,.15)",border:"1px solid rgba(255,255,255,.25)",borderRadius:10,width:44,height:44,cursor:"pointer",color:"#fff",fontSize:22,display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>}
+
+    {/* Hint cerrar */}
+    <div style={{position:"absolute",bottom:20,color:"rgba(255,255,255,.35)",fontSize:11}}>Click fuera para cerrar · ESC · ← → para navegar</div>
+  </div>;
+}
+
 // ── FOTOS ─────────────────────────────────────────────────────────────────────
 function FotosTab({obra,fotos,puedoCargar,user,toast,reload}){
   const [modal,setModal]=useState(false);
@@ -995,18 +1057,7 @@ function FotosTab({obra,fotos,puedoCargar,user,toast,reload}){
     </div>}
 
     {/* Lightbox */}
-    {lightbox&&<div onClick={()=>setLightbox(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.88)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div style={{maxWidth:900,width:"100%",position:"relative"}} onClick={e=>e.stopPropagation()}>
-        <img src={lightbox.url} alt={lightbox.titulo} style={{width:"100%",borderRadius:12,maxHeight:"80vh",objectFit:"contain",display:"block"}}/>
-        <div style={{color:"#fff",marginTop:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div>
-            <div style={{fontWeight:700,fontSize:15}}>{lightbox.titulo}</div>
-            <div style={{fontSize:12,opacity:.6,marginTop:3}}>{lightbox.fecha}{lightbox.etapa&&` · ${lightbox.etapa}`}</div>
-          </div>
-          <button onClick={()=>setLightbox(null)} style={{background:"rgba(255,255,255,.15)",border:"none",borderRadius:8,width:36,height:36,cursor:"pointer",color:"#fff",fontSize:20}}>×</button>
-        </div>
-      </div>
-    </div>}
+    {lightbox&&<LightboxViewer foto={lightbox} fotos={filtradas} onClose={()=>setLightbox(null)} onNav={setLightbox}/>}
 
     {modal&&<Modal title="Subir foto" onClose={()=>setModal(false)}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -1121,7 +1172,7 @@ function HitosTab({obra,hitos,esAdmin,toast,reload}){
   return <div className="fu">
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
       <div>
-        <div style={{fontSize:16,fontWeight:700,color:C.t}}>Hitos de Obra</div>
+        <div style={{fontSize:16,fontWeight:700,color:C.t}}>Objetivos de Obra</div>
         <div style={{fontSize:12,color:C.t3}}>{completados}/{hitos.length} completados · {pct}% avanzado</div>
       </div>
       {esAdmin&&<Btn primary onClick={()=>setModal(true)}>+ Nuevo hito</Btn>}
@@ -1137,8 +1188,8 @@ function HitosTab({obra,hitos,esAdmin,toast,reload}){
 
     {hitos.length===0&&<Card><div style={{textAlign:"center",padding:"48px 0"}}>
       <div style={{fontSize:44,marginBottom:12}}>🏁</div>
-      <div style={{fontSize:14,fontWeight:600,color:C.t2,marginBottom:6}}>Sin hitos definidos</div>
-      <div style={{fontSize:12,color:C.t3,marginBottom:16}}>Los hitos marcan las etapas clave de la obra y son visibles para todos</div>
+      <div style={{fontSize:14,fontWeight:600,color:C.t2,marginBottom:6}}>Sin objetivos definidos</div>
+      <div style={{fontSize:12,color:C.t3,marginBottom:16}}>Los objetivos marcan las etapas clave de la obra y son visibles para todos</div>
       {esAdmin&&<Btn primary onClick={()=>setModal(true)}>+ Crear primer hito</Btn>}
     </div></Card>}
 
@@ -1264,9 +1315,9 @@ function ResumenClienteTab({obra,gastos,presup,tcRef,cats,fotos,hitos=[],monedaV
     </Card>}
 
     <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
-      {/* Hitos */}
+      {/* Objetivos */}
       {hitos.length>0&&<Card style={{flex:"1 1 250px"}}>
-        <div style={{fontSize:13,fontWeight:700,color:C.t,marginBottom:12}}>🏁 Avance de obra</div>
+        <div style={{fontSize:13,fontWeight:700,color:C.t,marginBottom:12}}>🏁 Avance de objetivos</div>
         {hitoPct!==null&&<>
           <div style={{height:10,borderRadius:5,background:C.bg3,overflow:"hidden",marginBottom:6}}>
             <div style={{height:"100%",borderRadius:5,background:hitoPct===100?C.green:C.lima,width:`${hitoPct}%`,transition:"width .6s"}}/>
