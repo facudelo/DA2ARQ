@@ -228,7 +228,7 @@ function ObraApp(props){
   const puedoCargar=miP?.puede_cargar||false;
   const esAdmin=miRol==="arquitecto"||miRol==="ayudante";
   const tcRef=tcOficial||tcManual;
-  const gastosVis=esAdmin?gastos:gastos.filter(g=>g.visibilidad==="publico");
+  const gastosVis=esAdmin?gastos:miRol==="ayudante"?gastos.filter(g=>g.visibilidad!=="privado"):gastos.filter(g=>g.visibilidad==="publico");
 
   // Notificaciones: gastos nuevos no vistos
   const gastosNuevos=gastosVis.filter(g=>!notifVistas[g.id]).length;
@@ -308,7 +308,7 @@ function ObraApp(props){
     <div style={{padding:20,paddingBottom:100,maxWidth:1040,margin:"0 auto"}}>
       {loadingData?<Spinner/>:<>
         {tab==="dashboard"&&<DashboardTab obra={obra} gastos={gastosVis} esAdmin={esAdmin} presup={presup} tcRef={tcRef} partic={partic} cats={cats} fotos={fotos} hitos={hitos} monedaVista={monedaVista}/>}
-        {tab==="gastos"&&<GastosTab user={user} obra={obra} gastos={gastos} esAdmin={esAdmin} puedoCargar={puedoCargar} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} externalOpen={showGastoModal} onExternalClose={()=>setShowGastoModal(false)} comentarios={comentarios} miUserId={user.id}/>}
+        {tab==="gastos"&&<GastosTab user={user} obra={obra} gastos={gastos} esAdmin={esAdmin} miRol={miRol} puedoCargar={puedoCargar} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} externalOpen={showGastoModal} onExternalClose={()=>setShowGastoModal(false)} comentarios={comentarios} miUserId={user.id}/>}
         {tab==="presupuesto"&&esAdmin&&<PresupuestoTab obra={obra} gastos={gastos} presup={presup} tcRef={tcRef} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} inflData={inflData} fetchIPC={fetchIPC}/>}
         {tab==="fotos"&&<FotosTab obra={obra} fotos={fotos} puedoCargar={puedoCargar||esAdmin} user={user} toast={toast} reload={loadAll}/>}
         {tab==="objetivos"&&<HitosTab obra={obra} hitos={hitos} esAdmin={esAdmin} toast={toast} reload={loadAll}/>}
@@ -428,7 +428,7 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=
             </div>
             <div style={{textAlign:"right",flexShrink:0}}>
               <div style={{fontSize:13,fontWeight:700,color:cat?.color||C.green}}>{fmt(conv(g))}</div>
-              {esAdmin&&<Tag label={g.visibilidad==="privado"?"🔒":"🌐"} color={g.visibilidad==="privado"?C.t3:C.green}/>}
+              {esAdmin&&<Tag label={g.visibilidad==="privado"?"🔒 Solo yo":g.visibilidad==="solo_admin"?"👷 Equipo":"🌐"} color={g.visibilidad==="privado"?C.t3:g.visibilidad==="solo_admin"?C.blue:C.green}/>}
             </div>
           </div>;
         })}
@@ -458,8 +458,9 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=
 }
 
 // ── GASTOS ────────────────────────────────────────────────────────────────────
-function GastosTab({user,obra,gastos,esAdmin,puedoCargar,tcOficial,tcBlue,tcManual,setTcManual,cats,toast,reload,monedaVista,externalOpen,onExternalClose,comentarios=[],miUserId}){
-  const vis=gastos.filter(g=>esAdmin||g.visibilidad==="publico");
+function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,tcManual,setTcManual,cats,toast,reload,monedaVista,externalOpen,onExternalClose,comentarios=[],miUserId}){
+  // arquitecto ve todo; ayudante ve publico+solo_admin; cliente ve solo publico
+  const vis=gastos.filter(g=>esAdmin||(miRol==="ayudante"&&g.visibilidad!=="privado")||g.visibilidad==="publico");
   const [showForm,setShowForm]=useState(false);
   const [filtro,setFiltro]=useState({cat:"todas",moneda:"todas",vis:"todas",q:""});
   const [tcTipo,setTcTipo]=useState("oficial");
@@ -553,7 +554,9 @@ function GastosTab({user,obra,gastos,esAdmin,puedoCargar,tcOficial,tcBlue,tcManu
         <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Moneda</div><select style={SEL} value={draft.moneda} onChange={e=>setDraft(d=>({...d,moneda:e.target.value}))}><option>ARS</option><option>USD</option></select></div>
         {esAdmin&&<div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Visibilidad</div>
           <select style={SEL} value={draft.visibilidad} onChange={e=>setDraft(d=>({...d,visibilidad:e.target.value}))}>
-            <option value="publico">🌐 Público</option><option value="privado">🔒 Privado</option>
+            <option value="publico">🌐 Público (todos)</option>
+            <option value="solo_admin">👷 Solo equipo (arq. + ayudante)</option>
+            <option value="privado">🔒 Solo yo (arquitecto)</option>
           </select>
         </div>}
         <div style={{gridColumn:"1/-1"}}><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Descripción</div><input style={INP} placeholder="Detalle opcional..." value={draft.descripcion} onChange={e=>setDraft(d=>({...d,descripcion:e.target.value}))}/></div>
@@ -592,7 +595,7 @@ function GastosTab({user,obra,gastos,esAdmin,puedoCargar,tcOficial,tcBlue,tcManu
         <option value="todas">ARS + USD</option><option value="ARS">ARS</option><option value="USD">USD</option>
       </select>
       {esAdmin&&<select style={{...SEL,flex:"0 1 120px",padding:"5px 8px",fontSize:12}} value={filtro.vis} onChange={e=>setFiltro(f=>({...f,vis:e.target.value}))}>
-        <option value="todas">Todas</option><option value="publico">🌐 Público</option><option value="privado">🔒 Privado</option>
+        <option value="todas">Todas</option><option value="publico">🌐 Público</option><option value="solo_admin">👷 Equipo</option><option value="privado">🔒 Solo yo</option>
       </select>}
     </div>
 
@@ -632,7 +635,7 @@ function GastosTab({user,obra,gastos,esAdmin,puedoCargar,tcOficial,tcBlue,tcManu
                     :<span style={{fontSize:10,color:C.t3}}>= real</span>}
                 </td>}
                 <td style={{padding:"9px 10px",whiteSpace:"nowrap"}}><span style={{fontSize:10,padding:"2px 7px",borderRadius:10,background:g.tc_tipo==="blue"?C.limaBg:C.bg3,color:g.tc_tipo==="blue"?C.lima:C.green,fontWeight:600,border:`1px solid ${g.tc_tipo==="blue"?C.lima+"44":C.bd}`}}>{g.tc_tipo} ${(g.tc_valor||0).toLocaleString("es-AR")}</span></td>
-                {esAdmin&&<td style={{padding:"9px 10px"}}><Tag label={g.visibilidad==="privado"?"🔒":"🌐"} color={g.visibilidad==="privado"?C.t3:C.green}/></td>}
+                {esAdmin&&<td style={{padding:"9px 10px"}}><Tag label={g.visibilidad==="privado"?"🔒 Solo yo":g.visibilidad==="solo_admin"?"👷 Equipo":"🌐"} color={g.visibilidad==="privado"?C.t3:g.visibilidad==="solo_admin"?C.blue:C.green}/></td>}
                 <td style={{padding:"9px 10px",color:C.t3,fontSize:11,whiteSpace:"nowrap"}}>{g.cargado_por}</td>
                 <td style={{padding:"9px 10px",textAlign:"right"}}>
                   <div style={{display:"flex",gap:4,justifyContent:"flex-end"}}>
@@ -668,7 +671,7 @@ function GastosTab({user,obra,gastos,esAdmin,puedoCargar,tcOficial,tcBlue,tcManu
               {(catE?.subs||[]).map(s=><option key={s.id} value={s.id}>{s.label}</option>)}
             </select>
           </div>
-          <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Visibilidad</div><select style={SEL} value={editM.visibilidad} onChange={e=>setEditM(m=>({...m,visibilidad:e.target.value}))}><option value="publico">🌐 Público</option><option value="privado">🔒 Privado</option></select></div>
+          <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Visibilidad</div><select style={SEL} value={editM.visibilidad} onChange={e=>setEditM(m=>({...m,visibilidad:e.target.value}))}><option value="publico">🌐 Público (todos)</option><option value="solo_admin">👷 Solo equipo (arq. + ayudante)</option><option value="privado">🔒 Solo yo (arquitecto)</option></select></div>
           <div style={{gridColumn:"1/-1"}}><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Descripción</div><input style={INP} value={editM.descripcion||""} onChange={e=>setEditM(m=>({...m,descripcion:e.target.value}))}/></div>
         </div>
         {/* Doble monto en edición */}
@@ -781,8 +784,9 @@ function GastoRapidoModal({user,obra,cats,tcOficial,tcBlue,tcManual,setTcManual,
         {esAdmin&&<div>
           <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Visibilidad</div>
           <select style={SEL} value={draft.visibilidad} onChange={e=>setDraft(d=>({...d,visibilidad:e.target.value}))}>
-            <option value="publico">🌐 Público</option>
-            <option value="privado">🔒 Privado</option>
+          <option value="publico">🌐 Público (todos)</option>
+            <option value="solo_admin">👷 Solo equipo (arq. + ayudante)</option>
+            <option value="privado">🔒 Solo yo (arquitecto)</option>
           </select>
         </div>}
       </div>
@@ -991,16 +995,16 @@ function LightboxViewer({foto,fotos,onClose,onNav}){
   // Clic en overlay cierra; clic en imagen no hace nada (no propaga)
   return <div style={{position:"fixed",inset:0,zIndex:9000,background:"rgba(0,0,0,.93)",display:"flex",flexDirection:"column"}}>
 
-    {/* Botón ✕ siempre visible arriba a la derecha */}
-    <div style={{position:"absolute",top:0,left:0,right:0,zIndex:9010,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",background:"linear-gradient(rgba(0,0,0,.7),transparent)",pointerEvents:"none"}}>
+    {/* Header con título y botones — siempre clickeable */}
+    <div style={{position:"absolute",top:0,left:0,right:0,zIndex:9010,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",background:"linear-gradient(rgba(0,0,0,.75),transparent)"}}>
       <div style={{pointerEvents:"none"}}>
         <div style={{color:"#fff",fontWeight:700,fontSize:14}}>{foto.titulo}</div>
         <div style={{color:"rgba(255,255,255,.5)",fontSize:11,marginTop:2}}>{foto.fecha}{foto.etapa&&` · ${foto.etapa}`}{fotos.length>1&&` · ${idx+1}/${fotos.length}`}</div>
       </div>
-      <div style={{display:"flex",gap:8,pointerEvents:"auto"}}>
-        <button onClick={download} title="Descargar" style={{background:"rgba(255,255,255,.2)",border:"1px solid rgba(255,255,255,.3)",borderRadius:8,width:42,height:42,cursor:"pointer",color:"#fff",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center"}}>⬇</button>
-        <button onClick={()=>window.open(foto.url,"_blank")} title="Nueva pestaña" style={{background:"rgba(255,255,255,.2)",border:"1px solid rgba(255,255,255,.3)",borderRadius:8,width:42,height:42,cursor:"pointer",color:"#fff",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center"}}>⤢</button>
-        <button onClick={onClose} title="Cerrar (ESC)" style={{background:"rgba(220,60,60,.8)",border:"none",borderRadius:8,width:42,height:42,cursor:"pointer",color:"#fff",fontSize:24,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,lineHeight:1}}>×</button>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={download} title="Descargar foto" style={{background:"rgba(255,255,255,.18)",border:"1px solid rgba(255,255,255,.3)",borderRadius:8,width:42,height:42,cursor:"pointer",color:"#fff",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",zIndex:9020,position:"relative"}}>⬇</button>
+        <button onClick={()=>window.open(foto.url,"_blank")} title="Ver en nueva pestaña" style={{background:"rgba(255,255,255,.18)",border:"1px solid rgba(255,255,255,.3)",borderRadius:8,width:42,height:42,cursor:"pointer",color:"#fff",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",zIndex:9020,position:"relative"}}>⤢</button>
+        <button onClick={onClose} title="Cerrar (ESC)" style={{background:"rgba(200,40,40,.85)",border:"none",borderRadius:8,width:42,height:42,cursor:"pointer",color:"#fff",fontSize:26,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,lineHeight:1,zIndex:9020,position:"relative"}}>×</button>
       </div>
     </div>
 
@@ -1050,13 +1054,18 @@ function FotosTab({obra,fotos,puedoCargar,user,toast,reload}){
   const porEtapa=etapas.reduce((acc,e)=>{acc[e]=filtradas.filter(f=>f.etapa===e);return acc;},{});
   const sinEtapa=filtradas.filter(f=>!f.etapa);
 
+  const downloadFoto=async(f,e)=>{e.stopPropagation();try{const res=await fetch(f.url);const blob=await res.blob();const ext=f.url.split(".").pop().split("?")[0]||"jpg";const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`${f.titulo||"foto"}.${ext}`;a.click();}catch{window.open(f.url,"_blank");}};
+
   const FotoCard=({f})=>(
     <div style={{background:C.bg2,border:`1px solid ${C.bd}`,borderRadius:14,overflow:"hidden",boxShadow:"0 1px 6px rgba(42,80,28,.07)"}}>
       <div style={{position:"relative",cursor:"zoom-in"}} onClick={()=>setLightbox(f)}>
         <img src={f.url} alt={f.titulo} style={{width:"100%",height:175,objectFit:"cover",display:"block"}}/>
         {f.etapa&&<div style={{position:"absolute",top:8,left:8}}><Tag label={f.etapa} color={C.green}/></div>}
-        {puedoCargar&&<button onClick={e=>{e.stopPropagation();deleteFoto(f);}} style={{position:"absolute",top:8,right:8,background:"rgba(0,0,0,.55)",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",color:"#fff",fontSize:12}}>×</button>}
-        <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(transparent,rgba(0,0,0,.5)",padding:"20px 12px 8px"}}>
+        <div style={{position:"absolute",top:8,right:8,display:"flex",gap:4}}>
+          <button onClick={e=>downloadFoto(f,e)} title="Descargar foto" style={{background:"rgba(0,0,0,.55)",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",color:"#fff",fontSize:12}}>⬇</button>
+          {puedoCargar&&<button onClick={e=>{e.stopPropagation();deleteFoto(f);}} style={{background:"rgba(0,0,0,.55)",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",color:"#fff",fontSize:12}}>×</button>}
+        </div>
+        <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(transparent,rgba(0,0,0,.55))",padding:"20px 12px 8px"}}>
           <div style={{color:"#fff",fontWeight:700,fontSize:12}}>{f.titulo}</div>
           <div style={{color:"rgba(255,255,255,.7)",fontSize:10}}>{f.fecha}</div>
         </div>
