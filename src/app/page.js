@@ -334,7 +334,7 @@ function ObraApp(props){
         esAdmin={esAdmin} toast={toast} reload={loadAll}
         onClose={()=>setShowGastoModal(false)}
       />}
-    </>;}
+    </>}
   </div>;
 }
 
