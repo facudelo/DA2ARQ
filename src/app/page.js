@@ -916,8 +916,8 @@ function GastoRapidoModal({user,obra,cats,tcOficial,tcBlue,tcManual,setTcManual,
     setSaving(false);
   };
 
-  return <div onClick={e=>{if(e.target===e.currentTarget)onClose();}} style={{position:"fixed",inset:0,background:"rgba(10,30,5,.55)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:200,padding:16}}>
-    <div style={{background:C.bg2,border:`1px solid ${C.bd2}`,borderRadius:"20px 20px 16px 16px",padding:24,width:"100%",maxWidth:480,boxShadow:"0 -8px 32px rgba(0,0,0,.18)"}}>
+  return <div onClick={e=>{if(e.target===e.currentTarget)onClose();}} style={{position:"fixed",inset:0,background:"rgba(10,30,5,.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:16}}>
+    <div style={{background:C.bg2,border:`1px solid ${C.bd2}`,borderRadius:20,padding:24,width:"100%",maxWidth:480,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 40px rgba(0,0,0,.22)"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
         <span style={{fontWeight:700,fontSize:15,color:C.t}}>Cargar gasto rápido</span>
         <button onClick={onClose} style={{background:"none",border:"none",color:C.t3,cursor:"pointer",fontSize:24,lineHeight:1}}>×</button>
@@ -1535,7 +1535,7 @@ function FotosTab({obra,fotos,puedoCargar,user,toast,reload}){
         <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Título *</div><input style={INP} placeholder="Ej: Losa planta baja" value={draft.titulo} onChange={e=>setDraft(d=>({...d,titulo:e.target.value}))}/></div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Fecha</div><input style={INP} type="date" value={draft.fecha} onChange={e=>setDraft(d=>({...d,fecha:e.target.value}))}/></div>
-          <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Etapa</div><input style={INP} list="etapas-dl" placeholder="Ej: Estructura" value={draft.etapa} onChange={e=>setDraft(d=>({...d,etapa:e.target.value}))}/><datalist id="etapas-dl">{["Demolición","Excavación","Estructura","Mampostería","Instalaciones","Carpintería","Terminaciones","Exterior","Final"].map(e=><option key={e} value={e}/>)}</datalist></div>
+          <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Etapa <span style={{color:C.t3,fontWeight:400}}>(libre)</span></div><input style={INP} list="etapas-dl" placeholder="Ej: Estructura, Pintura..." value={draft.etapa} onChange={e=>setDraft(d=>({...d,etapa:e.target.value}))}/><datalist id="etapas-dl">{[...new Set(["Demolición","Excavación","Estructura","Mampostería","Instalaciones","Carpintería","Terminaciones","Exterior","Final",...etapas])].map(e=><option key={e} value={e}/>)}</datalist></div>
         </div>
         <div style={{display:"flex",gap:8}}><Btn primary onClick={save} disabled={!draft.file||!draft.titulo.trim()} loading={saving}>Subir</Btn><Btn onClick={()=>setModal(false)}>Cancelar</Btn></div>
       </div>
@@ -1555,11 +1555,25 @@ function HitosTab({obra,hitos,esAdmin,toast,reload}){
     else{toast.success("Hito creado");await reload();}
     setDraft({titulo:"",descripcion:"",fecha_estimada:"",estado:"pendiente"});setModal(false);setSaving(false);
   };
-  const updateEstado=async(id,estado)=>{const{error}=await supabase.from("hitos").update({estado}).eq("id",id);if(error)toast.error("Error");else await reload();};
+  const updateEstado=async(id,nuevoEstado)=>{
+    if(nuevoEstado==="en_progreso"){setProgresoModal({id,progreso:25});return;}
+    const upd={estado:nuevoEstado,progreso:nuevoEstado==="completado"?100:0};
+    const{error}=await supabase.from("hitos").update(upd).eq("id",id);
+    if(error)toast.error("Error");else await reload();
+  };
+  const confirmarProgreso=async()=>{
+    if(!progresoModal)return;
+    const{error}=await supabase.from("hitos").update({estado:"en_progreso",progreso:progresoModal.progreso}).eq("id",progresoModal.id);
+    if(error)toast.error("Error");else{toast.success("Progreso actualizado");await reload();}
+    setProgresoModal(null);
+  };
   const deleteH=async(id)=>{const{error}=await supabase.from("hitos").delete().eq("id",id);if(error)toast.error("Error");else{toast.success("Eliminado");await reload();}};
+  const [progresoModal,setProgresoModal]=useState(null);
   const EC={pendiente:{color:C.t3,label:"Pendiente",dot:"○"},en_progreso:{color:C.amber,label:"En progreso",dot:"◑"},completado:{color:C.green,label:"Completado",dot:"●"}};
   const completados=hitos.filter(h=>h.estado==="completado").length;
-  const pct=hitos.length>0?Math.round((completados/hitos.length)*100):0;
+  const enProgresoHits=hitos.filter(h=>h.estado==="en_progreso");
+  const pctParcial=enProgresoHits.reduce((s,h)=>s+(h.progreso||0)/100,0);
+  const pct=hitos.length>0?Math.round(((completados+pctParcial)/hitos.length)*100):0;
 
   return <div className="fu">
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
@@ -1601,6 +1615,14 @@ function HitosTab({obra,hitos,esAdmin,toast,reload}){
                   <div style={{fontWeight:700,fontSize:13,color:h.estado==="completado"?C.t3:C.t,textDecoration:h.estado==="completado"?"line-through":"none"}}>{h.titulo}</div>
                   {h.descripcion&&<div style={{fontSize:12,color:C.t3,marginTop:3}}>{h.descripcion}</div>}
                   <div style={{fontSize:11,color:C.t3,marginTop:5}}>📅 Estimado: {h.fecha_estimada}</div>
+                  {h.estado==="en_progreso"&&<div style={{marginTop:8}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.amber,marginBottom:3,fontWeight:600}}>
+                      <span>Progreso</span><span>{h.progreso||0}%</span>
+                    </div>
+                    <div style={{height:5,borderRadius:3,background:C.bg3,overflow:"hidden"}}>
+                      <div style={{height:"100%",borderRadius:3,background:C.amber,width:`${h.progreso||0}%`,transition:"width .5s"}}/>
+                    </div>
+                  </div>}
                 </div>
                 <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
                   {esAdmin?<select value={h.estado} onChange={e=>updateEstado(h.id,e.target.value)} style={{...SEL,width:"auto",padding:"5px 8px",fontSize:11,borderColor:ec.color+"66"}}>
@@ -1614,6 +1636,22 @@ function HitosTab({obra,hitos,esAdmin,toast,reload}){
         </div>;
       })}
     </div>
+
+    {progresoModal&&<Modal title="¿Cuánto avanzó este objetivo?" onClose={()=>setProgresoModal(null)}>
+      <div style={{display:"flex",flexDirection:"column",gap:16}}>
+        <div style={{fontSize:13,color:C.t3}}>Seleccioná el porcentaje de avance:</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8}}>
+          {[0,25,50,75,100].map(p=><button key={p} onClick={()=>setProgresoModal(m=>({...m,progreso:p}))} style={{padding:"14px 0",fontSize:14,fontWeight:700,borderRadius:10,border:`2px solid ${progresoModal.progreso===p?C.amber:C.bd2}`,background:progresoModal.progreso===p?C.amber+"18":"transparent",color:progresoModal.progreso===p?C.amber:C.t2,cursor:"pointer",transition:"all .15s"}}>{p}%</button>)}
+        </div>
+        <div style={{height:10,borderRadius:5,background:C.bg3,overflow:"hidden"}}>
+          <div style={{height:"100%",borderRadius:5,background:C.amber,width:`${progresoModal.progreso}%`,transition:"width .4s"}}/>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <Btn primary onClick={confirmarProgreso}>Confirmar</Btn>
+          <Btn onClick={()=>setProgresoModal(null)}>Cancelar</Btn>
+        </div>
+      </div>
+    </Modal>}
 
     {modal&&<Modal title="Nuevo hito" onClose={()=>setModal(false)}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -1918,8 +1956,8 @@ function ResumenClienteTab({obra,gastos,presup,tcRef,cats,fotos,hitos=[],monedaV
 // ── CATEGORÍAS TAB ────────────────────────────────────────────────────────────
 function CategoriasTab({cats,obra,toast,reload}){
   const [catM,setCatM]=useState(null);const [subM,setSubM]=useState(null);const [catD,setCatD]=useState({label:"",color:C.green,icon:"📦"});const [subD,setSubD]=useState({label:""});const [saving,setSaving]=useState(false);
-  const ICONS=["🏗️","👷","📦","🔧","⚙️","🪵","🏠","💡","🛁","🪟","🚪","🔌","🪣","🏛️","📐","📋","🚛","🔨","🧱","🪚"];
-  const COLS=[C.green,C.lima,C.blue,C.amber,C.red,"#7A4A9A","#2A8A7A","#9A6A2A"];
+  const ICONS=["🏗️","👷","📦","🔧","⚙️","🪵","🏠","💡","🛁","🪟","🚪","🔌","🪣","🏛️","📐","📋","🚛","🔨","🧱","🪚","🪜","🛠️","⛏️","🪛","🔩","🪤","🧲","🧰","🪞","🛋️","🪑","🛏️","🚿","🪠","🧴","🧹","🧺","🌡️","❄️","🔥","💧","⚡","☀️","🌿","🪴","🌳","🐝","🦺","🥽","🧤","📏","📌","📍","✏️","🗂️","📁","📊","💰","🏦","💳","🧾","📱","💻","📡","🔐","🔑","🗝️","🚧","⚠️","🚦","🗺️","📍","🏡","🏢","🏬","🏭","🏟️","🌆","🌇","🌉","🖼️","🎨","🪣","🧽","🪥","🫧","🧯","🪝","🔦","🕯️","💎","🪨","🌊","🏔️","⛰️"];
+  const COLS=[C.green,C.lima,C.blue,C.amber,C.red,"#7A4A9A","#2A8A7A","#9A6A2A","#C05A7A","#3A7ACC","#8A5A3A","#4A9A5A"];
   const saveCat=async()=>{if(!catD.label.trim())return;setSaving(true);if(catM==="new"){const{error}=await supabase.from("categorias").insert({obra_id:obra.id,label:catD.label.trim(),color:catD.color,icon:catD.icon,orden:cats.length+1});if(error){toast.error("Error");setSaving(false);return;}toast.success("Categoría creada");}else{const{error}=await supabase.from("categorias").update({label:catD.label,color:catD.color,icon:catD.icon}).eq("id",catM);if(error){toast.error("Error");setSaving(false);return;}toast.success("Actualizada");}await reload();setCatM(null);setSaving(false);};
   const saveSub=async()=>{if(!subD.label.trim())return;setSaving(true);if(subM.mode==="new"){const{error}=await supabase.from("subcategorias").insert({cat_id:subM.catId,label:subD.label.trim(),orden:0});if(error){toast.error("Error");setSaving(false);return;}toast.success("Subcategoría creada");}else{const{error}=await supabase.from("subcategorias").update({label:subD.label}).eq("id",subM.subId);if(error){toast.error("Error");setSaving(false);return;}toast.success("Actualizada");}await reload();setSubM(null);setSaving(false);};
   const deleteCat=async(id)=>{const{error}=await supabase.from("categorias").delete().eq("id",id);if(error)toast.error("Error");else{toast.success("Eliminada");await reload();}};
