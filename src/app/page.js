@@ -200,12 +200,16 @@ function AuthScreen({onLogin,toast}){
 }
 
 // ── OBRAS SCREEN ──────────────────────────────────────────────────────────────
+const ESTADOS_OBRA=["Relevamiento","En proyecto","En ejecución","Finalizada"];
+const ESTADO_COLOR={"Relevamiento":C.amber,"En proyecto":C.blue,"En ejecución":C.green,"Finalizada":C.t3};
+
 function ObrasScreen({user,onSelect,onLogout,toast}){
   const [obras,setObras]=useState([]);
   const [loading,setLoading]=useState(true);
   const [modal,setModal]=useState(false);
   const [saving,setSaving]=useState(false);
   const [draft,setDraft]=useState({nombre:"",direccion:"",estado:"En ejecución",presupuesto_total:"",moneda_presupuesto:"ARS",presup_tipo:"total"});
+  const [confirmDel,setConfirmDel]=useState(null);
   const loadObras=useCallback(async()=>{setLoading(true);const{data,error}=await supabase.from("obras").select("*, participantes!inner(rol,puede_cargar,user_id)").eq("participantes.user_id",user.id).order("created_at",{ascending:false});if(!error)setObras(data||[]);setLoading(false);},[user.id]);
   useEffect(()=>{loadObras();},[loadObras]);
   const save=async()=>{
@@ -218,6 +222,9 @@ function ObrasScreen({user,onSelect,onLogout,toast}){
     toast.success("Obra creada");setDraft({nombre:"",direccion:"",estado:"En ejecución",presupuesto_total:"",moneda_presupuesto:"ARS"});setModal(false);loadObras();setSaving(false);
   };
   const miRol=obra=>obra.participantes?.find(p=>p.user_id===user.id)?.rol||"cliente";
+  const esAdminObra=o=>{const r=miRol(o);return r==="arquitecto"||r==="ayudante";};
+  const changeEstado=async(e,obraId,nuevoEstado)=>{e.stopPropagation();const{error}=await supabase.from("obras").update({estado:nuevoEstado}).eq("id",obraId);if(error)toast.error("Error al cambiar estado");else{toast.success("Estado actualizado");loadObras();}};
+  const deleteObra=async()=>{if(!confirmDel)return;const{error}=await supabase.from("obras").delete().eq("id",confirmDel.id);if(error)toast.error("Error al eliminar: "+error.message);else{toast.success("Obra eliminada");loadObras();}setConfirmDel(null);};
   return <div style={{minHeight:"100vh",background:C.bg}}>
     <div style={{background:C.bg2,borderBottom:`1px solid ${C.bd}`,padding:"0 20px",display:"flex",alignItems:"center",justifyContent:"space-between",height:54}}>
       <div style={{display:"flex",alignItems:"center",gap:10}}><Logo size={40}/><div><div style={{fontWeight:800,fontSize:15,color:C.t}}>DA2ARQ</div><div style={{fontSize:10,color:C.t3}}>Gestión de obra</div></div></div>
@@ -231,14 +238,38 @@ function ObrasScreen({user,onSelect,onLogout,toast}){
       {loading&&<Spinner/>}
       {!loading&&obras.length===0&&<Card><div style={{textAlign:"center",padding:"40px 0",color:C.t3}}>No tenés obras asignadas todavía.</div></Card>}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
-        {obras.map(o=>{const rol=miRol(o);return <div key={o.id} className="fu" onClick={()=>onSelect(o)} style={{background:C.bg2,border:`1px solid ${C.bd2}`,borderLeft:`4px solid ${C.green}`,borderRadius:12,padding:"18px 20px",cursor:"pointer",transition:"box-shadow .2s"}} onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 20px rgba(42,110,24,.13)"} onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}><div style={{width:40,height:40,borderRadius:10,background:C.limaBg,border:`1px solid ${C.lima}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>🏗️</div><Tag label={o.estado} color={C.green}/></div>
-          <div style={{fontWeight:700,fontSize:14,color:C.t,marginBottom:3}}>{o.nombre}</div>
-          <div style={{fontSize:12,color:C.t3,marginBottom:12}}>{o.direccion}</div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><Tag label={ROL_LABEL[rol]} color={ROL_COLOR[rol]}/><span style={{fontSize:11,color:C.t3}}>{o.created_at?.slice(0,10)}</span></div>
-        </div>;})}
+        {obras.map(o=>{
+          const rol=miRol(o);
+          const esAdmin=esAdminObra(o);
+          const estadoColor=ESTADO_COLOR[o.estado]||C.green;
+          return <div key={o.id} className="fu" onClick={()=>onSelect(o)} style={{background:C.bg2,border:`1px solid ${C.bd2}`,borderLeft:`4px solid ${estadoColor}`,borderRadius:12,padding:"18px 20px",cursor:"pointer",transition:"box-shadow .2s",position:"relative"}} onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 20px rgba(42,110,24,.13)"} onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}>
+            {esAdmin&&<button onClick={e=>{e.stopPropagation();setConfirmDel(o);}} style={{position:"absolute",top:10,right:10,background:"none",border:"none",cursor:"pointer",fontSize:15,color:C.t3,lineHeight:1,padding:4,borderRadius:6}} title="Eliminar obra">✕</button>}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10,paddingRight:esAdmin?20:0}}>
+              <div style={{width:40,height:40,borderRadius:10,background:C.limaBg,border:`1px solid ${C.lima}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>🏗️</div>
+              {esAdmin
+                ?<select value={o.estado} onClick={e=>e.stopPropagation()} onChange={e=>changeEstado(e,o.id,e.target.value)} style={{fontSize:11,fontWeight:700,color:estadoColor,background:estadoColor+"18",border:`1px solid ${estadoColor}44`,borderRadius:20,padding:"3px 10px",cursor:"pointer",outline:"none",appearance:"none",WebkitAppearance:"none"}}>
+                    {ESTADOS_OBRA.map(s=><option key={s} value={s} style={{color:C.t,background:C.bg2,fontWeight:400}}>{s}</option>)}
+                  </select>
+                :<Tag label={o.estado} color={estadoColor}/>
+              }
+            </div>
+            <div style={{fontWeight:700,fontSize:14,color:C.t,marginBottom:3}}>{o.nombre}</div>
+            <div style={{fontSize:12,color:C.t3,marginBottom:12}}>{o.direccion}</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><Tag label={ROL_LABEL[rol]} color={ROL_COLOR[rol]}/><span style={{fontSize:11,color:C.t3}}>{o.created_at?.slice(0,10)}</span></div>
+          </div>;
+        })}
       </div>
     </div>
+    {confirmDel&&<Modal title="Eliminar obra" onClose={()=>setConfirmDel(null)}>
+      <div style={{display:"flex",flexDirection:"column",gap:16}}>
+        <div style={{fontSize:13,color:C.t}}>¿Seguro que querés eliminar <b>{confirmDel.nombre}</b>? Se borrarán todos sus gastos, fotos, presupuestos y participantes. Esta acción no se puede deshacer.</div>
+        <div style={{background:C.red+"12",border:`1px solid ${C.red}33`,borderRadius:8,padding:"10px 14px",fontSize:12,color:C.red}}>⚠ Acción irreversible</div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={deleteObra} style={{flex:1,padding:"9px",fontSize:13,fontWeight:700,background:C.red,color:"#fff",border:"none",borderRadius:8,cursor:"pointer"}}>Sí, eliminar</button>
+          <Btn onClick={()=>setConfirmDel(null)}>Cancelar</Btn>
+        </div>
+      </div>
+    </Modal>}
     {modal&&<Modal title="Nueva Obra" onClose={()=>setModal(false)}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
         <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Nombre *</div><input style={INP} placeholder="Ej: Residencia Palermo" value={draft.nombre} onChange={e=>setDraft(d=>({...d,nombre:e.target.value}))}/></div>
