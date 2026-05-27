@@ -455,7 +455,8 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=
           <Tag label={obra.estado} color={obra.estado==="En ejecución"?C.green:obra.estado==="Finalizada"?C.blue:C.amber}/>
           <div style={{fontSize:12,color:C.t3,marginTop:6}}>{obra.direccion}</div>
         </div>
-        {obra.presupuesto_total>0&&<div style={{textAlign:"right"}}>
+        {/* Solo mostrar presupuesto general si NO hay categorías cargadas */}
+        {obra.presupuesto_total>0&&presup.length===0&&<div style={{textAlign:"right"}}>
           <div style={{fontSize:11,color:C.t3}}>Presupuesto general</div>
           <div style={{fontSize:18,fontWeight:700,color:C.t}}>{fmtM(obra.presupuesto_total,obra.moneda_presupuesto)}</div>
         </div>}
