@@ -828,7 +828,7 @@ function ComentariosModal({gasto,comentarios,obra,user,esAdmin,toast,reload,onCl
   </Modal>;
 }
 
-// ── PRESUPUESTO TAB (CORREGIDO) ───────────────────────────────────────────────
+// ── PRESUPUESTO TAB ────────────────────────────────────────────────────────────
 function PresupuestoTab({obra,gastos,presup,tcRef,cats,toast,reload,monedaVista,inflData,fetchIPC}){
   const [modal,setModal]=useState(false);
   const [draft,setDraft]=useState({cat_id:cats[0]?.id||"",monto:"",moneda:"ARS"});
@@ -837,18 +837,41 @@ function PresupuestoTab({obra,gastos,presup,tcRef,cats,toast,reload,monedaVista,
   const enUSD=monedaVista==="USD";
   const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
 
-  // Conversión consistente: presupuesto a moneda de vista
-  const toMV=p=>{
+  // ── Conversión presupuesto a moneda de vista ──
+  // p = registro de la tabla presupuestos {monto, moneda}
+  const pToMV=p=>{
     if(enUSD) return p.moneda==="USD"?p.monto:p.monto/tcRef;
     return p.moneda==="USD"?p.monto*tcRef:p.monto;
   };
-  // Conversión de gasto a moneda de vista
-  const convG=g=>enUSD?toUSD(g,tcRef):toARS(g,tcRef);
+  // Gasto a moneda de vista
+  const gToMV=g=>enUSD?toUSD(g,tcRef):toARS(g,tcRef);
 
-  const totalPMV=presup.reduce((s,p)=>s+toMV(p),0);
-  const totalEMV=gastos.reduce((s,g)=>s+convG(g),0);
+  // ── UNA SOLA FUENTE DE VERDAD: presupuesto total ──
+  // Regla: si hay presupuestos por categoría → esos mandan.
+  //        Si no → usa presupuesto_total de la obra.
+  //        En ningún caso se suman ambos.
+  const totalPMV=presup.length>0
+    ? presup.reduce((s,p)=>s+pToMV(p),0)
+    : obra.presupuesto_total
+      ? (obra.moneda_presupuesto==="USD"
+          ?(enUSD?obra.presupuesto_total:obra.presupuesto_total*tcRef)
+          :(enUSD?obra.presupuesto_total/tcRef:obra.presupuesto_total))
+      : 0;
 
-  // Presupuesto base en ARS para ajuste inflación
+  const totalEMV=gastos.reduce((s,g)=>s+gToMV(g),0);
+  const disponibleMV=totalPMV-totalEMV;
+  // pct = ejecutado / presupuesto (no al revés, no invertido)
+  const pct=totalPMV>0?Math.round((totalEMV/totalPMV)*100):null;
+  const pctCapped=pct!==null?Math.min(pct,100):null;
+  const colorSemaforo=pct===null?C.t3:pct>=100?C.red:pct>=80?C.amber:C.green;
+
+  // Presup. base ARS para cálculo de inflación
+  const presupBaseARS=useMemo(()=>{
+    if(presup.length>0) return presup.reduce((s,p)=>s+(p.moneda==="USD"?p.monto*tcRef:p.monto),0);
+    if(obra.presupuesto_total) return obra.moneda_presupuesto==="USD"?obra.presupuesto_total*tcRef:obra.presupuesto_total;
+    return 0;
+  },[presup,obra,tcRef]);
+
   const calcInflacion=useMemo(()=>{
     if(!inflData||!obra.created_at)return null;
     const inicio=obra.created_at.slice(0,7);
@@ -858,19 +881,8 @@ function PresupuestoTab({obra,gastos,presup,tcRef,cats,toast,reload,monedaVista,
     ipcFilt.forEach(x=>{acum*=(1+x.valor/100);serie.push({ym:x.fecha.slice(0,7),ipc:x.valor,acum:Math.round((acum-1)*100*10)/10,factor:acum});});
     return serie;
   },[inflData,obra.created_at]);
-
-  // Presup. base ARS: si hay presupuestos por cat usa eso, si no usa obra.presupuesto_total
-  const presupBaseARS=useMemo(()=>{
-    if(presup.length>0) return presup.reduce((s,p)=>s+(p.moneda==="USD"?p.monto*tcRef:p.monto),0);
-    if(obra.presupuesto_total) return obra.moneda_presupuesto==="USD"?obra.presupuesto_total*tcRef:obra.presupuesto_total;
-    return 0;
-  },[presup,obra,tcRef]);
-
   const inflAcum=calcInflacion?calcInflacion[calcInflacion.length-1]?.acum:null;
   const presupAjustado=presupBaseARS>0&&inflAcum!=null?Math.round(presupBaseARS*(1+inflAcum/100)):null;
-
-  // Presupuesto general obra en moneda de vista (para mostrar)
-  const presupObraMV=obra.presupuesto_total?(obra.moneda_presupuesto==="USD"?(enUSD?obra.presupuesto_total:obra.presupuesto_total*tcRef):(enUSD?obra.presupuesto_total/tcRef:obra.presupuesto_total)):null;
 
   const save=async()=>{
     if(!draft.monto||parseFloat(draft.monto)<=0)return;setSaving(true);
@@ -881,161 +893,248 @@ function PresupuestoTab({obra,gastos,presup,tcRef,cats,toast,reload,monedaVista,
   };
   const deleteP=async(id)=>{const{error}=await supabase.from("presupuestos").delete().eq("id",id);if(error)toast.error("Error");else{toast.success("Eliminado");await reload();}};
 
-  const doExport=()=>exportCSV([...cats.map(cat=>{
-    const p=presup.find(x=>x.cat_id===cat.id);
-    const ejARS=gastos.filter(g=>g.cat_id===cat.id).reduce((s,g)=>s+toARS(g,tcRef),0);
-    const pARS=p?(p.moneda==="USD"?p.monto*tcRef:p.monto):0;
-    return{Categoria:cat.label,Presupuesto:p?p.monto:"—",Moneda:p?p.moneda:"—",Presupuesto_ARS:pARS>0?Math.round(pARS):"—",Ejecutado_ARS:Math.round(ejARS),Diferencia:pARS>0?Math.round(pARS-ejARS):"—",Avance:pARS>0?Math.round((ejARS/pARS)*100)+"%":"—"};
-  }),{Categoria:"TOTAL",Presupuesto:"—",Moneda:"—",Presupuesto_ARS:Math.round(presupBaseARS),Ejecutado_ARS:Math.round(gastos.reduce((s,g)=>s+toARS(g,tcRef),0)),Diferencia:Math.round(presupBaseARS-gastos.reduce((s,g)=>s+toARS(g,tcRef),0)),Avance:presupBaseARS>0?Math.round((gastos.reduce((s,g)=>s+toARS(g,tcRef),0)/presupBaseARS)*100)+"%":"—"}],`presupuesto_${obra.nombre.replace(/\s+/g,"_")}.csv`);
-
-  const totalEjARS=gastos.reduce((s,g)=>s+toARS(g,tcRef),0);
-  const pctTotal=presupBaseARS>0?Math.min(Math.round((totalEjARS/presupBaseARS)*100),200):null;
+  const doExport=()=>{
+    const rows=cats.map(cat=>{
+      const p=presup.find(x=>x.cat_id===cat.id);
+      const ejMV=gastos.filter(g=>g.cat_id===cat.id).reduce((s,g)=>s+gToMV(g),0);
+      const pMV=p?pToMV(p):0;
+      const pctCat=pMV>0?Math.round((ejMV/pMV)*100):null;
+      return{Categoria:cat.label,Presupuesto_orig:p?p.monto:"—",Moneda:p?p.moneda:"—",[`Presupuesto_${monedaVista}`]:pMV>0?Math.round(pMV):"—",[`Ejecutado_${monedaVista}`]:Math.round(ejMV),[`Diferencia_${monedaVista}`]:pMV>0?Math.round(pMV-ejMV):"—",Avance:pctCat!==null?pctCat+"%":"—"};
+    }).filter(r=>r[`Ejecutado_${monedaVista}`]>0||r[`Presupuesto_${monedaVista}`]!=="—");
+    rows.push({Categoria:"TOTAL",[`Presupuesto_${monedaVista}`]:Math.round(totalPMV),[`Ejecutado_${monedaVista}`]:Math.round(totalEMV),[`Diferencia_${monedaVista}`]:Math.round(disponibleMV),Avance:pct!==null?pct+"%":"—"});
+    exportCSV(rows,`presupuesto_${obra.nombre.replace(/\s+/g,"_")}.csv`);
+  };
 
   return <div className="fu">
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+    {/* Encabezado */}
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:8}}>
       <div>
-        <div style={{fontSize:16,fontWeight:700,color:C.t}}>Presupuesto por categoría</div>
-        <div style={{fontSize:12,color:C.t3}}>Total presup: {fmt(totalPMV)} · Ejecutado: {fmt(totalEMV)}</div>
+        <div style={{fontSize:17,fontWeight:700,color:C.t}}>📐 Presupuesto de obra</div>
+        <div style={{fontSize:12,color:C.t3,marginTop:2}}>{obra.nombre} · {monedaVista}</div>
       </div>
-      <div style={{display:"flex",gap:8}}><Btn small onClick={doExport}>⬇ CSV</Btn><Btn primary onClick={()=>{setDraft({cat_id:cats[0]?.id||"",monto:"",moneda:"ARS"});setModal(true);}}>+ Agregar</Btn></div>
+      <div style={{display:"flex",gap:8}}>
+        <Btn small onClick={doExport}>⬇ CSV</Btn>
+        <Btn primary onClick={()=>{setDraft({cat_id:cats[0]?.id||"",monto:"",moneda:"ARS"});setModal(true);}}>+ Agregar categoría</Btn>
+      </div>
     </div>
 
-    {/* Cards resumen — CORREGIDAS: todo en la misma moneda de vista */}
-    <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
-      <StatCard label={`Presupuesto total (${monedaVista})`} value={fmt(totalPMV)} color={C.blue} icon="📐"/>
-      <StatCard label={`Ejecutado (${monedaVista})`} value={fmt(totalEMV)} color={C.green} icon="💸"/>
-      <StatCard label={`Disponible (${monedaVista})`} value={fmt(Math.max(0,totalPMV-totalEMV))} color={totalPMV-totalEMV<0?C.red:C.lima} icon="✅"/>
-      {/* Presup. general obra: solo se muestra si difiere del total de categorías */}
-      {presupObraMV&&Math.abs(presupObraMV-totalPMV)>1&&<StatCard label={`Presup. general obra (${monedaVista})`} value={fmt(presupObraMV)} color={C.amber} icon="🏗️"/>}
-    </div>
-
-    {/* Barra de avance global */}
-    {pctTotal!==null&&<Card style={{marginBottom:14}}>
-      <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:8,fontWeight:600}}>Avance global</div>
-      <div style={{height:14,borderRadius:7,background:C.bg3,overflow:"hidden",marginBottom:6}}>
-        <div style={{height:"100%",borderRadius:7,background:pctTotal>=100?C.red:pctTotal>=80?C.amber:C.green,width:`${Math.min(pctTotal,100)}%`,transition:"width .6s ease"}}/>
-      </div>
-      <div style={{display:"flex",justifyContent:"space-between",fontSize:12}}>
-        <span style={{color:C.t3}}>Ejecutado: <b style={{color:C.t}}>{fmt(totalEMV)}</b></span>
-        <span style={{fontWeight:700,color:pctTotal>=100?C.red:pctTotal>=80?C.amber:C.green}}>{pctTotal}% del presupuesto</span>
-        <span style={{color:C.t3}}>Presupuesto: <b style={{color:C.t}}>{fmt(totalPMV)}</b></span>
-      </div>
-    </Card>}
-
-    {/* Ajuste inflación */}
-    <Card style={{marginBottom:14}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:inflData?10:0}}>
-        <div>
-          <div style={{fontSize:13,fontWeight:700,color:C.t}}>Ajuste por inflación acumulada</div>
-          <div style={{fontSize:11,color:C.t3}}>Desde inicio de obra ({obra.created_at?.slice(0,7)}) · IPC INDEC</div>
+    {/* ── BLOQUE CENTRAL: un solo número de presupuesto ── */}
+    <Card style={{marginBottom:16,borderLeft:`4px solid ${colorSemaforo}`}}>
+      <div style={{display:"flex",gap:16,flexWrap:"wrap",alignItems:"center",marginBottom:totalPMV>0?16:0}}>
+        {/* Presupuesto total */}
+        <div style={{flex:"1 1 150px"}}>
+          <div style={{fontSize:10,color:C.t3,textTransform:"uppercase",letterSpacing:".08em",fontWeight:600,marginBottom:5}}>
+            Presupuesto total {presup.length>0?"(suma de categorías)":"(general de obra)"}
+          </div>
+          <div style={{fontSize:26,fontWeight:800,color:C.blue,letterSpacing:"-.03em"}}>{totalPMV>0?fmt(totalPMV):"Sin definir"}</div>
+          {presup.length>0&&obra.presupuesto_total>0&&<div style={{fontSize:11,color:C.t3,marginTop:3}}>
+            Presup. original de obra: {fmtM(obra.presupuesto_total,obra.moneda_presupuesto)} (reemplazado por categorías)
+          </div>}
         </div>
-        <Btn small onClick={()=>{if(!inflData)fetchIPC();setShowInfl(v=>!v);}}>
-          {inflData?"📊 Ver tabla":"Cargar datos IPC"}
-        </Btn>
+        {/* Ejecutado */}
+        <div style={{flex:"1 1 130px"}}>
+          <div style={{fontSize:10,color:C.t3,textTransform:"uppercase",letterSpacing:".08em",fontWeight:600,marginBottom:5}}>Gastado hasta hoy</div>
+          <div style={{fontSize:26,fontWeight:800,color:C.green,letterSpacing:"-.03em"}}>{fmt(totalEMV)}</div>
+          <div style={{fontSize:11,color:C.t3,marginTop:3}}>{gastos.length} movimiento{gastos.length!==1?"s":""}</div>
+        </div>
+        {/* Disponible */}
+        {totalPMV>0&&<div style={{flex:"1 1 130px"}}>
+          <div style={{fontSize:10,color:C.t3,textTransform:"uppercase",letterSpacing:".08em",fontWeight:600,marginBottom:5}}>
+            {disponibleMV>=0?"Disponible":"Excedido en"}
+          </div>
+          <div style={{fontSize:26,fontWeight:800,color:disponibleMV>=0?C.lima:C.red,letterSpacing:"-.03em"}}>{fmt(Math.abs(disponibleMV))}</div>
+          {pct!==null&&<div style={{fontSize:11,color:colorSemaforo,fontWeight:700,marginTop:3}}>
+            {pct<=100?`Usaste el ${pct}% del presupuesto`:`Superaste en ${pct-100}%`}
+          </div>}
+        </div>}
       </div>
-      {inflData&&<div style={{display:"flex",gap:12,flexWrap:"wrap",marginTop:10}}>
-        {presupBaseARS>0&&<div style={{flex:"1 1 180px",background:C.bg3,borderRadius:10,padding:"12px 14px"}}>
-          <div style={{fontSize:10,color:C.t3,marginBottom:4,fontWeight:700,textTransform:"uppercase"}}>Presup. original</div>
-          <div style={{fontSize:18,fontWeight:700,color:C.blue}}>{fmtARS(presupBaseARS)}</div>
-          <div style={{fontSize:10,color:C.t3,marginTop:2}}>al inicio de obra</div>
-        </div>}
-        {presupAjustado&&<div style={{flex:"1 1 180px",background:C.bg2,borderRadius:10,padding:"12px 14px",border:`2px solid ${C.amber}`}}>
-          <div style={{fontSize:10,color:C.amber,marginBottom:4,fontWeight:700,textTransform:"uppercase"}}>Presup. ajustado hoy</div>
-          <div style={{fontSize:18,fontWeight:700,color:C.amber}}>{fmtARS(presupAjustado)}</div>
-          <div style={{fontSize:10,color:C.t3,marginTop:2}}>+{fmtARS(presupAjustado-presupBaseARS)} vs original</div>
-        </div>}
-      </div>}
-      {showInfl&&calcInflacion&&calcInflacion.length>0&&<div style={{marginTop:14}}>
-        <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:8,fontWeight:600}}>Evolución mensual</div>
-        <div style={{overflowX:"auto"}}>
-          <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:480}}>
-            <thead><tr style={{borderBottom:`2px solid ${C.bd2}`}}>
-              {["Mes","IPC mes","Acum. %","Presup. ajustado","Incremento vs original"].map((h,i)=><th key={i} style={{padding:"6px 10px",textAlign:i>=2?"right":"left",fontSize:9,fontWeight:700,color:C.t3,textTransform:"uppercase",letterSpacing:".05em",whiteSpace:"nowrap"}}>{h}</th>)}
-            </tr></thead>
-            <tbody>{[...calcInflacion].reverse().slice(0,18).map(r=>{
-              const ajust=presupBaseARS>0?Math.round(presupBaseARS*r.factor):null;
-              const incr=ajust&&presupBaseARS>0?ajust-presupBaseARS:null;
-              return <tr key={r.ym} style={{borderBottom:`1px solid ${C.bd}`}}>
-                <td style={{padding:"7px 10px",fontWeight:600,color:C.t}}>{r.ym}</td>
-                <td style={{padding:"7px 10px",color:r.ipc>10?C.red:r.ipc>5?C.amber:C.t2}}>{r.ipc}%</td>
-                <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.amber}}>{r.acum}%</td>
-                <td style={{padding:"7px 10px",textAlign:"right",color:C.t}}>{ajust?fmtARS(ajust):"—"}</td>
-                <td style={{padding:"7px 10px",textAlign:"right",color:C.red}}>{incr?"+"+fmtARS(incr):"—"}</td>
-              </tr>;
-            })}</tbody>
-          </table>
+
+      {/* Barra de progreso — siempre de 0 a 100% */}
+      {totalPMV>0&&pct!==null&&<div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.t3,marginBottom:4}}>
+          <span>0%</span>
+          <span style={{fontWeight:700,color:colorSemaforo,fontSize:13}}>
+            {pct<=100?`${pct}% ejecutado`:pct===200?"Presupuesto duplicado":`${pct}% (excedido)`}
+          </span>
+          <span>100%</span>
+        </div>
+        <div style={{height:16,borderRadius:8,background:C.bg3,overflow:"hidden",position:"relative"}}>
+          <div style={{
+            height:"100%",
+            borderRadius:8,
+            background:colorSemaforo,
+            width:`${pctCapped}%`,
+            transition:"width .7s ease",
+            position:"relative",
+          }}/>
+          {pct>100&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",paddingLeft:8}}>
+            <span style={{fontSize:10,color:"#fff",fontWeight:700}}>¡Presupuesto superado!</span>
+          </div>}
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.t3,marginTop:4}}>
+          <span>Gastado: <b style={{color:C.t}}>{fmt(totalEMV)}</b></span>
+          <span>Presupuesto: <b style={{color:C.t}}>{fmt(totalPMV)}</b></span>
         </div>
       </div>}
-      {!inflData&&<div style={{fontSize:12,color:C.t3,marginTop:10}}>Presioná "Cargar datos IPC" para ver el presupuesto ajustado por inflación desde el inicio de obra.</div>}
     </Card>
 
-    {/* Tabla por categoría — CORREGIDA */}
-    <Card>
-      <div style={{overflowX:"auto"}}>
+    {/* ── TABLA POR CATEGORÍA ── */}
+    <Card style={{marginBottom:16}}>
+      <div style={{fontSize:13,fontWeight:700,color:C.t,marginBottom:14}}>Desglose por categoría</div>
+      {presup.length===0&&gastos.length===0&&<div style={{textAlign:"center",padding:"24px 0",color:C.t3,fontSize:12}}>
+        No hay presupuestos por categoría definidos.<br/>Presupuesto general de obra: <b style={{color:C.t}}>{obra.presupuesto_total>0?fmtM(obra.presupuesto_total,obra.moneda_presupuesto):"Sin definir"}</b>
+      </div>}
+      {(presup.length>0||gastos.length>0)&&<div style={{overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:480}}>
-          <thead><tr style={{borderBottom:`2px solid ${C.bd2}`}}>
-            {["Categoría",`Presupuesto (${monedaVista})`,`Ejecutado (${monedaVista})`,"Diferencia","Avance",""].map((h,i)=>(
-              <th key={i} style={{padding:"8px 10px",textAlign:i>=1&&i<=4?"right":i===5?"right":"left",fontSize:10,fontWeight:700,color:C.t3,textTransform:"uppercase",letterSpacing:".05em",whiteSpace:"nowrap"}}>{h}</th>
-            ))}
-          </tr></thead>
+          <thead>
+            <tr style={{borderBottom:`2px solid ${C.bd2}`}}>
+              <th style={{padding:"8px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:C.t3,textTransform:"uppercase",letterSpacing:".05em"}}>Categoría</th>
+              <th style={{padding:"8px 12px",textAlign:"right",fontSize:10,fontWeight:700,color:C.t3,textTransform:"uppercase",letterSpacing:".05em"}}>Presupuesto</th>
+              <th style={{padding:"8px 12px",textAlign:"right",fontSize:10,fontWeight:700,color:C.t3,textTransform:"uppercase",letterSpacing:".05em"}}>Gastado</th>
+              <th style={{padding:"8px 12px",textAlign:"right",fontSize:10,fontWeight:700,color:C.t3,textTransform:"uppercase",letterSpacing:".05em"}}>Saldo</th>
+              <th style={{padding:"8px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:C.t3,textTransform:"uppercase",letterSpacing:".05em",minWidth:140}}>Avance</th>
+              <th style={{width:28}}/>
+            </tr>
+          </thead>
           <tbody>
             {cats.map(cat=>{
               const p=presup.find(x=>x.cat_id===cat.id);
-              const ejMV=gastos.filter(g=>g.cat_id===cat.id).reduce((s,g)=>s+convG(g),0);
+              const ejMV=gastos.filter(g=>g.cat_id===cat.id).reduce((s,g)=>s+gToMV(g),0);
               if(!p&&ejMV===0)return null;
-              const pMV=p?toMV(p):0;
-              // CORREGIDO: el pct se calcula pMV/ejMV, NO con presupuesto general de obra
-              const pct=pMV>0?Math.min(Math.round((ejMV/pMV)*100),200):null;
-              const diff=pMV-ejMV;
-              const col=pct===null?C.t3:pct>=100?C.red:pct>=80?C.amber:C.green;
+              const pMV=p?pToMV(p):0;
+              // pct = gastado / presupuesto (jamás al revés)
+              const pctCat=pMV>0?Math.round((ejMV/pMV)*100):null;
+              const pctCapCat=pctCat!==null?Math.min(pctCat,100):null;
+              const saldo=pMV-ejMV;
+              const colCat=pctCat===null?C.t3:pctCat>=100?C.red:pctCat>=80?C.amber:C.green;
               return <tr key={cat.id} style={{borderBottom:`1px solid ${C.bd}`}}>
-                <td style={{padding:"10px"}}><span style={{display:"flex",alignItems:"center",gap:7}}>
-                  <span style={{width:30,height:30,borderRadius:8,background:cat.color+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{cat.icon}</span>
-                  <span style={{fontWeight:600,color:C.t}}>{cat.label}</span>
-                </span></td>
-                <td style={{padding:"10px",textAlign:"right",color:C.t2,whiteSpace:"nowrap"}}>{p?fmt(pMV):"—"}</td>
-                <td style={{padding:"10px",textAlign:"right",fontWeight:700,color:cat.color,whiteSpace:"nowrap"}}>{fmt(ejMV)}</td>
-                <td style={{padding:"10px",textAlign:"right",color:pMV>0?(diff>=0?C.green:C.red):C.t3,whiteSpace:"nowrap"}}>{pMV>0?fmt(diff):"—"}</td>
-                <td style={{padding:"10px",textAlign:"right",minWidth:140}}>
-                  {pct!==null?<div>
-                    <div style={{height:8,borderRadius:4,background:C.bg3,overflow:"hidden",marginBottom:3}}>
-                      <div style={{height:"100%",borderRadius:4,background:col,width:`${Math.min(pct,100)}%`,transition:"width .5s ease"}}/>
-                    </div>
-                    <div style={{fontSize:10,fontWeight:700,color:col,textAlign:"right"}}>{pct}%</div>
-                  </div>:<span style={{fontSize:11,color:C.t3}}>Sin presup.</span>}
+                <td style={{padding:"12px"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{width:32,height:32,borderRadius:9,background:(cat.color||C.green)+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,flexShrink:0}}>{cat.icon}</span>
+                    <span style={{fontWeight:600,color:C.t,fontSize:13}}>{cat.label}</span>
+                  </div>
                 </td>
-                <td style={{padding:"10px",textAlign:"right"}}>
-                  <button onClick={()=>deleteP(presup.find(x=>x.cat_id===cat.id)?.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.t3,fontSize:16,opacity:p?1:0,pointerEvents:p?"auto":"none"}}>×</button>
+                <td style={{padding:"12px",textAlign:"right",color:C.t2,whiteSpace:"nowrap"}}>{p?fmt(pMV):<span style={{color:C.t3,fontSize:11}}>—</span>}</td>
+                <td style={{padding:"12px",textAlign:"right",fontWeight:700,color:cat.color||C.green,whiteSpace:"nowrap"}}>{fmt(ejMV)}</td>
+                <td style={{padding:"12px",textAlign:"right",whiteSpace:"nowrap",fontWeight:600,color:pMV>0?(saldo>=0?C.green:C.red):C.t3}}>{pMV>0?fmt(saldo):<span style={{color:C.t3,fontSize:11}}>—</span>}</td>
+                <td style={{padding:"12px"}}>
+                  {pctCat!==null?<div>
+                    <div style={{height:8,borderRadius:4,background:C.bg3,overflow:"hidden",marginBottom:4}}>
+                      <div style={{height:"100%",borderRadius:4,background:colCat,width:`${pctCapCat}%`,transition:"width .5s ease"}}/>
+                    </div>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <span style={{fontSize:11,fontWeight:700,color:colCat}}>
+                        {pctCat<=100?`${pctCat}%`:`${pctCat}% ⚠`}
+                      </span>
+                      {pctCat>=100&&<span style={{fontSize:10,color:C.red,fontWeight:600}}>Excedido</span>}
+                    </div>
+                  </div>:<span style={{fontSize:11,color:C.t3}}>Sin presupuesto</span>}
+                </td>
+                <td style={{padding:"12px",textAlign:"right"}}>
+                  {p&&<button onClick={()=>deleteP(p.id)} title="Quitar presupuesto de esta categoría" style={{background:"none",border:"none",cursor:"pointer",color:C.t3,fontSize:16,lineHeight:1}}>×</button>}
                 </td>
               </tr>;
             })}
-            {/* Fila TOTAL */}
+          </tbody>
+          {/* Fila TOTAL — mismos números que las cards de arriba */}
+          <tfoot>
             <tr style={{borderTop:`2px solid ${C.bd2}`,background:C.bg3}}>
-              <td style={{padding:"10px",fontWeight:700,color:C.t}}>TOTAL</td>
-              <td style={{padding:"10px",textAlign:"right",fontWeight:700,color:C.blue}}>{fmt(totalPMV)}</td>
-              <td style={{padding:"10px",textAlign:"right",fontWeight:700,color:C.green}}>{fmt(totalEMV)}</td>
-              <td style={{padding:"10px",textAlign:"right",fontWeight:700,color:totalPMV>totalEMV?C.green:C.red}}>{totalPMV>0?fmt(totalPMV-totalEMV):"—"}</td>
-              <td style={{padding:"10px",textAlign:"right",fontWeight:700,color:pctTotal>=100?C.red:pctTotal>=80?C.amber:C.green}}>{pctTotal!==null?pctTotal+"%":"—"}</td>
+              <td style={{padding:"12px",fontWeight:800,color:C.t,fontSize:13}}>TOTAL</td>
+              <td style={{padding:"12px",textAlign:"right",fontWeight:700,color:C.blue,fontSize:13}}>{totalPMV>0?fmt(totalPMV):"—"}</td>
+              <td style={{padding:"12px",textAlign:"right",fontWeight:700,color:C.green,fontSize:13}}>{fmt(totalEMV)}</td>
+              <td style={{padding:"12px",textAlign:"right",fontWeight:700,color:disponibleMV>=0?C.green:C.red,fontSize:13}}>{totalPMV>0?fmt(disponibleMV):"—"}</td>
+              <td style={{padding:"12px"}}>
+                {pct!==null&&<div>
+                  <div style={{height:8,borderRadius:4,background:C.bg3,overflow:"hidden",marginBottom:4}}>
+                    <div style={{height:"100%",borderRadius:4,background:colorSemaforo,width:`${pctCapped}%`,transition:"width .7s ease"}}/>
+                  </div>
+                  <span style={{fontSize:11,fontWeight:800,color:colorSemaforo}}>{pct}%</span>
+                </div>}
+              </td>
               <td/>
             </tr>
-          </tbody>
+          </tfoot>
         </table>
-      </div>
+      </div>}
     </Card>
 
-    {modal&&<Modal title="Agregar presupuesto" onClose={()=>setModal(false)}>
-      <div style={{display:"flex",flexDirection:"column",gap:12}}>
-        <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Categoría</div>
+    {/* ── AJUSTE POR INFLACIÓN (colapsable) ── */}
+    <Card style={{marginBottom:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <div style={{fontSize:13,fontWeight:700,color:C.t}}>📉 Ajuste por inflación</div>
+          <div style={{fontSize:11,color:C.t3,marginTop:2}}>Desde inicio de obra ({obra.created_at?.slice(0,7)}) · IPC INDEC</div>
+        </div>
+        <Btn small onClick={()=>{if(!inflData)fetchIPC();setShowInfl(v=>!v);}}>
+          {showInfl?"Ocultar":inflData?"Ver tabla":"Cargar datos IPC"}
+        </Btn>
+      </div>
+      {inflData&&<div style={{display:"flex",gap:12,flexWrap:"wrap",marginTop:14}}>
+        {presupBaseARS>0&&<div style={{flex:"1 1 160px",background:C.bg3,borderRadius:10,padding:"12px 14px"}}>
+          <div style={{fontSize:10,color:C.t3,marginBottom:4,fontWeight:700,textTransform:"uppercase"}}>Presup. original (ARS)</div>
+          <div style={{fontSize:18,fontWeight:700,color:C.blue}}>{fmtARS(presupBaseARS)}</div>
+          <div style={{fontSize:10,color:C.t3,marginTop:2}}>al inicio de obra</div>
+        </div>}
+        {presupAjustado&&<div style={{flex:"1 1 160px",background:C.bg2,borderRadius:10,padding:"12px 14px",border:`2px solid ${C.amber}`}}>
+          <div style={{fontSize:10,color:C.amber,marginBottom:4,fontWeight:700,textTransform:"uppercase"}}>Presup. ajustado hoy (ARS)</div>
+          <div style={{fontSize:18,fontWeight:700,color:C.amber}}>{fmtARS(presupAjustado)}</div>
+          <div style={{fontSize:10,color:C.t3,marginTop:2}}>+{fmtARS(presupAjustado-presupBaseARS)} vs original · {inflAcum}% IPC acum.</div>
+        </div>}
+      </div>}
+      {!inflData&&<div style={{fontSize:12,color:C.t3,marginTop:10}}>
+        Presioná "Cargar datos IPC" para ver cuánto debería valer hoy el presupuesto ajustado por inflación.
+      </div>}
+      {showInfl&&calcInflacion&&calcInflacion.length>0&&<div style={{marginTop:14,overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:480}}>
+          <thead><tr style={{borderBottom:`2px solid ${C.bd2}`}}>
+            {["Mes","IPC mes","IPC acumulado","Presup. ajustado","Diferencia vs original"].map((h,i)=><th key={i} style={{padding:"6px 10px",textAlign:i>=2?"right":"left",fontSize:9,fontWeight:700,color:C.t3,textTransform:"uppercase",letterSpacing:".05em",whiteSpace:"nowrap"}}>{h}</th>)}
+          </tr></thead>
+          <tbody>{[...calcInflacion].reverse().slice(0,18).map(r=>{
+            const ajust=presupBaseARS>0?Math.round(presupBaseARS*r.factor):null;
+            const incr=ajust&&presupBaseARS>0?ajust-presupBaseARS:null;
+            return <tr key={r.ym} style={{borderBottom:`1px solid ${C.bd}`}}>
+              <td style={{padding:"7px 10px",fontWeight:600,color:C.t}}>{r.ym}</td>
+              <td style={{padding:"7px 10px",color:r.ipc>10?C.red:r.ipc>5?C.amber:C.t2}}>{r.ipc}%</td>
+              <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.amber}}>{r.acum}%</td>
+              <td style={{padding:"7px 10px",textAlign:"right",color:C.t}}>{ajust?fmtARS(ajust):"—"}</td>
+              <td style={{padding:"7px 10px",textAlign:"right",color:C.red}}>{incr?"+"+fmtARS(incr):"—"}</td>
+            </tr>;
+          })}</tbody>
+        </table>
+      </div>}
+    </Card>
+
+    {/* Modal agregar */}
+    {modal&&<Modal title="Agregar / actualizar presupuesto" onClose={()=>setModal(false)}>
+      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        <div style={{background:C.bg3,borderRadius:10,padding:"10px 14px",fontSize:12,color:C.t3,lineHeight:1.6}}>
+          Al cargar presupuestos por categoría, <b style={{color:C.t}}>el total de esas categorías reemplaza al presupuesto general de la obra</b>. Todos los porcentajes se calculan sobre este total.
+        </div>
+        <div>
+          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Categoría</div>
           <select style={SEL} value={draft.cat_id} onChange={e=>setDraft(d=>({...d,cat_id:e.target.value}))}>
             {cats.map(c=><option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
           </select>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 90px",gap:8}}>
-          <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Monto</div><input style={INP} type="number" placeholder="0" value={draft.monto} onChange={e=>setDraft(d=>({...d,monto:e.target.value}))}/></div>
-          <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Moneda</div><select style={SEL} value={draft.moneda} onChange={e=>setDraft(d=>({...d,moneda:e.target.value}))}><option>ARS</option><option>USD</option></select></div>
+          <div>
+            <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Monto</div>
+            <input style={INP} type="number" placeholder="0" autoFocus value={draft.monto} onChange={e=>setDraft(d=>({...d,monto:e.target.value}))}/>
+          </div>
+          <div>
+            <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Moneda</div>
+            <select style={SEL} value={draft.moneda} onChange={e=>setDraft(d=>({...d,moneda:e.target.value}))}>
+              <option>ARS</option><option>USD</option>
+            </select>
+          </div>
         </div>
-        {presup.find(p=>p.cat_id===draft.cat_id)&&<div style={{background:C.amber+"18",border:`1px solid ${C.amber}33`,borderRadius:8,padding:"8px 12px",fontSize:12,color:C.amber}}>⚠ Esta categoría ya tiene presupuesto asignado. Se va a reemplazar.</div>}
-        <div style={{display:"flex",gap:8}}><Btn primary onClick={save} loading={saving}>Guardar</Btn><Btn onClick={()=>setModal(false)}>Cancelar</Btn></div>
+        {presup.find(p=>p.cat_id===draft.cat_id)&&<div style={{background:C.amber+"18",border:`1px solid ${C.amber}33`,borderRadius:8,padding:"8px 12px",fontSize:12,color:C.amber}}>
+          ⚠ Esta categoría ya tiene presupuesto. Se va a actualizar con el nuevo monto.
+        </div>}
+        <div style={{display:"flex",gap:8}}>
+          <Btn primary onClick={save} loading={saving} disabled={!draft.monto||parseFloat(draft.monto)<=0}>Guardar</Btn>
+          <Btn onClick={()=>setModal(false)}>Cancelar</Btn>
+        </div>
       </div>
     </Modal>}
   </div>;
