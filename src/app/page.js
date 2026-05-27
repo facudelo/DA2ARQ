@@ -406,100 +406,186 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=
   const enUSD=monedaVista==="USD";
   const conv=g=>enUSD?toUSD(g,tcRef):toARS(g,tcRef);
   const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
-  const totalMV=gastos.reduce((s,g)=>s+conv(g),0);
 
-  // ── PRESUPUESTO: usar total de categorías si existen, sino presupuesto_total de obra ──
+  // ── KPIs ──
+  const totalGastado=gastos.reduce((s,g)=>s+conv(g),0);
   const totalPresupCatsMV=presup.reduce((s,p)=>{
     const pMV=p.moneda==="USD"?(enUSD?p.monto:p.monto*tcRef):(enUSD?p.monto/tcRef:p.monto);
     return s+pMV;
   },0);
   const presupTotalObraMV=obra.presupuesto_total?(obra.moneda_presupuesto==="USD"?(enUSD?obra.presupuesto_total:obra.presupuesto_total*tcRef):(enUSD?obra.presupuesto_total/tcRef:obra.presupuesto_total)):0;
   const presupTotalMV=totalPresupCatsMV>0?totalPresupCatsMV:presupTotalObraMV;
+  const pct=presupTotalMV>0?Math.min(Math.round((totalGastado/presupTotalMV)*100),999):null;
+  const restante=Math.max(0,presupTotalMV-totalGastado);
+  const colorPct=p=>p>=100?C.red:p>=80?C.amber:C.green;
 
-  const pct=presupTotalMV>0?Math.min(Math.round((totalMV/presupTotalMV)*100),200):null;
-  const byCat=cats.map(c=>({...c,total:gastos.filter(g=>g.cat_id===c.id).reduce((s,g)=>s+conv(g),0)})).filter(c=>c.total>0).sort((a,b)=>b.total-a.total);
-  const donutData=byCat.map(c=>({label:c.label,val:c.total,color:c.color||C.green}));
-  const ultimaFoto=fotos[0]||null;
-  const hitosComp=hitos.filter(h=>h.estado==="completado").length;
-  const hitosActivos=hitos.filter(h=>h.estado!=="completado").slice(0,3);
-  const ultimoGasto=gastos[0]||null;
+  // ── Gastos por categoría con barra de presupuesto ──
+  const gastosPorCat=cats.map(c=>{
+    const total=gastos.filter(g=>g.cat_id===c.id).reduce((s,g)=>s+conv(g),0);
+    const presupCat=presup.find(p=>p.cat_id===c.id);
+    const presupCatMV=presupCat?(presupCat.moneda==="USD"?(enUSD?presupCat.monto:presupCat.monto*tcRef):(enUSD?presupCat.monto/tcRef:presupCat.monto)):0;
+    const pctCat=presupCatMV>0?Math.min(Math.round((total/presupCatMV)*100),100):0;
+    return {...c,total,presupCatMV,pctCat};
+  }).filter(c=>c.total>0||c.presupCatMV>0);
 
-  return <div className="fu">
-    <div style={{marginBottom:16}}>
-      <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-        <StatCard label="Total ejecutado" value={fmt(totalMV)} sub={`${gastos.length} movimientos`} color={C.green} icon="💸"/>
-        {presupTotalMV>0&&<StatCard label="Presupuesto" value={fmt(presupTotalMV)} color={C.blue} icon="📐"/>}
-        {presupTotalMV>0&&pct!==null&&<StatCard label="Disponible" value={fmt(Math.max(0,presupTotalMV-totalMV))} sub={pct>=80?"⚠ Límite cercano":""} color={presupTotalMV-totalMV<0?C.red:C.lima} icon="📊"/>}
-        <StatCard label="Participantes" value={partic.length} sub={`${fotos.length} foto${fotos.length!==1?"s":""}`} color={C.amber} icon="👥"/>
-        {hitos.length>0&&<StatCard label="Objetivos" value={`${hitosComp}/${hitos.length}`} sub={`${Math.round((hitosComp/hitos.length)*100)}% completados`} color={C.blue} icon="🏁"/>}
-      </div>
+  // ── Gastos por subcategoría ordenados de mayor a menor ──
+  const gastosPorSub=cats.flatMap(cat=>
+    (cat.subs||[]).map(sub=>{
+      const total=gastos.filter(g=>g.sub_id===sub.id).reduce((s,g)=>s+conv(g),0);
+      return {id:sub.id,label:sub.label,catLabel:cat.label,catIcon:cat.icon||"📦",catColor:cat.color,total};
+    })
+  ).filter(s=>s.total>0).sort((a,b)=>b.total-a.total);
+
+  // ── Actividad reciente ──
+  const actGastos=gastos.slice(0,15).map(g=>{
+    const cat=cats.find(c=>c.id===g.cat_id);
+    const sub=cat?.subs?.find(s=>s.id===g.sub_id);
+    return {tipo:"gasto",created_at:g.created_at,fecha:g.fecha,label:g.descripcion||sub?.label||cat?.label||"Gasto",monto:fmt(conv(g)),icon:"💸",catColor:cat?.color};
+  });
+  const actFotos=fotos.slice(0,5).map(f=>({tipo:"foto",created_at:f.created_at,fecha:f.fecha,label:f.titulo||"Foto subida",icon:"📷",catColor:null,monto:null}));
+  const actHitos=hitos.filter(h=>h.estado==="completado").slice(0,5).map(h=>({tipo:"hito",created_at:h.updated_at||h.created_at,fecha:h.fecha_estimada,label:`Objetivo completado: ${h.titulo}`,icon:"🏁",catColor:null,monto:null}));
+  const actividad=[...actGastos,...actFotos,...actHitos].sort((a,b)=>(b.created_at||"")>(a.created_at||"")?1:-1).slice(0,6);
+
+  const EC={completado:{label:"Completado",color:C.green},en_progreso:{label:"En curso",color:C.amber},pendiente:{label:"Pendiente",color:C.t3},cancelado:{label:"Cancelado",color:C.red}};
+
+  return <div className="fu" style={{display:"flex",flexDirection:"column",gap:14}}>
+
+    {/* ── FILA 1: KPIs ── */}
+    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
+      {[
+        {label:"Ejecutado",value:pct!==null?`${pct}%`:"—",sub:"del presupuesto",color:pct!==null?colorPct(pct):C.t},
+        {label:"Gasto real",value:fmt(totalGastado),sub:`acumulado ${monedaVista}`,color:C.t},
+        {label:"Presupuesto restante",value:presupTotalMV>0?fmt(restante):"—",sub:"según presup.",color:presupTotalMV>0?(restante<presupTotalMV*0.15?C.red:C.amber):C.t3},
+        {label:"Disponible",value:presupTotalMV>0?fmt(restante):"—",sub:"saldo vs presup.",color:presupTotalMV>0?C.green:C.t3},
+      ].map((k,i)=>(
+        <div key={i} style={{background:C.bg2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.bd2}`}}>
+          <div style={{fontSize:10,color:C.t3,marginBottom:5,fontWeight:600,textTransform:"uppercase",letterSpacing:".04em"}}>{k.label}</div>
+          <div style={{fontSize:20,fontWeight:700,color:k.color,lineHeight:1.1}}>{k.value}</div>
+          <div style={{fontSize:10,color:C.t3,marginTop:3}}>{k.sub}</div>
+        </div>
+      ))}
     </div>
 
-    {presupTotalMV>0&&pct!==null&&<Card style={{marginBottom:14}}>
-      <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:8,fontWeight:600}}>Avance presupuestario</div>
-      <div style={{height:12,borderRadius:6,background:C.bg3,overflow:"hidden",marginBottom:6}}>
-        <div style={{height:"100%",borderRadius:6,background:pct>=100?C.red:pct>=80?C.amber:C.green,width:`${Math.min(pct,100)}%`,transition:"width .6s ease"}}/>
-      </div>
-      <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.t3}}>
-        <span>Ejecutado: <b style={{color:C.t}}>{fmt(totalMV)}</b></span>
-        <span style={{color:pct>=100?C.red:pct>=80?C.amber:C.green,fontWeight:700}}>{pct}%</span>
-        <span>Presupuesto: <b style={{color:C.t}}>{fmt(presupTotalMV)}</b></span>
-      </div>
-    </Card>}
+    {/* ── FILA 2: Categorías | Fotos ── */}
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
 
-    {obra.estado&&<Card style={{marginBottom:14}}>
-      <div style={{display:"flex",gap:16,alignItems:"center",flexWrap:"wrap"}}>
-        <div style={{fontSize:44}}>🏗️</div>
-        <div style={{flex:1}}>
-          <div style={{fontWeight:700,fontSize:16,color:C.t,marginBottom:4}}>{obra.nombre}</div>
-          <Tag label={obra.estado} color={obra.estado==="En ejecución"?C.green:obra.estado==="Finalizada"?C.blue:C.amber}/>
-          <div style={{fontSize:12,color:C.t3,marginTop:6}}>{obra.direccion}</div>
-        </div>
-        {/* Solo mostrar presupuesto general si NO hay categorías cargadas */}
-        {obra.presupuesto_total>0&&presup.length===0&&<div style={{textAlign:"right"}}>
-          <div style={{fontSize:11,color:C.t3}}>Presupuesto general</div>
-          <div style={{fontSize:18,fontWeight:700,color:C.t}}>{fmtM(obra.presupuesto_total,obra.moneda_presupuesto)}</div>
-        </div>}
-      </div>
-    </Card>}
-
-    <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:14}}>
-      <Card style={{flex:"1 1 260px"}}>
-        <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:12,fontWeight:600}}>Por categoría</div>
-        {donutData.length===0?<div style={{textAlign:"center",padding:"20px 0",color:C.t3}}>Sin datos</div>:
-        <div style={{display:"flex",gap:16,alignItems:"center",flexWrap:"wrap"}}>
-          <Donut data={donutData} size={110}/>
-          <div style={{flex:1,minWidth:120}}>
-            {[...donutData].sort((a,b)=>b.val-a.val).slice(0,5).map(d=>{const p2=totalMV>0?Math.round((d.val/totalMV)*100):0;return <div key={d.label} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5,gap:8}}><div style={{display:"flex",alignItems:"center",gap:5,minWidth:0}}><div style={{width:8,height:8,borderRadius:"50%",background:d.color,flexShrink:0}}/><span style={{fontSize:11,color:C.t,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.label}</span></div><span style={{fontSize:11,fontWeight:600,color:C.t3,flexShrink:0}}>{p2}%</span></div>;})}
-          </div>
-        </div>}
+      {/* Gastos por categoría */}
+      <Card>
+        <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:12,fontWeight:600}}>Gastos por categoría</div>
+        {gastosPorCat.length===0
+          ?<div style={{textAlign:"center",padding:"20px 0",color:C.t3,fontSize:12}}>Sin gastos aún</div>
+          :gastosPorCat.map(c=>(
+            <div key={c.id} style={{marginBottom:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:14}}>{c.icon||"📦"}</span>
+                  <span style={{fontSize:12,color:C.t,fontWeight:600}}>{c.label}</span>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:11,color:C.t2}}>{fmt(c.total)}</span>
+                  {c.presupCatMV>0&&<span style={{fontSize:11,fontWeight:700,color:colorPct(c.pctCat)}}>{c.pctCat}%</span>}
+                </div>
+              </div>
+              {c.presupCatMV>0&&(
+                <div style={{height:6,background:C.bg3,borderRadius:3,overflow:"hidden"}}>
+                  <div style={{height:"100%",width:`${c.pctCat}%`,background:colorPct(c.pctCat),borderRadius:3,transition:"width .4s"}}/>
+                </div>
+              )}
+            </div>
+          ))
+        }
       </Card>
 
-      {hitosActivos.length>0&&<Card style={{flex:"1 1 200px"}}>
-        <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:10,fontWeight:600}}>Próximos objetivos</div>
-        {hitosActivos.map(h=>{const col=h.estado==="en_progreso"?C.amber:C.t3;return <div key={h.id} style={{display:"flex",gap:8,alignItems:"flex-start",marginBottom:10,paddingBottom:10,borderBottom:`1px solid ${C.bd}`}}>
-          <div style={{width:8,height:8,borderRadius:"50%",background:col,marginTop:4,flexShrink:0}}/>
-          <div style={{flex:1}}><div style={{fontSize:12,fontWeight:600,color:C.t}}>{h.titulo}</div><div style={{fontSize:10,color:C.t3,marginTop:1}}>📅 {h.fecha_estimada}</div></div>
-          <Tag label={h.estado==="en_progreso"?"En curso":"Pendiente"} color={col}/>
-        </div>;})}
-      </Card>}
-
-      {ultimaFoto&&<Card style={{flex:"1 1 200px"}}>
-        <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:10,fontWeight:600}}>Última foto</div>
-        <img src={ultimaFoto.url} alt={ultimaFoto.titulo} style={{width:"100%",borderRadius:10,objectFit:"cover",maxHeight:170}}/>
-        <div style={{marginTop:8,fontSize:12,fontWeight:600,color:C.t}}>{ultimaFoto.titulo}</div>
-        <div style={{fontSize:11,color:C.t3,marginTop:2}}>{ultimaFoto.fecha}{ultimaFoto.etapa&&` · ${ultimaFoto.etapa}`}</div>
-      </Card>}
+      {/* Últimas fotos */}
+      <Card>
+        <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:12,fontWeight:600}}>Últimas fotos</div>
+        {fotos.length===0
+          ?<div style={{textAlign:"center",padding:"20px 0",color:C.t3,fontSize:12}}>Sin fotos aún</div>
+          :<>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+              {fotos.slice(0,4).map(f=>(
+                <div key={f.id} style={{borderRadius:8,overflow:"hidden",border:`1px solid ${C.bd2}`,aspectRatio:"4/3",background:C.bg3,position:"relative"}}>
+                  <img src={f.url} alt={f.titulo||""} style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}} onError={e=>{e.target.style.display="none";}}/>
+                  {f.fecha&&<div style={{position:"absolute",bottom:0,left:0,right:0,background:"rgba(0,0,0,.45)",padding:"3px 6px",fontSize:10,color:"#fff"}}>{f.fecha}</div>}
+                </div>
+              ))}
+            </div>
+            <div style={{textAlign:"center",marginTop:8,fontSize:11,color:C.t3}}>{fotos.length} foto{fotos.length!==1?"s":""} en total</div>
+          </>
+        }
+      </Card>
     </div>
 
-    {ultimoGasto&&<Card style={{marginTop:4}}>
-      <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:8,fontWeight:600}}>Último movimiento registrado</div>
-      {(()=>{const cat=cats.find(c=>c.id===ultimoGasto.cat_id);return <div style={{display:"flex",gap:12,alignItems:"center"}}>
-        <div style={{width:40,height:40,borderRadius:10,background:(cat?.color||C.green)+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>{cat?.icon||"📦"}</div>
-        <div style={{flex:1}}><div style={{fontWeight:600,color:C.t}}>{ultimoGasto.descripcion||cat?.label||"—"}</div><div style={{fontSize:11,color:C.t3,marginTop:2}}>{ultimoGasto.fecha} · {cat?.label}</div></div>
-        <div style={{fontSize:16,fontWeight:700,color:cat?.color||C.green}}>{enUSD?fmtUSD(toUSD(ultimoGasto,tcRef)):fmtARS(toARS(ultimoGasto,tcRef))}</div>
-      </div>;})()} 
-    </Card>}
+    {/* ── FILA 3: Gastos por subcategoría ── */}
+    {gastosPorSub.length>0&&(
+      <Card>
+        <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:12,fontWeight:600}}>Gastos por subcategoría</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:8}}>
+          {gastosPorSub.map(s=>{
+            const maxTotal=gastosPorSub[0].total;
+            const pctBar=maxTotal>0?Math.round((s.total/maxTotal)*100):0;
+            return (
+              <div key={s.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:C.bg3,borderRadius:8,border:`1px solid ${C.bd}`}}>
+                <div style={{width:24,height:24,borderRadius:6,background:(s.catColor||C.green)+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0}}>{s.catIcon}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+                    <span style={{fontSize:12,color:C.t,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.label}</span>
+                    <span style={{fontSize:11,fontWeight:700,color:s.catColor||C.green,flexShrink:0,marginLeft:8}}>{fmt(s.total)}</span>
+                  </div>
+                  <div style={{height:4,background:C.bg2,borderRadius:2,overflow:"hidden"}}>
+                    <div style={{height:"100%",width:`${pctBar}%`,background:s.catColor||C.green,borderRadius:2}}/>
+                  </div>
+                  <div style={{fontSize:10,color:C.t3,marginTop:2}}>{s.catLabel}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+    )}
+
+    {/* ── FILA 4: Actividad reciente ── */}
+    <Card>
+      <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:10,fontWeight:600}}>Actividad reciente</div>
+      {actividad.length===0
+        ?<div style={{textAlign:"center",padding:"16px 0",color:C.t3,fontSize:12}}>Sin actividad aún</div>
+        :actividad.map((a,i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:i<actividad.length-1?`1px solid ${C.bd}`:"none"}}>
+            <div style={{width:30,height:30,borderRadius:8,background:C.bg3,border:`1px solid ${C.bd}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>{a.icon}</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:12,color:C.t,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.label}</div>
+              <div style={{fontSize:11,color:C.t3,marginTop:1}}>{a.fecha}</div>
+            </div>
+            {a.monto&&<div style={{fontSize:12,fontWeight:700,color:a.catColor||C.green,flexShrink:0}}>{a.monto}</div>}
+          </div>
+        ))
+      }
+    </Card>
+
+    {/* ── FILA 5: Objetivos de obra ── */}
+    {hitos.length>0&&(
+      <Card>
+        <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:12,fontWeight:600}}>Objetivos de obra</div>
+        {hitos.map((h,i)=>{
+          const ec=EC[h.estado]||EC.pendiente;
+          const dotColor=h.estado==="completado"?C.green:h.estado==="en_progreso"?C.amber:C.bd2;
+          return (
+            <div key={h.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:i<hitos.length-1?`1px solid ${C.bd}`:"none"}}>
+              <div style={{width:12,height:12,borderRadius:"50%",background:dotColor,border:`2px solid ${dotColor}`,flexShrink:0}}/>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:13,fontWeight:600,color:h.estado==="cancelado"?C.t3:C.t,textDecoration:h.estado==="cancelado"?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.titulo}</div>
+                {h.descripcion&&<div style={{fontSize:11,color:C.t3,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.descripcion}</div>}
+              </div>
+              <div style={{flexShrink:0,textAlign:"right"}}>
+                <div style={{fontSize:10,color:C.t3,marginBottom:3}}>{h.fecha_estimada}</div>
+                <Tag label={ec.label} color={ec.color}/>
+              </div>
+            </div>
+          );
+        })}
+      </Card>
+    )}
+
   </div>;
 }
 
