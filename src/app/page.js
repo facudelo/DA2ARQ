@@ -210,7 +210,25 @@ function ObrasScreen({user,onSelect,onLogout,toast}){
   const [saving,setSaving]=useState(false);
   const [draft,setDraft]=useState({nombre:"",direccion:"",estado:"En ejecución",presupuesto_total:"",moneda_presupuesto:"ARS",presup_tipo:"total"});
   const [confirmDel,setConfirmDel]=useState(null);
-  const loadObras=useCallback(async()=>{setLoading(true);const{data,error}=await supabase.from("obras").select("*, participantes!inner(rol,puede_cargar,user_id)").eq("participantes.user_id",user.id).order("created_at",{ascending:false});if(!error)setObras(data||[]);setLoading(false);},[user.id]);
+  const loadObras=useCallback(async()=>{
+    setLoading(true);
+    const{data,error}=await supabase.from("obras").select("*, participantes!inner(rol,puede_cargar,user_id)").eq("participantes.user_id",user.id).order("created_at",{ascending:false});
+    if(!error&&data){
+      const ids=data.map(o=>o.id);
+      const[{data:gData},{data:fData},{data:hData}]=await Promise.all([
+        supabase.from("gastos").select("obra_id,monto,moneda,tc_valor").in("obra_id",ids),
+        supabase.from("fotos").select("obra_id").in("obra_id",ids),
+        supabase.from("hitos").select("obra_id,estado").in("obra_id",ids),
+      ]);
+      setObras(data.map(o=>({
+        ...o,
+        _gastos:gData?.filter(g=>g.obra_id===o.id)||[],
+        _fotos:(fData?.filter(f=>f.obra_id===o.id)||[]).length,
+        _hitos:hData?.filter(h=>h.obra_id===o.id)||[],
+      })));
+    }
+    setLoading(false);
+  },[user.id]);
   useEffect(()=>{loadObras();},[loadObras]);
   const save=async()=>{
     if(!draft.nombre.trim())return;setSaving(true);
@@ -236,7 +254,12 @@ function ObrasScreen({user,onSelect,onLogout,toast}){
         <Btn primary onClick={()=>setModal(true)}>+ Nueva obra</Btn>
       </div>
       {loading&&<Spinner/>}
-      {!loading&&obras.length===0&&<Card><div style={{textAlign:"center",padding:"40px 0",color:C.t3}}>No tenés obras asignadas todavía.</div></Card>}
+      {!loading&&obras.length===0&&<Card style={{textAlign:"center",padding:"48px 24px"}}>
+        <div style={{fontSize:48,marginBottom:12}}>🏗️</div>
+        <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:6}}>No tenés obras todavía</div>
+        <div style={{fontSize:13,color:C.t3,maxWidth:320,margin:"0 auto 20px"}}>Creá tu primera obra para empezar a registrar gastos, fotos y el avance con tus clientes.</div>
+        <Btn primary onClick={()=>setModal(true)}>+ Crear primera obra</Btn>
+      </Card>}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
         {obras.map(o=>{
           const rol=miRol(o);
@@ -254,8 +277,31 @@ function ObrasScreen({user,onSelect,onLogout,toast}){
               }
             </div>
             <div style={{fontWeight:700,fontSize:14,color:C.t,marginBottom:3}}>{o.nombre}</div>
-            <div style={{fontSize:12,color:C.t3,marginBottom:12}}>{o.direccion}</div>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><Tag label={ROL_LABEL[rol]} color={ROL_COLOR[rol]}/><span style={{fontSize:11,color:C.t3}}>{o.created_at?.slice(0,10)}</span></div>
+            <div style={{fontSize:12,color:C.t3,marginBottom:10}}>{o.direccion||<span style={{fontStyle:"italic",opacity:.5}}>Sin dirección</span>}</div>
+            {(()=>{
+              const totalARS=(o._gastos||[]).reduce((s,g)=>s+(g.moneda==="USD"?g.monto*(g.tc_valor||1300):g.monto),0);
+              const presupARS=o.presupuesto_total?(o.moneda_presupuesto==="USD"?o.presupuesto_total*1300:o.presupuesto_total):0;
+              const pct=presupARS>0?Math.min(Math.round((totalARS/presupARS)*100),999):null;
+              if(pct===null)return null;
+              const barColor=pct>=100?C.red:pct>=80?C.amber:C.green;
+              return <div style={{marginBottom:10}}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.t3,marginBottom:3}}>
+                  <span>Presupuesto ejecutado</span>
+                  <span style={{fontWeight:700,color:barColor}}>{pct}%</span>
+                </div>
+                <div style={{height:5,borderRadius:3,background:C.bg3,overflow:"hidden"}}>
+                  <div style={{height:"100%",width:`${Math.min(pct,100)}%`,borderRadius:3,background:barColor,transition:"width .6s"}}/>
+                </div>
+              </div>;
+            })()}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+              <Tag label={ROL_LABEL[rol]} color={ROL_COLOR[rol]}/>
+              <div style={{display:"flex",gap:10}}>
+                {(o._gastos?.length>0)&&<span style={{fontSize:11,color:C.t3}}>💸 {o._gastos.length}</span>}
+                {(o._fotos>0)&&<span style={{fontSize:11,color:C.t3}}>📷 {o._fotos}</span>}
+                {(o._hitos?.length>0)&&<span style={{fontSize:11,color:C.t3}}>🏁 {o._hitos.filter(h=>h.estado==="completado").length}/{o._hitos.length}</span>}
+              </div>
+            </div>
           </div>;
         })}
       </div>
@@ -759,7 +805,23 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
       </div>
     </Card>
 
-    {filtered.length===0&&<Card><div style={{textAlign:"center",padding:"32px 0",color:C.t3}}>Sin gastos que coincidan con el filtro.</div></Card>}
+    {filtered.length===0&&<Card>
+      <div style={{textAlign:"center",padding:"40px 0"}}>
+        {gastos.length===0
+          ?<>
+            <div style={{fontSize:44,marginBottom:12}}>💸</div>
+            <div style={{fontSize:14,fontWeight:600,color:C.t2,marginBottom:6}}>Sin gastos registrados</div>
+            <div style={{fontSize:12,color:C.t3,marginBottom:16}}>Usá el botón <b style={{color:C.green}}>+</b> para cargar el primer gasto de esta obra.</div>
+            {(puedoCargar||esAdmin)&&<Btn primary onClick={()=>setShowForm(true)}>+ Cargar primer gasto</Btn>}
+          </>
+          :<>
+            <div style={{fontSize:36,marginBottom:10}}>🔍</div>
+            <div style={{fontSize:13,fontWeight:600,color:C.t2,marginBottom:4}}>Sin resultados</div>
+            <div style={{fontSize:12,color:C.t3}}>Ningún gasto coincide con los filtros aplicados.</div>
+          </>
+        }
+      </div>
+    </Card>}
     <div style={{display:"flex",flexDirection:"column",gap:8}}>
       {filtered.map(g=>{
         const cat=cats.find(c=>c.id===g.cat_id);
