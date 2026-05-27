@@ -1625,9 +1625,12 @@ function HitosTab({obra,hitos,esAdmin,toast,reload}){
                   </div>}
                 </div>
                 <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-                  {esAdmin?<select value={h.estado} onChange={e=>updateEstado(h.id,e.target.value)} style={{...SEL,width:"auto",padding:"5px 8px",fontSize:11,borderColor:ec.color+"66"}}>
-                    {Object.entries(EC).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
-                  </select>:<Tag label={ec.label} color={ec.color}/>}
+                  {esAdmin
+                    ?<div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                        {Object.entries(EC).map(([k,v])=><button key={k} onClick={()=>updateEstado(h.id,k)} style={{padding:"4px 10px",fontSize:11,fontWeight:600,borderRadius:20,border:`1px solid ${h.estado===k?v.color:C.bd2}`,background:h.estado===k?v.color+"18":"transparent",color:h.estado===k?v.color:C.t3,cursor:"pointer"}}>{v.label}</button>)}
+                      </div>
+                    :<Tag label={ec.label} color={ec.color}/>
+                  }
                   {esAdmin&&<button onClick={()=>deleteH(h.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.t3,fontSize:18}}>×</button>}
                 </div>
               </div>
@@ -1986,7 +1989,7 @@ function CategoriasTab({cats,obra,toast,reload}){
     {catM&&<Modal title={catM==="new"?"Nueva categoría":"Editar categoría"} onClose={()=>setCatM(null)}>
       <div style={{display:"flex",flexDirection:"column",gap:14}}>
         <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Nombre</div><input style={INP} autoFocus placeholder="Ej: Estructura" value={catD.label} onChange={e=>setCatD(d=>({...d,label:e.target.value}))}/></div>
-        <div><div style={{fontSize:11,color:C.t2,marginBottom:8,fontWeight:600}}>Ícono</div><div style={{display:"flex",flexWrap:"wrap",gap:6}}>{ICONS.map(ic=><button key={ic} onClick={()=>setCatD(d=>({...d,icon:ic}))} style={{width:36,height:36,borderRadius:8,fontSize:18,border:`2px solid ${catD.icon===ic?C.green:"transparent"}`,background:catD.icon===ic?C.bg3:"transparent",cursor:"pointer"}}>{ic}</button>)}</div></div>
+        <div><div style={{fontSize:11,color:C.t2,marginBottom:8,fontWeight:600}}>Ícono</div><div style={{display:"flex",flexWrap:"wrap",gap:5,maxHeight:200,overflowY:"auto",padding:"4px 2px",border:`1px solid ${C.bd}`,borderRadius:10,background:C.bg3}}>{ICONS.map(ic=><button key={ic} onClick={()=>setCatD(d=>({...d,icon:ic}))} style={{width:36,height:36,borderRadius:8,fontSize:18,border:`2px solid ${catD.icon===ic?C.green:"transparent"}`,background:catD.icon===ic?"#fff":"transparent",cursor:"pointer",flexShrink:0}}>{ic}</button>)}</div></div>
         <div><div style={{fontSize:11,color:C.t2,marginBottom:8,fontWeight:600}}>Color</div><div style={{display:"flex",gap:8}}>{COLS.map(col=><button key={col} onClick={()=>setCatD(d=>({...d,color:col}))} style={{width:26,height:26,borderRadius:"50%",background:col,border:`3px solid ${catD.color===col?"#fff":"transparent"}`,outline:catD.color===col?`2px solid ${col}`:"none",cursor:"pointer"}}/>)}</div></div>
         <div style={{display:"flex",gap:8}}><Btn primary onClick={saveCat} loading={saving}>Guardar</Btn><Btn onClick={()=>setCatM(null)}>Cancelar</Btn></div>
       </div>
