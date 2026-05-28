@@ -811,6 +811,7 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
   const [editM,setEditM]=useState(null);
   const [saving,setSaving]=useState(false);
   const [gastoComent,setGastoComent]=useState(null);
+  const [vistaReal,setVistaReal]=useState(false); // toggle arquitecto: ver montos reales
   const tcRef=tcOficial||tcManual;
   const tcVal=tcTipo==="oficial"?(tcOficial||tcManual):tcTipo==="blue"?(tcBlue||tcManual):tcManual;
   const enUSD=monedaVista==="USD";
@@ -864,24 +865,27 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
   const montoNum=parseFloat(draft.monto)||0;
 
   return <div className="fu">
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14,flexWrap:"wrap",gap:8}}>
       <div>
         <div style={{fontSize:16,fontWeight:700,color:C.t}}>Gastos</div>
         <div style={{fontSize:12,color:C.t3,marginTop:2,display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
           <span>{filtered.length} movimientos</span>
-          {esAdmin&&margen!==null&&margen!==0
+          {esAdmin
             ?<>
-              <span>🔒 real: <b style={{color:C.t2}}>{fmt(totalReal??total)}</b></span>
-              <span>🌐 cliente: <b style={{color:C.lima}}>{fmt(total)}</b></span>
-              <span style={{color:margen>0?C.green:C.red,fontWeight:700}}>
-                {margen>0?"▲":"▼"} margen: {fmt(Math.abs(margen))}
-              </span>
+              <span style={{color:vistaReal?C.t2:C.t3}}>🔒 real: <b style={{color:C.t2}}>{fmt(totalReal??total)}</b></span>
+              <span style={{color:vistaReal?C.t3:C.lima}}>🌐 cliente: <b style={{color:C.lima}}>{fmt(total)}</b></span>
+              {margen!==null&&margen!==0&&<span style={{color:margen>0?C.green:C.red,fontWeight:700}}>{margen>0?"▲":"▼"} {fmt(Math.abs(margen))}</span>}
             </>
             :<span>{fmt(total)}</span>
           }
         </div>
       </div>
-      {(puedoCargar||esAdmin)&&<Btn primary onClick={()=>setShowForm(v=>!v)}>{showForm?"✕ Cerrar":"+ Nuevo gasto"}</Btn>}
+      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+        {esAdmin&&<div onClick={()=>setVistaReal(v=>!v)} style={{display:"flex",alignItems:"center",gap:6,background:vistaReal?C.t2+"18":C.limaBg,border:`1px solid ${vistaReal?C.t2+"44":C.lima+"44"}`,borderRadius:20,padding:"4px 12px",cursor:"pointer",userSelect:"none"}}>
+          <span style={{fontSize:11,fontWeight:600,color:vistaReal?C.t2:C.lima}}>{vistaReal?"🔒 Vista real":"🌐 Vista cliente"}</span>
+        </div>}
+        {(puedoCargar||esAdmin)&&<Btn primary onClick={()=>setShowForm(v=>!v)}>{showForm?"✕ Cerrar":"+ Nuevo gasto"}</Btn>}
+      </div>
     </div>
 
     {showForm&&<Card style={{marginBottom:16}}>
@@ -1003,15 +1007,21 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
           </div>
           <div style={{textAlign:"right",flexShrink:0,minWidth:110}}>
             {esAdmin&&tieneCliente
-              ?<>
-                <div style={{fontSize:10,color:C.t3,marginBottom:1}}>🌐 cliente</div>
-                <div style={{fontSize:15,fontWeight:700,color:C.lima}}>{fmt(convCliente(g))}</div>
-                <div style={{fontSize:10,color:C.t3}}>🔒 real: <b style={{color:C.t2}}>{fmt(convReal(g))}</b></div>
-                <div style={{fontSize:10,fontWeight:700,color:convCliente(g)-convReal(g)>0?C.green:C.red}}>
-                  {convCliente(g)-convReal(g)>0?"+":""}{fmt(convCliente(g)-convReal(g))}
-                </div>
-              </>
-              :<div style={{fontSize:15,fontWeight:700,color:cat?.color||C.green}}>{fmt(convCliente(g))}</div>
+              ?vistaReal
+                ?<>
+                  <div style={{fontSize:10,color:C.t3,marginBottom:1}}>🔒 real</div>
+                  <div style={{fontSize:15,fontWeight:700,color:C.t2}}>{fmt(convReal(g))}</div>
+                  <div style={{fontSize:10,color:C.lima}}>🌐 cliente: {fmt(convCliente(g))}</div>
+                </>
+                :<>
+                  <div style={{fontSize:10,color:C.t3,marginBottom:1}}>🌐 cliente</div>
+                  <div style={{fontSize:15,fontWeight:700,color:C.lima}}>{fmt(convCliente(g))}</div>
+                  <div style={{fontSize:10,color:C.t3}}>🔒 real: {fmt(convReal(g))}</div>
+                  <div style={{fontSize:10,fontWeight:700,color:convCliente(g)-convReal(g)>0?C.green:C.red}}>
+                    {convCliente(g)-convReal(g)>=0?"+":""}{fmt(convCliente(g)-convReal(g))}
+                  </div>
+                </>
+              :<div style={{fontSize:15,fontWeight:700,color:cat?.color||C.green}}>{fmt(vistaReal?convReal(g):convCliente(g))}</div>
             }
             <div style={{fontSize:10,color:C.t3}}>{g.moneda}{g.tc_valor?` · TC $${g.tc_valor.toLocaleString("es-AR")}`:""}</div>
           </div>
