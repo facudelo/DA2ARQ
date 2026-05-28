@@ -359,9 +359,11 @@ function ObraApp(props){
   const [monedaVista,setMonedaVista]=useState("ARS");
   const [notifVistas,setNotifVistas]=useState(()=>{try{return JSON.parse(localStorage.getItem("nv_"+obra.id)||"{}")}catch{return {};}});
 
+  const [permisosCliente,setPermisosCliente]=useState({gastos:true,fotos:true,objetivos:true,reportes:false,resumen:true,ipc:false,usd:false});
+
   const loadAll=useCallback(async()=>{
     setLoadingData(true);
-    const[gRes,prRes,cRes,fRes,partRes,hRes,cRes2]=await Promise.all([
+    const[gRes,prRes,cRes,fRes,partRes,hRes,cRes2,pермRes]=await Promise.all([
       supabase.from("gastos").select("*").eq("obra_id",obra.id).order("fecha",{ascending:false}),
       supabase.from("presupuestos").select("*").eq("obra_id",obra.id),
       supabase.from("categorias").select("*, subcategorias(*)").eq("obra_id",obra.id).order("orden"),
@@ -369,11 +371,13 @@ function ObraApp(props){
       supabase.from("participantes").select("*").eq("obra_id",obra.id),
       supabase.from("hitos").select("*").eq("obra_id",obra.id).order("fecha_estimada"),
       supabase.from("comentarios_gasto").select("*").eq("obra_id",obra.id).order("created_at"),
+      supabase.from("permisos_cliente").select("*").eq("obra_id",obra.id).single(),
     ]);
     setGastos(gRes.data||[]);setPresup(prRes.data||[]);
     setCats((cRes.data||[]).map(c=>({...c,subs:c.subcategorias||[]})));
     setFotos(fRes.data||[]);setPartic(partRes.data||[]);
     setHitos(hRes.data||[]);setComentarios(cRes2.data||[]);
+    if(pермRes.data)setPermisosCliente(p=>({...p,...pермRes.data}));
     setLoadingData(false);
   },[obra.id]);
   useEffect(()=>{loadAll();},[loadAll]);
@@ -382,25 +386,28 @@ function ObraApp(props){
   const miRol=miP?.rol||"cliente";
   const puedoCargar=miP?.puede_cargar||false;
   const esAdmin=miRol==="arquitecto"||miRol==="ayudante";
+  const esArquitecto=miRol==="arquitecto";
   const tcRef=tcOficial||tcManual;
-  const gastosVis=esAdmin?gastos:miRol==="ayudante"?gastos.filter(g=>g.visibilidad!=="privado"):gastos.filter(g=>g.visibilidad==="publico");
+  const gastosVis=esAdmin?gastos:gastos.filter(g=>g.visibilidad==="publico");
 
   const gastosNuevos=gastosVis.filter(g=>!notifVistas[g.id]).length;
   const totalNotifs=gastosNuevos;
   const marcarTodosVistos=()=>{const nv={...notifVistas};gastosVis.forEach(g=>{nv[g.id]=1;});comentarios.forEach(c=>{nv["c_"+c.id]=1;});setNotifVistas(nv);try{localStorage.setItem("nv_"+obra.id,JSON.stringify(nv));}catch{}};
 
+  const pc=permisosCliente;
   const TABS=[
     {id:"dashboard",label:"Dashboard",icon:"📊"},
-    {id:"gastos",label:"Gastos",icon:"💸",badge:totalNotifs},
+    ...(esAdmin||pc.gastos?[{id:"gastos",label:"Gastos",icon:"💸",badge:esAdmin?totalNotifs:0}]:[]),
     ...(esAdmin?[{id:"presupuesto",label:"Presupuesto",icon:"📐"}]:[]),
-    {id:"fotos",label:"Fotos",icon:"📷"},
-    {id:"objetivos",label:"Objetivos",icon:"🏁"},
-    {id:"reportes",label:"Reportes",icon:"📈"},
-    ...(!esAdmin?[{id:"resumen",label:"Mi Resumen",icon:"📋"}]:[]),
+    ...(esAdmin||pc.fotos?[{id:"fotos",label:"Fotos",icon:"📷"}]:[]),
+    ...(esAdmin||pc.objetivos?[{id:"objetivos",label:"Objetivos",icon:"🏁"}]:[]),
+    ...(esAdmin||pc.reportes?[{id:"reportes",label:"Reportes",icon:"📈"}]:[]),
+    ...(!esAdmin&&pc.resumen?[{id:"resumen",label:"Mi Resumen",icon:"📋"}]:[]),
     ...(esAdmin?[{id:"categorias",label:"Categorías",icon:"🏷️"}]:[]),
     ...(esAdmin?[{id:"participantes",label:"Participantes",icon:"👥"}]:[]),
-    {id:"ipc",label:"IPC",icon:"📉"},
-    {id:"usd",label:"USD",icon:"💵"},
+    ...(esArquitecto?[{id:"permisos",label:"Permisos",icon:"🔐"}]:[]),
+    ...(esAdmin||pc.ipc?[{id:"ipc",label:"IPC",icon:"📉"}]:[]),
+    ...(esAdmin||pc.usd?[{id:"usd",label:"USD",icon:"💵"}]:[]),
   ];
   const goTab=id=>{setTab(id);setMobileMenu(false);if(id==="ipc")fetchIPC();if(id==="usd"){fetchIPC();fetchTCHist();}if(id==="gastos")marcarTodosVistos();};
 
@@ -462,6 +469,7 @@ function ObraApp(props){
         {tab==="resumen"&&!esAdmin&&<ResumenClienteTab obra={obra} gastos={gastosVis} presup={presup} tcRef={tcRef} cats={cats} fotos={fotos} hitos={hitos} monedaVista={monedaVista}/>}
         {tab==="categorias"&&esAdmin&&<CategoriasTab cats={cats} obra={obra} toast={toast} reload={loadAll}/>}
         {tab==="participantes"&&esAdmin&&<ParticipantesTab obra={obra} partic={partic} toast={toast} reload={loadAll}/>}
+        {tab==="permisos"&&esArquitecto&&<PermisosClienteTab obra={obra} permisos={permisosCliente} setPermisos={setPermisosCliente} toast={toast}/>}
         {tab==="ipc"&&<IPCTab inflData={inflData}/>}
         {tab==="usd"&&<USDTab tcHistData={tcHistData} inflData={inflData} tcOficial={tcOficial} tcBlue={tcBlue}/>}
       </>}
@@ -2006,24 +2014,201 @@ function CategoriasTab({cats,obra,toast,reload}){
 
 // ── PARTICIPANTES TAB ─────────────────────────────────────────────────────────
 function ParticipantesTab({obra,partic,toast,reload}){
-  const [modal,setModal]=useState(false);const [draft,setDraft]=useState({email:"",nombre:"",rol:"cliente",puede_cargar:false});const [saving,setSaving]=useState(false);
-  const save=async()=>{if(!draft.email.trim()||!draft.nombre.trim())return;setSaving(true);const{data:profile}=await supabase.from("profiles").select("id").eq("email",draft.email).single();const{error}=await supabase.from("participantes").insert({obra_id:obra.id,user_id:profile?.id||null,email:draft.email.trim(),nombre:draft.nombre.trim(),rol:draft.rol,puede_cargar:draft.rol!=="cliente"?true:draft.puede_cargar});if(error){toast.error("Error: "+error.message);setSaving(false);return;}toast.success(`${draft.nombre} invitado`);setDraft({email:"",nombre:"",rol:"cliente",puede_cargar:false});setModal(false);await reload();setSaving(false);};
+  const [modal,setModal]=useState(false);
+  const [draft,setDraft]=useState({email:"",nombre:"",rol:"cliente",puede_cargar:false});
+  const [saving,setSaving]=useState(false);
+  const [invLink,setInvLink]=useState(null); // link generado para copiar
+
+  const save=async()=>{
+    if(!draft.email.trim()||!draft.nombre.trim())return;
+    setSaving(true);
+    // 1. Enviar magic link al email (crea cuenta si no existe)
+    const{error:authErr}=await supabase.auth.signInWithOtp({
+      email:draft.email.trim(),
+      options:{
+        emailRedirectTo:window.location.origin,
+        data:{nombre:draft.nombre.trim()},
+        shouldCreateUser:true,
+      }
+    });
+    if(authErr){toast.error("Error al enviar invitación: "+authErr.message);setSaving(false);return;}
+    // 2. Buscar si ya tiene perfil creado
+    const{data:profile}=await supabase.from("profiles").select("id").eq("email",draft.email.trim()).single();
+    // 3. Agregar como participante (user_id puede ser null si aún no aceptó)
+    const{error}=await supabase.from("participantes").insert({
+      obra_id:obra.id,
+      user_id:profile?.id||null,
+      email:draft.email.trim(),
+      nombre:draft.nombre.trim(),
+      rol:draft.rol,
+      puede_cargar:draft.rol!=="cliente"?true:draft.puede_cargar,
+    });
+    if(error){toast.error("Error: "+error.message);setSaving(false);return;}
+    toast.success(`✉ Invitación enviada a ${draft.email}`);
+    setInvLink(`Se envió un magic link a ${draft.email}. El cliente hace click y entra directo, sin contraseña.`);
+    setDraft({email:"",nombre:"",rol:"cliente",puede_cargar:false});
+    await reload();setSaving(false);
+  };
+
   const updateRol=async(id,rol)=>{const{error}=await supabase.from("participantes").update({rol}).eq("id",id);if(error)toast.error("Error");else{toast.success("Rol actualizado");await reload();}};
   const updatePC=async(id,puede_cargar)=>{await supabase.from("participantes").update({puede_cargar}).eq("id",id);await reload();};
   const deleteP=async(id)=>{const{error}=await supabase.from("participantes").delete().eq("id",id);if(error)toast.error("Error");else{toast.success("Eliminado");await reload();}};
+  const reenviar=async(email)=>{
+    const{error}=await supabase.auth.signInWithOtp({email,options:{emailRedirectTo:window.location.origin,shouldCreateUser:true}});
+    if(error)toast.error("Error: "+error.message);else toast.success("Magic link reenviado a "+email);
+  };
+
   return <div className="fu">
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div><div style={{fontSize:16,fontWeight:700,color:C.t}}>Participantes</div><div style={{fontSize:12,color:C.t3}}>{partic.length} personas</div></div><Btn primary onClick={()=>setModal(true)}>+ Invitar</Btn></div>
-    <Card><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:400}}><thead><tr style={{borderBottom:`2px solid ${C.bd2}`}}>{["Nombre","Email","Rol","Puede cargar",""].map((h,i)=><th key={i} style={{padding:"8px 10px",textAlign:"left",fontSize:10,fontWeight:700,color:C.t3,textTransform:"uppercase",letterSpacing:".05em"}}>{h}</th>)}</tr></thead><tbody>{partic.map(p=><tr key={p.id} style={{borderBottom:`1px solid ${C.bd}`}}><td style={{padding:"10px",fontWeight:600,color:C.t}}>{p.nombre}</td><td style={{padding:"10px",color:C.t3,fontSize:11}}>{p.email}</td><td style={{padding:"10px"}}><select style={{...SEL,width:"auto",padding:"4px 8px",fontSize:11}} value={p.rol} onChange={e=>updateRol(p.id,e.target.value)}><option value="arquitecto">Arquitecto</option><option value="ayudante">Ayudante</option><option value="cliente">Cliente</option></select></td><td style={{padding:"10px"}}>{p.rol==="cliente"?<label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}><input type="checkbox" checked={p.puede_cargar} onChange={e=>updatePC(p.id,e.target.checked)} style={{accentColor:C.green,width:14,height:14}}/><span style={{color:p.puede_cargar?C.green:C.t3,fontWeight:p.puede_cargar?600:400}}>{p.puede_cargar?"Sí":"No"}</span></label>:<span style={{color:C.green,fontWeight:600}}>✓ Sí</span>}</td><td style={{padding:"10px",textAlign:"right"}}>{p.rol!=="arquitecto"&&<button onClick={()=>deleteP(p.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.t3,fontSize:16}}>×</button>}</td></tr>)}</tbody></table></div></Card>
-    <div style={{marginTop:12,background:C.bg3,border:`1px solid ${C.bd}`,borderRadius:10,padding:"12px 16px",fontSize:12,color:C.t3,display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}}><Tag label="Arquitecto" color={C.green}/><span>acceso total</span><Tag label="Ayudante" color={C.blue}/><span>igual, sin eliminar obra</span><Tag label="Cliente" color={C.lima}/><span>solo ve resumen público</span></div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+      <div><div style={{fontSize:16,fontWeight:700,color:C.t}}>Participantes</div><div style={{fontSize:12,color:C.t3}}>{partic.length} personas</div></div>
+      <Btn primary onClick={()=>{setInvLink(null);setModal(true);}}>+ Invitar</Btn>
+    </div>
+
+    <Card style={{marginBottom:14}}>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:440}}>
+          <thead><tr style={{borderBottom:`2px solid ${C.bd2}`}}>
+            {["Nombre","Email","Rol","Puede cargar","Estado",""].map((h,i)=><th key={i} style={{padding:"8px 10px",textAlign:"left",fontSize:10,fontWeight:700,color:C.t3,textTransform:"uppercase",letterSpacing:".05em"}}>{h}</th>)}
+          </tr></thead>
+          <tbody>{partic.map(p=>{
+            const activo=!!p.user_id;
+            return <tr key={p.id} style={{borderBottom:`1px solid ${C.bd}`}}>
+              <td style={{padding:"10px",fontWeight:600,color:C.t}}>{p.nombre}</td>
+              <td style={{padding:"10px",color:C.t3,fontSize:11}}>{p.email}</td>
+              <td style={{padding:"10px"}}>
+                <select style={{...SEL,width:"auto",padding:"4px 8px",fontSize:11}} value={p.rol} onChange={e=>updateRol(p.id,e.target.value)}>
+                  <option value="arquitecto">Arquitecto</option>
+                  <option value="ayudante">Ayudante</option>
+                  <option value="cliente">Cliente</option>
+                </select>
+              </td>
+              <td style={{padding:"10px"}}>
+                {p.rol==="cliente"
+                  ?<label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}>
+                    <input type="checkbox" checked={p.puede_cargar} onChange={e=>updatePC(p.id,e.target.checked)} style={{accentColor:C.green,width:14,height:14}}/>
+                    <span style={{color:p.puede_cargar?C.green:C.t3,fontWeight:p.puede_cargar?600:400}}>{p.puede_cargar?"Sí":"No"}</span>
+                  </label>
+                  :<span style={{color:C.green,fontWeight:600}}>✓ Sí</span>
+                }
+              </td>
+              <td style={{padding:"10px"}}>
+                {activo
+                  ?<Tag label="✓ Activo" color={C.green}/>
+                  :<div style={{display:"flex",gap:6,alignItems:"center"}}>
+                    <Tag label="⏳ Pendiente" color={C.amber}/>
+                    <button onClick={()=>reenviar(p.email)} title="Reenviar invitación" style={{background:"none",border:`1px solid ${C.amber}44`,borderRadius:6,padding:"2px 7px",cursor:"pointer",fontSize:10,color:C.amber}}>Reenviar</button>
+                  </div>
+                }
+              </td>
+              <td style={{padding:"10px",textAlign:"right"}}>
+                {p.rol!=="arquitecto"&&<button onClick={()=>deleteP(p.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.t3,fontSize:16}}>×</button>}
+              </td>
+            </tr>;
+          })}</tbody>
+        </table>
+      </div>
+    </Card>
+
+    <div style={{background:C.bg3,border:`1px solid ${C.bd}`,borderRadius:10,padding:"12px 16px",fontSize:12,color:C.t3,display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}}>
+      <Tag label="Arquitecto" color={C.green}/><span>acceso total</span>
+      <Tag label="Ayudante" color={C.blue}/><span>igual al arquitecto</span>
+      <Tag label="Cliente" color={C.lima}/><span>según permisos configurados</span>
+    </div>
+
     {modal&&<Modal title="Invitar participante" onClose={()=>setModal(false)}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
-        <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Nombre</div><input style={INP} placeholder="Ej: Juan Pérez" value={draft.nombre} onChange={e=>setDraft(d=>({...d,nombre:e.target.value}))}/></div>
-        <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Email</div><input style={INP} type="email" placeholder="juan@mail.com" value={draft.email} onChange={e=>setDraft(d=>({...d,email:e.target.value}))}/></div>
-        <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Rol</div><select style={SEL} value={draft.rol} onChange={e=>setDraft(d=>({...d,rol:e.target.value}))}><option value="arquitecto">Arquitecto</option><option value="ayudante">Ayudante</option><option value="cliente">Cliente</option></select></div>
-        {draft.rol==="cliente"&&<label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",background:C.bg3,borderRadius:8,padding:"10px 12px"}}><input type="checkbox" checked={draft.puede_cargar} onChange={e=>setDraft(d=>({...d,puede_cargar:e.target.checked}))} style={{accentColor:C.green,width:16,height:16}}/><div><div style={{fontSize:12,fontWeight:600,color:C.t}}>Permitir cargar gastos</div><div style={{fontSize:11,color:C.t3}}>Si no, solo verá el resumen público</div></div></label>}
-        <div style={{display:"flex",gap:8}}><Btn primary onClick={save} loading={saving}>Invitar</Btn><Btn onClick={()=>setModal(false)}>Cancelar</Btn></div>
+        {invLink
+          ?<>
+            <div style={{background:C.green+"12",border:`1px solid ${C.green}33`,borderRadius:10,padding:"14px 16px"}}>
+              <div style={{fontSize:14,fontWeight:700,color:C.green,marginBottom:6}}>✉ Invitación enviada</div>
+              <div style={{fontSize:12,color:C.t2,lineHeight:1.6}}>{invLink}</div>
+            </div>
+            <div style={{background:C.bg3,borderRadius:8,padding:"10px 12px",fontSize:11,color:C.t3}}>
+              💡 Si el cliente no recibe el email, podés reenviarlo desde la tabla de participantes.
+            </div>
+            <Btn primary onClick={()=>setModal(false)}>Cerrar</Btn>
+          </>
+          :<>
+            <div style={{background:C.blue+"10",border:`1px solid ${C.blue}33`,borderRadius:8,padding:"10px 12px",fontSize:12,color:C.blue}}>
+              ✉ Se enviará un <b>magic link</b> al email ingresado. El cliente hace click y entra directamente, sin necesidad de contraseña.
+            </div>
+            <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Nombre</div><input style={INP} placeholder="Ej: Juan Pérez" value={draft.nombre} onChange={e=>setDraft(d=>({...d,nombre:e.target.value}))}/></div>
+            <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Email</div><input style={INP} type="email" placeholder="juan@mail.com" value={draft.email} onChange={e=>setDraft(d=>({...d,email:e.target.value}))}/></div>
+            <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Rol</div>
+              <select style={SEL} value={draft.rol} onChange={e=>setDraft(d=>({...d,rol:e.target.value}))}>
+                <option value="arquitecto">Arquitecto</option>
+                <option value="ayudante">Ayudante</option>
+                <option value="cliente">Cliente</option>
+              </select>
+            </div>
+            {draft.rol==="cliente"&&<label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",background:C.bg3,borderRadius:8,padding:"10px 12px"}}>
+              <input type="checkbox" checked={draft.puede_cargar} onChange={e=>setDraft(d=>({...d,puede_cargar:e.target.checked}))} style={{accentColor:C.green,width:16,height:16}}/>
+              <div><div style={{fontSize:12,fontWeight:600,color:C.t}}>Permitir cargar gastos</div><div style={{fontSize:11,color:C.t3}}>Si no, solo verá lo que configuraste en Permisos</div></div>
+            </label>}
+            <div style={{display:"flex",gap:8}}>
+              <Btn primary onClick={save} loading={saving}>Enviar invitación</Btn>
+              <Btn onClick={()=>setModal(false)}>Cancelar</Btn>
+            </div>
+          </>
+        }
       </div>
     </Modal>}
+  </div>;
+}
+
+// ── PERMISOS CLIENTE TAB ──────────────────────────────────────────────────────
+function PermisosClienteTab({obra,permisos,setPermisos,toast}){
+  const [saving,setSaving]=useState(false);
+  const SECCIONES=[
+    {id:"gastos",label:"Gastos",icon:"💸",desc:"Ver los gastos marcados como públicos"},
+    {id:"fotos",label:"Fotos",icon:"📷",desc:"Ver las fotos de avance de obra"},
+    {id:"objetivos",label:"Objetivos",icon:"🏁",desc:"Ver hitos y progreso de la obra"},
+    {id:"reportes",label:"Reportes",icon:"📈",desc:"Ver gráficos y estadísticas de gastos"},
+    {id:"resumen",label:"Mi Resumen",icon:"📋",desc:"Vista resumen con KPIs y últimas novedades"},
+    {id:"ipc",label:"IPC / Inflación",icon:"📉",desc:"Ver datos de inflación INDEC"},
+    {id:"usd",label:"USD / Tipo de cambio",icon:"💵",desc:"Ver histórico de tipo de cambio"},
+  ];
+
+  const toggle=(id)=>setPermisos(p=>({...p,[id]:!p[id]}));
+
+  const guardar=async()=>{
+    setSaving(true);
+    const{error}=await supabase.from("permisos_cliente").upsert({obra_id:obra.id,...permisos},{onConflict:"obra_id"});
+    if(error)toast.error("Error al guardar: "+error.message);
+    else toast.success("Permisos guardados");
+    setSaving(false);
+  };
+
+  return <div className="fu">
+    <div style={{marginBottom:20}}>
+      <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:4}}>🔐 Permisos del Cliente</div>
+      <div style={{fontSize:12,color:C.t3}}>Decidí qué secciones puede ver el cliente en esta obra. Solo vos podés ver y modificar esto.</div>
+    </div>
+
+    <Card style={{marginBottom:16}}>
+      <div style={{background:C.amber+"12",border:`1px solid ${C.amber}33`,borderRadius:8,padding:"10px 14px",fontSize:12,color:C.amber,marginBottom:16}}>
+        ⚠ Esta sección es <b>exclusiva del arquitecto</b>. Los clientes y ayudantes nunca la verán.
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:0}}>
+        {SECCIONES.map((s,i)=><div key={s.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 4px",borderBottom:i<SECCIONES.length-1?`1px solid ${C.bd}`:"none"}}>
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <span style={{fontSize:22,width:32,textAlign:"center"}}>{s.icon}</span>
+            <div>
+              <div style={{fontWeight:600,fontSize:13,color:C.t}}>{s.label}</div>
+              <div style={{fontSize:11,color:C.t3,marginTop:2}}>{s.desc}</div>
+            </div>
+          </div>
+          <div onClick={()=>toggle(s.id)} style={{width:44,height:24,borderRadius:12,background:permisos[s.id]?C.green:C.bd2,cursor:"pointer",position:"relative",transition:"background .2s",flexShrink:0}}>
+            <div style={{position:"absolute",top:3,left:permisos[s.id]?22:3,width:18,height:18,borderRadius:"50%",background:"#fff",transition:"left .2s",boxShadow:"0 1px 4px rgba(0,0,0,.2)"}}/>
+          </div>
+        </div>)}
+      </div>
+    </Card>
+
+    <div style={{display:"flex",gap:10,alignItems:"center"}}>
+      <Btn primary onClick={guardar} loading={saving}>Guardar permisos</Btn>
+      <span style={{fontSize:11,color:C.t3}}>Los cambios se aplican inmediatamente al cliente.</span>
+    </div>
   </div>;
 }
 
