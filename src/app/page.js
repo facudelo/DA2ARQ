@@ -2037,51 +2037,54 @@ function ParticipantesTab({obra,partic,toast,reload}){
   const [modal,setModal]=useState(false);
   const [draft,setDraft]=useState({email:"",nombre:"",rol:"cliente",puede_cargar:false});
   const [saving,setSaving]=useState(false);
-  const [invLink,setInvLink]=useState(null); // link generado para copiar
+  const [invOk,setInvOk]=useState(null);
 
   const save=async()=>{
     if(!draft.email.trim()||!draft.nombre.trim())return;
     setSaving(true);
-    // 1. Enviar magic link al email (crea cuenta si no existe)
-    const{error:authErr}=await supabase.auth.signInWithOtp({
-      email:draft.email.trim(),
-      options:{
-        emailRedirectTo:window.location.origin,
-        data:{nombre:draft.nombre.trim()},
-        shouldCreateUser:true,
-      }
+    // Llamar a la Edge Function con el token del arquitecto
+    const{data:{session}}=await supabase.auth.getSession();
+    const res=await fetch(`${supabase.supabaseUrl}/functions/v1/invite-user`,{
+      method:"POST",
+      headers:{"Content-Type":"application/json","Authorization":`Bearer ${session.access_token}`},
+      body:JSON.stringify({
+        email:draft.email.trim(),
+        nombre:draft.nombre.trim(),
+        rol:draft.rol,
+        puede_cargar:draft.rol!=="cliente"?true:draft.puede_cargar,
+        obra_id:obra.id,
+        obra_nombre:obra.nombre,
+      }),
     });
-    if(authErr){toast.error("Error al enviar invitación: "+authErr.message);setSaving(false);return;}
-    // 2. Buscar si ya tiene perfil creado
-    const{data:profile}=await supabase.from("profiles").select("id").eq("email",draft.email.trim()).single();
-    // 3. Agregar como participante (user_id puede ser null si aún no aceptó)
-    const{error}=await supabase.from("participantes").insert({
-      obra_id:obra.id,
-      user_id:profile?.id||null,
-      email:draft.email.trim(),
-      nombre:draft.nombre.trim(),
-      rol:draft.rol,
-      puede_cargar:draft.rol!=="cliente"?true:draft.puede_cargar,
-    });
-    if(error){toast.error("Error: "+error.message);setSaving(false);return;}
+    const json=await res.json();
+    if(!res.ok){toast.error(json.error||"Error al invitar");setSaving(false);return;}
     toast.success(`✉ Invitación enviada a ${draft.email}`);
-    setInvLink(`Se envió un magic link a ${draft.email}. El cliente hace click y entra directo, sin contraseña.`);
+    setInvOk(draft.email);
     setDraft({email:"",nombre:"",rol:"cliente",puede_cargar:false});
     await reload();setSaving(false);
+  };
+
+  const reenviar=async(email,nombre)=>{
+    setSaving(true);
+    const{data:{session}}=await supabase.auth.getSession();
+    const res=await fetch(`${supabase.supabaseUrl}/functions/v1/invite-user`,{
+      method:"POST",
+      headers:{"Content-Type":"application/json","Authorization":`Bearer ${session.access_token}`},
+      body:JSON.stringify({email,nombre,rol:"cliente",puede_cargar:false,obra_id:obra.id,obra_nombre:obra.nombre}),
+    });
+    const json=await res.json();
+    if(!res.ok)toast.error(json.error||"Error");else toast.success("Invitación reenviada a "+email);
+    setSaving(false);
   };
 
   const updateRol=async(id,rol)=>{const{error}=await supabase.from("participantes").update({rol}).eq("id",id);if(error)toast.error("Error");else{toast.success("Rol actualizado");await reload();}};
   const updatePC=async(id,puede_cargar)=>{await supabase.from("participantes").update({puede_cargar}).eq("id",id);await reload();};
   const deleteP=async(id)=>{const{error}=await supabase.from("participantes").delete().eq("id",id);if(error)toast.error("Error");else{toast.success("Eliminado");await reload();}};
-  const reenviar=async(email)=>{
-    const{error}=await supabase.auth.signInWithOtp({email,options:{emailRedirectTo:window.location.origin,shouldCreateUser:true}});
-    if(error)toast.error("Error: "+error.message);else toast.success("Magic link reenviado a "+email);
-  };
 
   return <div className="fu">
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
       <div><div style={{fontSize:16,fontWeight:700,color:C.t}}>Participantes</div><div style={{fontSize:12,color:C.t3}}>{partic.length} personas</div></div>
-      <Btn primary onClick={()=>{setInvLink(null);setModal(true);}}>+ Invitar</Btn>
+      <Btn primary onClick={()=>{setInvOk(null);setModal(true);}}>+ Invitar</Btn>
     </div>
 
     <Card style={{marginBottom:14}}>
@@ -2116,7 +2119,7 @@ function ParticipantesTab({obra,partic,toast,reload}){
                   ?<Tag label="✓ Activo" color={C.green}/>
                   :<div style={{display:"flex",gap:6,alignItems:"center"}}>
                     <Tag label="⏳ Pendiente" color={C.amber}/>
-                    <button onClick={()=>reenviar(p.email)} title="Reenviar invitación" style={{background:"none",border:`1px solid ${C.amber}44`,borderRadius:6,padding:"2px 7px",cursor:"pointer",fontSize:10,color:C.amber}}>Reenviar</button>
+                    <button onClick={()=>reenviar(p.email,p.nombre)} style={{background:"none",border:`1px solid ${C.amber}44`,borderRadius:6,padding:"2px 7px",cursor:"pointer",fontSize:10,color:C.amber}}>Reenviar</button>
                   </div>
                 }
               </td>
@@ -2137,20 +2140,23 @@ function ParticipantesTab({obra,partic,toast,reload}){
 
     {modal&&<Modal title="Invitar participante" onClose={()=>setModal(false)}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
-        {invLink
+        {invOk
           ?<>
             <div style={{background:C.green+"12",border:`1px solid ${C.green}33`,borderRadius:10,padding:"14px 16px"}}>
               <div style={{fontSize:14,fontWeight:700,color:C.green,marginBottom:6}}>✉ Invitación enviada</div>
-              <div style={{fontSize:12,color:C.t2,lineHeight:1.6}}>{invLink}</div>
+              <div style={{fontSize:12,color:C.t2,lineHeight:1.7}}>
+                Se envió un email a <b>{invOk}</b> con un link para crear su contraseña.<br/>
+                Una vez que la cree, podrá ingresar siempre con email + contraseña.
+              </div>
             </div>
             <div style={{background:C.bg3,borderRadius:8,padding:"10px 12px",fontSize:11,color:C.t3}}>
-              💡 Si el cliente no recibe el email, podés reenviarlo desde la tabla de participantes.
+              💡 Si no recibe el email, revisá la carpeta de spam o usá el botón "Reenviar" en la tabla.
             </div>
             <Btn primary onClick={()=>setModal(false)}>Cerrar</Btn>
           </>
           :<>
             <div style={{background:C.blue+"10",border:`1px solid ${C.blue}33`,borderRadius:8,padding:"10px 12px",fontSize:12,color:C.blue}}>
-              ✉ Se enviará un <b>magic link</b> al email ingresado. El cliente hace click y entra directamente, sin necesidad de contraseña.
+              📧 El cliente recibirá un email para <b>crear su contraseña</b>. De ahí en adelante entra solo con email + contraseña, sin necesitar nada más.
             </div>
             <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Nombre</div><input style={INP} placeholder="Ej: Juan Pérez" value={draft.nombre} onChange={e=>setDraft(d=>({...d,nombre:e.target.value}))}/></div>
             <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Email</div><input style={INP} type="email" placeholder="juan@mail.com" value={draft.email} onChange={e=>setDraft(d=>({...d,email:e.target.value}))}/></div>
