@@ -973,7 +973,7 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
     </div>
 
     {editM&&<Modal title="Editar gasto" onClose={()=>setEditM(null)}>
-      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+      <div style={{display:"flex",flexDirection:"column",gap:12,maxHeight:"70vh",overflowY:"auto",paddingRight:4}}>
         {/* Montos arriba */}
         <div style={{background:"#1a3d0a18",border:`1px solid ${C.green}33`,borderRadius:10,padding:"12px 14px"}}>
           <div style={{fontSize:12,fontWeight:700,color:C.green,marginBottom:10}}>💰 Montos</div>
@@ -988,7 +988,7 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
             </div>
           </div>
         </div>
-        {/* Categoría y sub */}
+        {/* Resto de campos */}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Categoría</div>
             <select style={SEL} value={editM.cat_id} onChange={e=>{const c=cats.find(x=>x.id===e.target.value);setEditM(m=>({...m,cat_id:e.target.value,sub_id:c?.subs?.[0]?.id||""}));}}>
@@ -1135,8 +1135,6 @@ function ComentariosModal({gasto,comentarios,obra,user,esAdmin,toast,reload,onCl
       user_id:user.id,
       texto:texto.trim(),
       visibilidad:visib,
-      autor_email:user.email,
-      autor_nombre:user.email.split("@")[0],
     });
     if(error){
       toast.error("Error al guardar: "+error.message);
@@ -1149,10 +1147,18 @@ function ComentariosModal({gasto,comentarios,obra,user,esAdmin,toast,reload,onCl
   return <Modal title={`Comentarios — ${gasto.descripcion||"Gasto"}`} onClose={onClose}>
     <div style={{display:"flex",flexDirection:"column",gap:12,maxHeight:"60vh",overflow:"auto"}}>
       {comentarios.length===0&&<div style={{textAlign:"center",padding:"16px 0",color:C.t3,fontSize:12}}>Sin comentarios aún</div>}
-      {comentarios.map(c=><div key={c.id} style={{background:c.user_id===user.id?C.limaBg:C.bg3,borderRadius:10,padding:"10px 14px"}}>
-        <div style={{fontSize:11,color:C.t3,marginBottom:4}}>{c.autor_email} · {c.created_at?.slice(0,10)}{c.visibilidad!=="publico"&&<span style={{marginLeft:6,color:C.amber}}>🔒</span>}</div>
-        <div style={{fontSize:13,color:C.t}}>{c.texto}</div>
-      </div>)}
+      {comentarios.map(c=>{
+        const esPropio=c.user_id===user.id;
+        return <div key={c.id} style={{background:esPropio?C.limaBg:C.bg3,borderRadius:10,padding:"10px 14px",border:`1px solid ${esPropio?C.lima+"44":C.bd}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+            <span style={{fontSize:11,fontWeight:600,color:esPropio?C.green:C.t2}}>
+              {esPropio?"Yo":c.user_id?.slice(0,8)+"..."}
+            </span>
+            <span style={{fontSize:10,color:C.t3}}>{c.created_at?.slice(0,10)}{c.visibilidad!=="publico"&&<span style={{marginLeft:6,color:C.amber}}>🔒</span>}</span>
+          </div>
+          <div style={{fontSize:13,color:C.t,lineHeight:1.5}}>{c.texto}</div>
+        </div>;
+      })}
       <textarea style={{...INP,minHeight:80,resize:"vertical"}} placeholder="Escribí un comentario..." value={texto} onChange={e=>setTexto(e.target.value)}/>
       {esAdmin&&<div style={{display:"flex",gap:6}}>
         {[{v:"publico",label:"🌐 Todos"},{v:"solo_admin",label:"👷 Equipo"},{v:"privado",label:"🔒 Solo yo"}].map(o=>(
