@@ -44,7 +44,7 @@ function Tag({label,color}){return <span style={{background:color+"20",color,fon
 function Card({children,style={}}){return <div style={{background:C.bg2,border:`1px solid ${C.bd}`,borderRadius:14,padding:"18px 20px",boxShadow:"0 1px 6px rgba(42,80,28,.07)",...style}}>{children}</div>;}
 function StatCard({label,value,sub,color,icon}){return <div style={{background:C.bg2,borderTop:`3px solid ${color}`,border:`1px solid ${C.bd}`,borderRadius:12,padding:"14px 18px",flex:"1 1 140px",minWidth:130}}><div style={{fontSize:10,color:C.t3,textTransform:"uppercase",letterSpacing:".08em",marginBottom:7,display:"flex",alignItems:"center",gap:5}}><span>{icon}</span>{label}</div><div style={{fontSize:19,fontWeight:700,color}}>{value}</div>{sub&&<div style={{fontSize:11,color:C.t3,marginTop:4}}>{sub}</div>}</div>;}
 function Spinner(){return <div style={{display:"flex",justifyContent:"center",padding:"48px 0"}}><div className="spin" style={{width:32,height:32,border:`3px solid ${C.bd2}`,borderTopColor:C.green,borderRadius:"50%"}}/></div>;}
-function Modal({title,onClose,children,wide}){useEffect(()=>{const h=e=>{if(e.key==="Escape")onClose();};window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h);},[onClose]);return <div onClick={e=>{if(e.target===e.currentTarget)onClose();}} style={{position:"fixed",inset:0,background:"rgba(10,30,5,.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:16}}><div style={{background:C.bg2,border:`1px solid ${C.bd2}`,borderRadius:16,padding:24,width:"100%",maxWidth:wide?720:480,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 8px 32px rgba(0,0,0,.18)"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}><span style={{fontWeight:700,fontSize:15,color:C.t}}>{title}</span><button onClick={onClose} style={{background:"none",border:"none",color:C.t3,cursor:"pointer",fontSize:24,lineHeight:1}}>×</button></div>{children}</div></div>;}
+function Modal({title,onClose,children,wide}){useEffect(()=>{const h=e=>{if(e.key==="Escape")onClose();};window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h);},[onClose]);return <div onClick={e=>{if(e.target===e.currentTarget)onClose();}} style={{position:"fixed",inset:0,background:"rgba(10,30,5,.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:16}}><div style={{background:C.bg2,border:`1px solid ${C.bd2}`,borderRadius:16,width:"100%",maxWidth:wide?720:480,maxHeight:"92vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 32px rgba(0,0,0,.18)"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 24px 14px",borderBottom:`1px solid ${C.bd}`,flexShrink:0}}><span style={{fontWeight:700,fontSize:15,color:C.t}}>{title}</span><button onClick={onClose} style={{background:"none",border:"none",color:C.t3,cursor:"pointer",fontSize:24,lineHeight:1}}>×</button></div><div style={{overflowY:"auto",padding:"18px 24px 24px",flex:1}}>{children}</div></div></div>;}
 function Donut({data,size=120}){const total=data.reduce((s,x)=>s+x.val,0);if(!total)return <div style={{width:size,height:size,borderRadius:"50%",background:C.bg3,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:C.t3}}>Sin datos</div>;let ang=-Math.PI/2;const r=size/2,ir=r*.58,cx=r,cy=r;return <svg width={size} height={size}>{data.map((d,i)=>{const a=(d.val/total)*2*Math.PI;const x1=cx+r*Math.cos(ang),y1=cy+r*Math.sin(ang);ang+=a;const x2=cx+r*Math.cos(ang),y2=cy+r*Math.sin(ang);const ix1=cx+ir*Math.cos(ang-a),iy1=cy+ir*Math.sin(ang-a);const ix2=cx+ir*Math.cos(ang),iy2=cy+ir*Math.sin(ang);return <path key={i} d={`M${x1},${y1} A${r},${r},0,${a>Math.PI?1:0},1,${x2},${y2} L${ix2},${iy2} A${ir},${ir},0,${a>Math.PI?1:0},0,${ix1},${iy1} Z`} fill={d.color} opacity={.88}/>;})}<circle cx={cx} cy={cy} r={ir-2} fill={C.bg2}/></svg>;}
 
 // ── PDF EXPORT ────────────────────────────────────────────────────────────────
@@ -973,7 +973,7 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
     </div>
 
     {editM&&<Modal title="Editar gasto" onClose={()=>setEditM(null)}>
-      <div style={{display:"flex",flexDirection:"column",gap:12,maxHeight:"70vh",overflowY:"auto",paddingRight:4}}>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
         {/* Montos arriba */}
         <div style={{background:"#1a3d0a18",border:`1px solid ${C.green}33`,borderRadius:10,padding:"12px 14px"}}>
           <div style={{fontSize:12,fontWeight:700,color:C.green,marginBottom:10}}>💰 Montos</div>
@@ -1135,6 +1135,7 @@ function ComentariosModal({gasto,comentarios,obra,user,esAdmin,toast,reload,onCl
       user_id:user.id,
       texto:texto.trim(),
       visibilidad:visib,
+      autor:user.email,
     });
     if(error){
       toast.error("Error al guardar: "+error.message);
@@ -1152,7 +1153,7 @@ function ComentariosModal({gasto,comentarios,obra,user,esAdmin,toast,reload,onCl
         return <div key={c.id} style={{background:esPropio?C.limaBg:C.bg3,borderRadius:10,padding:"10px 14px",border:`1px solid ${esPropio?C.lima+"44":C.bd}`}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
             <span style={{fontSize:11,fontWeight:600,color:esPropio?C.green:C.t2}}>
-              {esPropio?"Yo":c.user_id?.slice(0,8)+"..."}
+              {esPropio?"Yo":(c.autor||"").split("@")[0]||"Usuario"}
             </span>
             <span style={{fontSize:10,color:C.t3}}>{c.created_at?.slice(0,10)}{c.visibilidad!=="publico"&&<span style={{marginLeft:6,color:C.amber}}>🔒</span>}</span>
           </div>
