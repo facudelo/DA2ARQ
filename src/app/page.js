@@ -931,14 +931,17 @@ function GastoRapidoModal({user,obra,cats,tcOficial,tcBlue,tcManual,setTcManual,
         <button onClick={onClose} style={{background:"none",border:"none",color:C.t3,cursor:"pointer",fontSize:24,lineHeight:1}}>×</button>
       </div>
       <div style={{textAlign:"center",marginBottom:18}}>
-        <div style={{display:"flex",justifyContent:"center",alignItems:"center",gap:12,marginBottom:4}}>
+        {!esAdmin&&<div style={{display:"flex",justifyContent:"center",alignItems:"center",gap:12,marginBottom:4}}>
           <span style={{fontSize:32,color:C.t}}>{draft.moneda==="USD"?"US$":"$"}</span>
           <input type="number" value={draft.monto} onChange={e=>setDraft(d=>({...d,monto:e.target.value}))} placeholder="0" autoFocus onKeyDown={e=>e.key==="Enter"&&save()} style={{background:"transparent",border:"none",outline:"none",fontSize:42,fontWeight:700,color:C.t,width:"160px",textAlign:"center"}}/>
           <div style={{display:"flex",flexDirection:"column",gap:4}}>
             {["ARS","USD"].map(m=><button key={m} onClick={()=>setDraft(d=>({...d,moneda:m}))} style={{padding:"3px 8px",fontSize:10,border:`1px solid ${draft.moneda===m?C.green:C.bd2}`,borderRadius:6,cursor:"pointer",background:draft.moneda===m?C.green:"transparent",color:draft.moneda===m?"#fff":C.t3,fontWeight:600}}>{m}</button>)}
           </div>
-        </div>
-        {montoNum>0&&<div style={{fontSize:12,color:C.t3}}>{draft.moneda==="USD"?`≈ ${fmtARS(montoNum*tcVal)} al TC $${tcVal?.toLocaleString("es-AR")}`:`≈ ${fmtUSD(montoNum/tcVal)}`}</div>}
+        </div>}
+        {esAdmin&&<div style={{display:"flex",justifyContent:"center",gap:6,marginBottom:4}}>
+          {["ARS","USD"].map(m=><button key={m} onClick={()=>setDraft(d=>({...d,moneda:m}))} style={{padding:"5px 16px",fontSize:12,border:`1px solid ${draft.moneda===m?C.green:C.bd2}`,borderRadius:8,cursor:"pointer",background:draft.moneda===m?C.green:"transparent",color:draft.moneda===m?"#fff":C.t3,fontWeight:600}}>{m}</button>)}
+        </div>}
+        {!esAdmin&&montoNum>0&&<div style={{fontSize:12,color:C.t3}}>{draft.moneda==="USD"?`≈ ${fmtARS(montoNum*tcVal)} al TC $${tcVal?.toLocaleString("es-AR")}`:`≈ ${fmtUSD(montoNum/tcVal)}`}</div>}
       </div>
       <div style={{display:"flex",gap:6,justifyContent:"center",marginBottom:16,flexWrap:"wrap"}}>
         {[{id:"oficial",label:`Oficial $${tcOficial?.toLocaleString("es-AR")||"—"}`,color:C.green},{id:"blue",label:`Blue $${tcBlue?.toLocaleString("es-AR")||"—"}`,color:C.lima},{id:"manual",label:"Manual",color:C.blue}].map(t=>(
@@ -947,6 +950,23 @@ function GastoRapidoModal({user,obra,cats,tcOficial,tcBlue,tcManual,setTcManual,
         {tcTipo==="manual"&&<input type="number" value={tcManual} onChange={e=>setTcManual(+e.target.value)} style={{...INP,width:88,padding:"4px 8px",fontSize:11}}/>}
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+        {esAdmin&&<div style={{gridColumn:"1/-1",background:"#1a3d0a12",border:`1px solid ${C.green}33`,borderRadius:10,padding:"12px 14px"}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.green,marginBottom:8}}>💰 Montos</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <div>
+              <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>🔒 Monto real <span style={{color:C.t3,fontWeight:400}}>(solo vos)</span></div>
+              <input style={{...INP,borderColor:C.green+"66"}} type="number" placeholder="0" value={draft.monto} autoFocus onChange={e=>setDraft(d=>({...d,monto:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&save()}/>
+              {parseFloat(draft.monto)>0&&<div style={{fontSize:10,color:C.t3,marginTop:3}}>{draft.moneda==="USD"?`≈ ${fmtARS(parseFloat(draft.monto)*tcVal)}`:`≈ ${fmtUSD(parseFloat(draft.monto)/tcVal)}`}</div>}
+            </div>
+            <div>
+              <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>🌐 Monto cliente <span style={{color:C.t3,fontWeight:400}}>(opc.)</span></div>
+              <input style={{...INP,borderColor:C.lima+"66"}} type="number" placeholder={draft.monto||"igual al real"} value={draft.monto_cliente} onChange={e=>setDraft(d=>({...d,monto_cliente:e.target.value}))}/>
+              {parseFloat(draft.monto_cliente)>0&&parseFloat(draft.monto)>0&&<div style={{fontSize:10,marginTop:3,color:parseFloat(draft.monto_cliente)>parseFloat(draft.monto)?C.lima:C.red,fontWeight:600}}>
+                Dif: {parseFloat(draft.monto_cliente)>parseFloat(draft.monto)?"+":""}{fmtARS(parseFloat(draft.monto_cliente)-parseFloat(draft.monto))}
+              </div>}
+            </div>
+          </div>
+        </div>}
         <div>
           <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Categoría</div>
           <select style={SEL} value={draft.cat_id} onChange={e=>{const c=cats.find(x=>x.id===e.target.value);setDraft(d=>({...d,cat_id:e.target.value,sub_id:c?.subs?.[0]?.id||""}));}}>
