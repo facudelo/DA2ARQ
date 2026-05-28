@@ -1014,23 +1014,27 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
             </div>
           </div>
           <div style={{textAlign:"right",flexShrink:0,minWidth:110}}>
-            {esAdmin&&tieneCliente
-              ?vistaReal
-                ?<>
-                  <div style={{fontSize:10,color:C.t3,marginBottom:1}}>🔒 real</div>
-                  <div style={{fontSize:15,fontWeight:700,color:C.t2}}>{fmt(convReal(g))}</div>
-                  <div style={{fontSize:10,color:C.lima}}>🌐 cliente: {fmt(convCliente(g))}</div>
-                </>
-                :<>
-                  <div style={{fontSize:10,color:C.t3,marginBottom:1}}>🌐 cliente</div>
-                  <div style={{fontSize:15,fontWeight:700,color:C.lima}}>{fmt(convCliente(g))}</div>
-                  <div style={{fontSize:10,color:C.t3}}>🔒 real: {fmt(convReal(g))}</div>
-                  <div style={{fontSize:10,fontWeight:700,color:convCliente(g)-convReal(g)>0?C.green:C.red}}>
-                    {convCliente(g)-convReal(g)>=0?"+":""}{fmt(convCliente(g)-convReal(g))}
-                  </div>
-                </>
-              :<div style={{fontSize:15,fontWeight:700,color:cat?.color||C.green}}>{fmt(vistaReal?convReal(g):convCliente(g))}</div>
-            }
+            {(()=>{
+              const real=convReal(g);
+              const cliente=convCliente(g);
+              const diff=cliente-real;
+              const hayDiff=tieneClienteG(g)&&Math.abs(diff)>0.5;
+              if(esAdmin&&hayDiff){
+                return vistaReal
+                  ?<>
+                    <div style={{fontSize:10,color:C.t3,marginBottom:1}}>🔒 real</div>
+                    <div style={{fontSize:15,fontWeight:700,color:C.t2}}>{fmt(real)}</div>
+                    <div style={{fontSize:10,color:C.lima}}>🌐 cliente: {fmt(cliente)}</div>
+                  </>
+                  :<>
+                    <div style={{fontSize:10,color:C.t3,marginBottom:1}}>🌐 cliente</div>
+                    <div style={{fontSize:15,fontWeight:700,color:C.lima}}>{fmt(cliente)}</div>
+                    <div style={{fontSize:10,color:C.t3}}>🔒 real: {fmt(real)}</div>
+                    <div style={{fontSize:10,fontWeight:700,color:diff>0?C.green:C.red}}>{diff>=0?"+":""}{fmt(diff)}</div>
+                  </>;
+              }
+              return <div style={{fontSize:15,fontWeight:700,color:cat?.color||C.green}}>{fmt(vistaReal?real:cliente)}</div>;
+            })()}
             <div style={{fontSize:10,color:C.t3}}>{g.moneda}{g.tc_valor?` · TC $${g.tc_valor.toLocaleString("es-AR")}`:""}</div>
           </div>
           <div style={{display:"flex",gap:4,flexShrink:0}}>
