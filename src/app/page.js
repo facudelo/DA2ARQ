@@ -533,7 +533,7 @@ function ObraApp(props){
             {["ARS","USD"].map(m=><button key={m} onClick={()=>setMonedaVista(m)} style={{padding:"4px 12px",fontSize:11,border:"none",borderRadius:16,cursor:"pointer",background:monedaVista===m?C.green:"transparent",color:monedaVista===m?"#fff":C.t2,fontWeight:monedaVista===m?700:400,transition:"all .2s"}}>{m}</button>)}
           </div>
           <Tag label={ROL_LABEL[miRol]} color={ROL_COLOR[miRol]}/>
-          {esAdmin&&<Btn small onClick={()=>generarPDFInforme({obra,gastos:gastosVis,fotos,hitos,cats,presup,tcRef,monedaVista,partic}).catch(e=>toast.error("Error PDF: "+e.message))}>📄 PDF</Btn>}
+          {<Btn small onClick={()=>generarPDFInforme({obra,gastos:gastosVis,fotos,hitos,cats,presup,tcRef,monedaVista,partic}).catch(e=>toast.error("Error PDF: "+e.message))}>📄 PDF</Btn>}
           <Btn small onClick={onLogout}>Salir</Btn>
         </div>
       </div>
@@ -952,6 +952,7 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
             <div style={{fontSize:11,color:C.t3,marginTop:2,display:"flex",gap:8,flexWrap:"wrap"}}>
               <span>{g.fecha}</span>
               {cat&&<span>{cat.icon} {cat.label}{sub?` · ${sub.label}`:""}</span>}
+              {g.cargado_por&&<span style={{color:C.blue,fontWeight:500}}>👤 {g.cargado_por.split("@")[0]}</span>}
               {esAdmin&&<Tag label={g.visibilidad==="privado"?"🔒 Solo yo":g.visibilidad==="solo_admin"?"👷 Equipo":"🌐"} color={g.visibilidad==="privado"?C.t3:g.visibilidad==="solo_admin"?C.blue:C.green}/>}
             </div>
           </div>
