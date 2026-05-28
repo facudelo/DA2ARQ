@@ -138,11 +138,22 @@ export default function App(){
   const [tcLoading,setTcLoading]=useState(false);
   const [inflData,setInflData]=useState(null);
   const [tcHistData,setTcHistData]=useState(null);
+  const [recoveryMode,setRecoveryMode]=useState(false);
   const toast=useToast();
 
   useEffect(()=>{
+    // Detectar si la URL tiene #type=recovery (link de "crear contraseña")
+    const hash=window.location.hash;
+    if(hash.includes("type=recovery")||hash.includes("type=invite")){
+      setRecoveryMode(true);
+    }
     supabase.auth.getSession().then(({data:{session}})=>{setUser(session?.user??null);setAuthLoading(false);});
-    const{data:{subscription}}=supabase.auth.onAuthStateChange((_,session)=>{setUser(session?.user??null);});
+    const{data:{subscription}}=supabase.auth.onAuthStateChange((event,session)=>{
+      setUser(session?.user??null);
+      // Cuando Supabase procesa el link de recovery, dispara PASSWORD_RECOVERY
+      if(event==="PASSWORD_RECOVERY")setRecoveryMode(true);
+      if(event==="SIGNED_IN"&&recoveryMode){/* esperar a que cambie la contraseña */}
+    });
     return()=>subscription.unsubscribe();
   },[]);
   useEffect(()=>{fetchTCs();},[]);
@@ -160,6 +171,8 @@ export default function App(){
   const fetchTCHist=async()=>{if(tcHistData)return;try{const[rOf,rBl]=await Promise.all([fetch("https://api.argentinadatos.com/v1/cotizaciones/dolares/oficial"),fetch("https://api.argentinadatos.com/v1/cotizaciones/dolares/blue")]);const[jOf,jBl]=await Promise.all([rOf.json(),rBl.json()]);if(Array.isArray(jOf)&&Array.isArray(jBl))setTcHistData({oficial:jOf,blue:jBl});}catch{}};
 
   if(authLoading)return <><style>{gCSS}</style><Spinner/></>;
+  // Pantalla de nueva contraseña (recovery/invite)
+  if(recoveryMode)return <><style>{gCSS}</style><SetPasswordScreen onDone={()=>{setRecoveryMode(false);}} toast={toast}/><ToastContainer toasts={toast.toasts}/></>;
   if(!user)return <><style>{gCSS}</style><AuthScreen onLogin={setUser} toast={toast}/><ToastContainer toasts={toast.toasts}/></>;
   if(!obraActiva)return <><style>{gCSS}</style><ObrasScreen user={user} onSelect={o=>{setObraActiva(o);setTab("dashboard");}} onLogout={async()=>{await supabase.auth.signOut();setUser(null);}} toast={toast}/><ToastContainer toasts={toast.toasts}/></>;
   return <><style>{gCSS}</style><ObraApp user={user} obra={obraActiva} tab={tab} setTab={setTab} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} tcLoading={tcLoading} fetchTCs={fetchTCs} inflData={inflData} fetchIPC={fetchIPC} tcHistData={tcHistData} fetchTCHist={fetchTCHist} toast={toast} onBack={()=>setObraActiva(null)} onLogout={async()=>{await supabase.auth.signOut();setUser(null);setObraActiva(null);}}/><ToastContainer toasts={toast.toasts}/></>;
@@ -194,6 +207,63 @@ function AuthScreen({onLogin,toast}){
           {err&&<div style={{background:C.red+"18",border:`1px solid ${C.red}33`,borderRadius:7,padding:"8px 12px",fontSize:12,color:C.red}}>{err}</div>}
           <Btn primary full onClick={handle} loading={loading}>{mode==="login"?"Ingresar":"Crear cuenta"}</Btn>
         </div>
+      </Card>
+    </div>
+  </div>;
+}
+
+// ── SET PASSWORD SCREEN (recovery / invite) ───────────────────────────────────
+function SetPasswordScreen({onDone,toast}){
+  const [pass,setPass]=useState("");
+  const [pass2,setPass2]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [err,setErr]=useState("");
+  const [ok,setOk]=useState(false);
+
+  const handleSetPassword=async()=>{
+    if(!pass||!pass2)return setErr("Completá los dos campos.");
+    if(pass.length<6)return setErr("La contraseña debe tener al menos 6 caracteres.");
+    if(pass!==pass2)return setErr("Las contraseñas no coinciden.");
+    setLoading(true);setErr("");
+    const{error}=await supabase.auth.updateUser({password:pass});
+    if(error){setErr(error.message);setLoading(false);return;}
+    setOk(true);toast.success("Contraseña creada. Ya podés ingresar.");
+    // Limpiar el hash de la URL
+    window.history.replaceState(null,"",window.location.pathname);
+    setTimeout(()=>onDone(),2000);
+    setLoading(false);
+  };
+
+  return <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+    <div style={{width:"100%",maxWidth:380}}>
+      <div style={{textAlign:"center",marginBottom:28}}>
+        <div style={{display:"flex",justifyContent:"center",marginBottom:14}}><Logo size={90}/></div>
+        <div style={{fontWeight:800,fontSize:24,letterSpacing:"-.04em",color:C.t}}>DA2ARQ</div>
+        <div style={{color:C.t3,fontSize:13,marginTop:3}}>Creá tu contraseña de acceso</div>
+      </div>
+      <Card>
+        {ok
+          ?<div style={{textAlign:"center",padding:"20px 0"}}>
+            <div style={{fontSize:40,marginBottom:12}}>✅</div>
+            <div style={{fontSize:15,fontWeight:700,color:C.green,marginBottom:6}}>¡Contraseña creada!</div>
+            <div style={{fontSize:13,color:C.t3}}>Redirigiendo al inicio de sesión...</div>
+          </div>
+          :<div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <div style={{background:C.green+"12",border:`1px solid ${C.green}33`,borderRadius:8,padding:"10px 14px",fontSize:12,color:C.green}}>
+              🔐 Elegí una contraseña para ingresar siempre a DA2ARQ con tu email.
+            </div>
+            <div>
+              <div style={{fontSize:11,color:C.t2,marginBottom:5,fontWeight:600}}>Nueva contraseña</div>
+              <input style={INP} type="password" placeholder="Mínimo 6 caracteres" value={pass} onChange={e=>setPass(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSetPassword()}/>
+            </div>
+            <div>
+              <div style={{fontSize:11,color:C.t2,marginBottom:5,fontWeight:600}}>Repetir contraseña</div>
+              <input style={INP} type="password" placeholder="••••••••" value={pass2} onChange={e=>setPass2(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSetPassword()}/>
+            </div>
+            {err&&<div style={{background:C.red+"18",border:`1px solid ${C.red}33`,borderRadius:7,padding:"8px 12px",fontSize:12,color:C.red}}>{err}</div>}
+            <Btn primary full onClick={handleSetPassword} loading={loading}>Crear contraseña</Btn>
+          </div>
+        }
       </Card>
     </div>
   </div>;
