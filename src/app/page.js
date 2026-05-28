@@ -237,12 +237,32 @@ function ObrasScreen({user,onSelect,onLogout,toast}){
     const profile=await supabase.from("profiles").select("nombre").eq("id",user.id).single();
     await supabase.from("participantes").insert({obra_id:obra.id,user_id:user.id,email:user.email,nombre:profile.data?.nombre||user.email,rol:"arquitecto",puede_cargar:true});
     await supabase.rpc("crear_categorias_default",{p_obra_id:obra.id});
-    toast.success("Obra creada");setDraft({nombre:"",direccion:"",estado:"En ejecución",presupuesto_total:"",moneda_presupuesto:"ARS"});setModal(false);loadObras();setSaving(false);
+    // Si eligió "por categorías" y cargó montos, guardarlos
+    if(draft.presup_tipo==="categorias"&&draft.cats_presup?.length){
+      // Obtener las categorías recién creadas
+      const{data:catsCreadas}=await supabase.from("categorias").select("id,label").eq("obra_id",obra.id);
+      if(catsCreadas){
+        const rows=draft.cats_presup.filter(cp=>cp.label&&parseFloat(cp.monto)>0).map(cp=>{
+          const cat=catsCreadas.find(c=>c.label.toLowerCase()===cp.label.toLowerCase())||catsCreadas[0];
+          return{obra_id:obra.id,cat_id:cat?.id||null,monto:parseFloat(cp.monto),moneda:draft.moneda_presupuesto,label:cp.label};
+        }).filter(r=>r.cat_id);
+        if(rows.length)await supabase.from("presupuestos").insert(rows);
+      }
+    }
+    toast.success("Obra creada");
+    setDraft({nombre:"",direccion:"",estado:"En ejecución",presupuesto_total:"",moneda_presupuesto:"ARS",presup_tipo:"total",cats_presup:[{label:"Mano de Obra",monto:""},{label:"Obra / Materiales",monto:""},{label:"Varios",monto:""}]});
+    setModal(false);loadObras();setSaving(false);
   };
   const miRol=obra=>obra.participantes?.find(p=>p.user_id===user.id)?.rol||"cliente";
   const esAdminObra=o=>{const r=miRol(o);return r==="arquitecto"||r==="ayudante";};
   const changeEstado=async(e,obraId,nuevoEstado)=>{e.stopPropagation();const{error}=await supabase.from("obras").update({estado:nuevoEstado}).eq("id",obraId);if(error)toast.error("Error al cambiar estado");else{toast.success("Estado actualizado");loadObras();}};
   const deleteObra=async()=>{if(!confirmDel)return;const{error}=await supabase.from("obras").delete().eq("id",confirmDel.id);if(error)toast.error("Error al eliminar: "+error.message);else{toast.success("Obra eliminada");loadObras();}setConfirmDel(null);};
+  // Un usuario es "solo cliente" si en todas sus obras tiene rol cliente
+  const esSoloCliente=obras.length>0&&obras.every(o=>miRol(o)==="cliente");
+  const puedeCrearObra=!esSoloCliente||(obras.length===0&&!esSoloCliente);
+  // Si no tiene obras y llegó por invitación, detectarlo
+  const sinObrasCliente=!loading&&obras.length===0;
+
   return <div style={{minHeight:"100vh",background:C.bg}}>
     <div style={{background:C.bg2,borderBottom:`1px solid ${C.bd}`,padding:"0 20px",display:"flex",alignItems:"center",justifyContent:"space-between",height:54}}>
       <div style={{display:"flex",alignItems:"center",gap:10}}><Logo size={40}/><div><div style={{fontWeight:800,fontSize:15,color:C.t}}>DA2ARQ</div><div style={{fontSize:10,color:C.t3}}>Gestión de obra</div></div></div>
@@ -251,10 +271,15 @@ function ObrasScreen({user,onSelect,onLogout,toast}){
     <div style={{padding:24,maxWidth:960,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:22}}>
         <div><div style={{fontSize:20,fontWeight:700,color:C.t}}>Mis Obras</div><div style={{fontSize:12,color:C.t3,marginTop:2}}>{obras.length} obra{obras.length!==1?"s":""}</div></div>
-        <Btn primary onClick={()=>setModal(true)}>+ Nueva obra</Btn>
+        {!esSoloCliente&&<Btn primary onClick={()=>setModal(true)}>+ Nueva obra</Btn>}
       </div>
       {loading&&<Spinner/>}
-      {!loading&&obras.length===0&&<Card style={{textAlign:"center",padding:"48px 24px"}}>
+      {sinObrasCliente&&esSoloCliente&&<Card style={{textAlign:"center",padding:"48px 24px"}}>
+        <div style={{fontSize:48,marginBottom:12}}>⏳</div>
+        <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:6}}>Todavía no tenés obras asignadas</div>
+        <div style={{fontSize:13,color:C.t3,maxWidth:360,margin:"0 auto"}}>El arquitecto todavía no te asignó a ninguna obra. Una vez que lo haga, vas a ver el avance acá.</div>
+      </Card>}
+      {sinObrasCliente&&!esSoloCliente&&<Card style={{textAlign:"center",padding:"48px 24px"}}>
         <div style={{fontSize:48,marginBottom:12}}>🏗️</div>
         <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:6}}>No tenés obras todavía</div>
         <div style={{fontSize:13,color:C.t3,maxWidth:320,margin:"0 auto 20px"}}>Creá tu primera obra para empezar a registrar gastos, fotos y el avance con tus clientes.</div>
@@ -316,7 +341,7 @@ function ObrasScreen({user,onSelect,onLogout,toast}){
         </div>
       </div>
     </Modal>}
-    {modal&&<Modal title="Nueva Obra" onClose={()=>setModal(false)}>
+    {!esSoloCliente&&modal&&<Modal title="Nueva Obra" onClose={()=>setModal(false)}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
         <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Nombre *</div><input style={INP} placeholder="Ej: Residencia Palermo" value={draft.nombre} onChange={e=>setDraft(d=>({...d,nombre:e.target.value}))}/></div>
         <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Dirección</div><input style={INP} placeholder="Calle y número" value={draft.direccion} onChange={e=>setDraft(d=>({...d,direccion:e.target.value}))}/></div>
@@ -324,10 +349,10 @@ function ObrasScreen({user,onSelect,onLogout,toast}){
         <div>
           <div style={{fontSize:11,color:C.t2,marginBottom:8,fontWeight:600}}>Tipo de presupuesto</div>
           <div style={{display:"flex",gap:8,marginBottom:10}}>
-            {[{v:"total",label:"💰 Monto total",desc:"Un presupuesto global para toda la obra"},{v:"categorias",label:"📂 Por categorías",desc:"Desglose por rubro (definís después)"}].map(o=>(
-              <div key={o.v} onClick={()=>setDraft(d=>({...d,presup_tipo:o.v}))} style={{flex:1,border:`2px solid ${draft.presup_tipo===o.v?C.green:C.bd2}`,borderRadius:10,padding:"10px 12px",cursor:"pointer",background:draft.presup_tipo===o.v?C.limaBg:"transparent",transition:"all .2s"}}>
-                <div style={{fontSize:12,fontWeight:700,color:draft.presup_tipo===o.v?C.green:C.t,marginBottom:3}}>{o.label}</div>
-                <div style={{fontSize:10,color:C.t3}}>{o.desc}</div>
+            {[{v:"total",label:"💰 Monto total",desc:"Un presupuesto global para toda la obra"},{v:"categorias",label:"📂 Por categorías",desc:"Desglose por rubro, definilo ahora"}].map(op=>(
+              <div key={op.v} onClick={()=>setDraft(d=>({...d,presup_tipo:op.v}))} style={{flex:1,border:`2px solid ${draft.presup_tipo===op.v?C.green:C.bd2}`,borderRadius:10,padding:"10px 12px",cursor:"pointer",background:draft.presup_tipo===op.v?C.limaBg:"transparent",transition:"all .2s"}}>
+                <div style={{fontSize:12,fontWeight:700,color:draft.presup_tipo===op.v?C.green:C.t,marginBottom:3}}>{op.label}</div>
+                <div style={{fontSize:10,color:C.t3}}>{op.desc}</div>
               </div>
             ))}
           </div>
@@ -335,7 +360,21 @@ function ObrasScreen({user,onSelect,onLogout,toast}){
             <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Monto</div><input style={INP} type="number" placeholder="0" value={draft.presupuesto_total} onChange={e=>setDraft(d=>({...d,presupuesto_total:e.target.value}))}/></div>
             <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Moneda</div><select style={SEL} value={draft.moneda_presupuesto} onChange={e=>setDraft(d=>({...d,moneda_presupuesto:e.target.value}))}><option>ARS</option><option>USD</option></select></div>
           </div>}
-          {draft.presup_tipo==="categorias"&&<div style={{background:C.bg3,borderRadius:8,padding:"10px 12px",fontSize:12,color:C.t3}}>✓ Vas a poder cargar el presupuesto por categoría desde el tab <b style={{color:C.t}}>Presupuesto</b> una vez creada la obra.</div>}
+          {draft.presup_tipo==="categorias"&&<div style={{display:"flex",flexDirection:"column",gap:8}}>
+            <div style={{display:"flex",gap:8}}>
+              <select style={{...SEL,flex:1}} value={draft.moneda_presupuesto} onChange={e=>setDraft(d=>({...d,moneda_presupuesto:e.target.value}))}>
+                <option value="ARS">ARS</option><option value="USD">USD</option>
+              </select>
+            </div>
+            {(draft.cats_presup||[{label:"Mano de Obra",monto:""},{label:"Obra / Materiales",monto:""},{label:"Varios",monto:""}]).map((cp,i)=>(
+              <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 130px 28px",gap:6,alignItems:"center"}}>
+                <input style={INP} placeholder={`Rubro ${i+1}`} value={cp.label} onChange={e=>{const arr=[...(draft.cats_presup||[{label:"Mano de Obra",monto:""},{label:"Obra / Materiales",monto:""},{label:"Varios",monto:""}])];arr[i]={...arr[i],label:e.target.value};setDraft(d=>({...d,cats_presup:arr}));}}/>
+                <input style={INP} type="number" placeholder="Monto" value={cp.monto} onChange={e=>{const arr=[...(draft.cats_presup||[{label:"Mano de Obra",monto:""},{label:"Obra / Materiales",monto:""},{label:"Varios",monto:""}])];arr[i]={...arr[i],monto:e.target.value};setDraft(d=>({...d,cats_presup:arr}));}}/>
+                <button onClick={()=>{const arr=(draft.cats_presup||[]).filter((_,j)=>j!==i);setDraft(d=>({...d,cats_presup:arr}));}} style={{background:"none",border:"none",cursor:"pointer",color:C.t3,fontSize:18,lineHeight:1}}>×</button>
+              </div>
+            ))}
+            <button onClick={()=>setDraft(d=>({...d,cats_presup:[...(d.cats_presup||[{label:"Mano de Obra",monto:""},{label:"Obra / Materiales",monto:""},{label:"Varios",monto:""}]),{label:"",monto:""}]}))} style={{background:"none",border:`1px dashed ${C.bd2}`,borderRadius:8,padding:"7px",cursor:"pointer",fontSize:12,color:C.t3}}>+ Agregar rubro</button>
+          </div>}
         </div>
         <div style={{display:"flex",gap:8,marginTop:4}}><Btn primary onClick={save} loading={saving}>Crear</Btn><Btn onClick={()=>setModal(false)}>Cancelar</Btn></div>
       </div>
