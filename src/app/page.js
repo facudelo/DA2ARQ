@@ -615,7 +615,9 @@ function ObraApp(props){
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
 function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=[],monedaVista}){
   const enUSD=monedaVista==="USD";
-  const conv=g=>enUSD?toUSD(g,tcRef):toARS(g,tcRef);
+  // Para el dashboard siempre usamos el monto que ve el cliente (monto_cliente si existe)
+  const convG=g=>{const mc=g.monto_cliente!=null?g.monto_cliente:g.monto;return enUSD?toUSD({...g,monto:mc},tcRef):toARS({...g,monto:mc},tcRef);};
+  const conv=convG;
   const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
 
   // ── KPIs ──
@@ -829,10 +831,21 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
     if(filtro.q){const q=filtro.q.toLowerCase();const sl=cats.find(c=>c.id===g.cat_id)?.subs?.find(s=>s.id===g.sub_id)?.label||"";if(!(g.descripcion||"").toLowerCase().includes(q)&&!sl.toLowerCase().includes(q))return false;}
     return true;
   });
-  const convVis=g=>{const base=esAdmin?g.monto:(g.monto_cliente??g.monto);return enUSD?toUSD({...g,monto:base},tcRef):toARS({...g,monto:base},tcRef);};
-  const total=filtered.reduce((s,g)=>s+convVis(g),0);
-  const totalReal=esAdmin?filtered.reduce((s,g)=>s+conv(g),0):null;
-  const margen=esAdmin?filtered.reduce((s,g)=>{const mc=g.monto_cliente!=null&&g.monto_cliente!==g.monto?(enUSD?toUSD({...g,monto:g.monto_cliente},tcRef):toARS({...g,monto:g.monto_cliente},tcRef)):conv(g);return s+(mc-conv(g));},0):null;
+  // convReal: monto real del gasto (lo que pagó el arquitecto)
+  const convReal=g=>enUSD?toUSD(g,tcRef):toARS(g,tcRef);
+  // convCliente: monto que ve el cliente (monto_cliente si existe, sino el real)
+  const convCliente=g=>{
+    const mc=g.monto_cliente!=null?g.monto_cliente:g.monto;
+    return enUSD?toUSD({...g,monto:mc},tcRef):toARS({...g,monto:mc},tcRef);
+  };
+  // convVis: lo que se muestra según rol
+  const conv=convReal;
+  const convVis=g=>esAdmin?convCliente(g):convCliente(g);
+  const tieneClienteG=g=>g.monto_cliente!=null&&g.monto_cliente!==g.monto;
+
+  const total=filtered.reduce((s,g)=>s+convCliente(g),0);
+  const totalReal=esAdmin?filtered.reduce((s,g)=>s+convReal(g),0):null;
+  const margen=esAdmin?filtered.reduce((s,g)=>s+(convCliente(g)-convReal(g)),0):null;
 
   const save=async()=>{
     if(!draft.monto||parseFloat(draft.monto)<=0)return;setSaving(true);
@@ -976,7 +989,7 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
         const cat=cats.find(c=>c.id===g.cat_id);
         const sub=cat?.subs?.find(s=>s.id===g.sub_id);
         const comsCount=comentarios.filter(c=>c.gasto_id===g.id).length;
-        const tieneCliente=g.monto_cliente!=null&&g.monto_cliente!==g.monto;
+        const tieneCliente=tieneClienteG(g);
         return <div key={g.id} style={{background:C.bg2,border:`1px solid ${C.bd}`,borderRadius:12,padding:"12px 16px",display:"flex",gap:12,alignItems:"center"}}>
           <div style={{width:38,height:38,borderRadius:9,background:(cat?.color||C.green)+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{cat?.icon||"📦"}</div>
           <div style={{flex:1,minWidth:0}}>
@@ -988,20 +1001,17 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
               {esAdmin&&<Tag label={g.visibilidad==="privado"?"🔒 Solo yo":g.visibilidad==="solo_admin"?"👷 Equipo":"🌐"} color={g.visibilidad==="privado"?C.t3:g.visibilidad==="solo_admin"?C.blue:C.green}/>}
             </div>
           </div>
-          <div style={{textAlign:"right",flexShrink:0,minWidth:100}}>
+          <div style={{textAlign:"right",flexShrink:0,minWidth:110}}>
             {esAdmin&&tieneCliente
               ?<>
                 <div style={{fontSize:10,color:C.t3,marginBottom:1}}>🌐 cliente</div>
-                <div style={{fontSize:15,fontWeight:700,color:C.lima}}>{fmt(convVis(g))}</div>
-                <div style={{fontSize:10,color:C.t3}}>🔒 real: {fmt(conv(g))}</div>
-                <div style={{fontSize:10,fontWeight:700,color:convVis(g)-conv(g)>0?C.green:C.red}}>
-                  {convVis(g)-conv(g)>0?"+":""}{fmt(convVis(g)-conv(g))}
+                <div style={{fontSize:15,fontWeight:700,color:C.lima}}>{fmt(convCliente(g))}</div>
+                <div style={{fontSize:10,color:C.t3}}>🔒 real: <b style={{color:C.t2}}>{fmt(convReal(g))}</b></div>
+                <div style={{fontSize:10,fontWeight:700,color:convCliente(g)-convReal(g)>0?C.green:C.red}}>
+                  {convCliente(g)-convReal(g)>0?"+":""}{fmt(convCliente(g)-convReal(g))}
                 </div>
               </>
-              :<>
-                <div style={{fontSize:15,fontWeight:700,color:cat?.color||C.green}}>{fmt(convVis(g))}</div>
-                {esAdmin&&tieneCliente&&<div style={{fontSize:10,color:C.t3}}>real: {fmt(conv(g))}</div>}
-              </>
+              :<div style={{fontSize:15,fontWeight:700,color:cat?.color||C.green}}>{fmt(convCliente(g))}</div>
             }
             <div style={{fontSize:10,color:C.t3}}>{g.moneda}{g.tc_valor?` · TC $${g.tc_valor.toLocaleString("es-AR")}`:""}</div>
           </div>
@@ -2070,7 +2080,8 @@ function ReportesTab({obra,gastos,presup,tcRef,cats,esAdmin,monedaVista}){
 // ── RESUMEN CLIENTE ───────────────────────────────────────────────────────────
 function ResumenClienteTab({obra,gastos,presup,tcRef,cats,fotos,hitos=[],monedaVista}){
   const enUSD=monedaVista==="USD";
-  const conv=g=>enUSD?toUSD(g,tcRef):toARS(g,tcRef);
+  // Cliente siempre ve monto_cliente si existe
+  const conv=g=>{const mc=g.monto_cliente!=null?g.monto_cliente:g.monto;return enUSD?toUSD({...g,monto:mc},tcRef):toARS({...g,monto:mc},tcRef);};
   const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
   const totalGastado=gastos.reduce((s,g)=>s+conv(g),0);
 
