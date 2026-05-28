@@ -565,7 +565,11 @@ function ObraApp(props){
           <span style={{fontSize:12,fontWeight:700,color:C.lima}}>{tcLoading?"…":tcBlue?("$"+tcBlue.toLocaleString("es-AR")):"—"}</span>
         </div>
         <button onClick={fetchTCs} title="Actualizar TC" style={{background:"none",border:"none",cursor:"pointer",fontSize:14,color:C.t3}}>🔄</button>
-        <div style={{fontSize:10,color:C.t3}}>Manual: <input type="number" value={tcManual} onChange={e=>setTcManual(+e.target.value)} style={{...INP,width:70,padding:"2px 6px",fontSize:11,display:"inline-block"}}/></div>
+        {esAdmin&&<div style={{fontSize:10,color:C.t3}}>Manual: <input type="number" value={tcManual} onChange={e=>setTcManual(+e.target.value)} style={{...INP,width:70,padding:"2px 6px",fontSize:11,display:"inline-block"}}/></div>}
+        {!esAdmin&&tcOficial&&tcBlue&&<div style={{display:"flex",alignItems:"center",gap:5,background:C.bg3,borderRadius:7,padding:"3px 10px",border:`1px solid ${C.bd}`}}>
+          <span style={{fontSize:10,color:C.t3}}>Prom.</span>
+          <span style={{fontSize:12,fontWeight:700,color:C.blue}}>${Math.round((tcOficial+tcBlue)/2).toLocaleString("es-AR")}</span>
+        </div>}
         <div style={{marginLeft:"auto",display:"flex",gap:6,alignItems:"center"}}>
           <span className="show-mobile"><button onClick={()=>setMobileMenu(v=>!v)} style={{background:C.bg3,border:`1px solid ${C.bd2}`,borderRadius:7,padding:"4px 10px",cursor:"pointer",fontSize:11,color:C.t2,fontWeight:600}}>☰ Menú</button></span>
         </div>
@@ -812,8 +816,9 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
   const [saving,setSaving]=useState(false);
   const [gastoComent,setGastoComent]=useState(null);
   const [vistaReal,setVistaReal]=useState(false); // toggle arquitecto: ver montos reales
+  const tcProm=tcOficial&&tcBlue?Math.round((tcOficial+tcBlue)/2):null;
   const tcRef=tcOficial||tcManual;
-  const tcVal=tcTipo==="oficial"?(tcOficial||tcManual):tcTipo==="blue"?(tcBlue||tcManual):tcManual;
+  const tcVal=tcTipo==="oficial"?(tcOficial||tcManual):tcTipo==="blue"?(tcBlue||tcManual):tcTipo==="prom"?(tcProm||tcManual):tcManual;
   const enUSD=monedaVista==="USD";
   const conv=g=>enUSD?toUSD(g,tcRef):toARS(g,tcRef);
   const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
@@ -919,10 +924,13 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
         <div>
           <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>TC</div>
           <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-            {[{id:"oficial",label:`Ofic. $${tcOficial?.toLocaleString("es-AR")||"—"}`,color:C.green},{id:"blue",label:`Blue $${tcBlue?.toLocaleString("es-AR")||"—"}`,color:C.lima},{id:"manual",label:"Manual",color:C.blue}].map(t=>(
+            {(esAdmin
+              ?[{id:"oficial",label:`Ofic. $${tcOficial?.toLocaleString("es-AR")||"—"}`,color:C.green},{id:"blue",label:`Blue $${tcBlue?.toLocaleString("es-AR")||"—"}`,color:C.lima},{id:"prom",label:`Prom. $${tcProm?.toLocaleString("es-AR")||"—"}`,color:C.blue},{id:"manual",label:"Manual",color:C.t2}]
+              :[{id:"oficial",label:`Ofic. $${tcOficial?.toLocaleString("es-AR")||"—"}`,color:C.green},{id:"blue",label:`Blue $${tcBlue?.toLocaleString("es-AR")||"—"}`,color:C.lima},{id:"prom",label:`Prom. $${tcProm?.toLocaleString("es-AR")||"—"}`,color:C.blue}]
+            ).map(t=>(
               <button key={t.id} onClick={()=>setTcTipo(t.id)} style={{padding:"4px 8px",fontSize:10,border:`1px solid ${tcTipo===t.id?t.color:C.bd2}`,borderRadius:16,cursor:"pointer",background:tcTipo===t.id?t.color+"18":"transparent",color:tcTipo===t.id?t.color:C.t2,fontWeight:tcTipo===t.id?700:400}}>{t.label}</button>
             ))}
-            {tcTipo==="manual"&&<input type="number" value={tcManual} onChange={e=>setTcManual(+e.target.value)} style={{...INP,width:80,padding:"4px 8px",fontSize:11}}/>}
+            {tcTipo==="manual"&&esAdmin&&<input type="number" value={tcManual} onChange={e=>setTcManual(+e.target.value)} style={{...INP,width:80,padding:"4px 8px",fontSize:11}}/>}
           </div>
         </div>
         <div>
@@ -1091,8 +1099,9 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
 // ── GASTO RÁPIDO MODAL (FAB) ──────────────────────────────────────────────────
 function GastoRapidoModal({user,obra,cats,tcOficial,tcBlue,tcManual,setTcManual,esAdmin,toast,reload,onClose}){
   const [tcTipo,setTcTipo]=useState("oficial");
+  const tcProm=tcOficial&&tcBlue?Math.round((tcOficial+tcBlue)/2):null;
   const tcRef=tcOficial||tcManual;
-  const tcVal=tcTipo==="oficial"?(tcOficial||tcManual):tcTipo==="blue"?(tcBlue||tcManual):tcManual;
+  const tcVal=tcTipo==="oficial"?(tcOficial||tcManual):tcTipo==="blue"?(tcBlue||tcManual):tcTipo==="prom"?(tcProm||tcManual):tcManual;
   const initD=()=>({fecha:todayISO(),cat_id:cats[0]?.id||"",sub_id:cats[0]?.subs?.[0]?.id||"",descripcion:"",monto:"",monto_cliente:"",moneda:"ARS",visibilidad:"publico"});
   const [draft,setDraft]=useState(initD());
   const [saving,setSaving]=useState(false);
@@ -1126,10 +1135,13 @@ function GastoRapidoModal({user,obra,cats,tcOficial,tcBlue,tcManual,setTcManual,
         {!esAdmin&&montoNum>0&&<div style={{fontSize:12,color:C.t3}}>{draft.moneda==="USD"?`≈ ${fmtARS(montoNum*tcVal)} al TC $${tcVal?.toLocaleString("es-AR")}`:`≈ ${fmtUSD(montoNum/tcVal)}`}</div>}
       </div>
       <div style={{display:"flex",gap:6,justifyContent:"center",marginBottom:16,flexWrap:"wrap"}}>
-        {[{id:"oficial",label:`Oficial $${tcOficial?.toLocaleString("es-AR")||"—"}`,color:C.green},{id:"blue",label:`Blue $${tcBlue?.toLocaleString("es-AR")||"—"}`,color:C.lima},{id:"manual",label:"Manual",color:C.blue}].map(t=>(
+        {(esAdmin
+          ?[{id:"oficial",label:`Oficial $${tcOficial?.toLocaleString("es-AR")||"—"}`,color:C.green},{id:"blue",label:`Blue $${tcBlue?.toLocaleString("es-AR")||"—"}`,color:C.lima},{id:"prom",label:`Prom. $${tcProm?.toLocaleString("es-AR")||"—"}`,color:C.blue},{id:"manual",label:"Manual",color:C.t2}]
+          :[{id:"oficial",label:`Oficial $${tcOficial?.toLocaleString("es-AR")||"—"}`,color:C.green},{id:"blue",label:`Blue $${tcBlue?.toLocaleString("es-AR")||"—"}`,color:C.lima},{id:"prom",label:`Prom. $${tcProm?.toLocaleString("es-AR")||"—"}`,color:C.blue}]
+        ).map(t=>(
           <button key={t.id} onClick={()=>setTcTipo(t.id)} style={{padding:"5px 12px",fontSize:11,border:`1px solid ${tcTipo===t.id?t.color:C.bd2}`,borderRadius:20,cursor:"pointer",background:tcTipo===t.id?t.color+"18":"transparent",color:tcTipo===t.id?t.color:C.t2,fontWeight:tcTipo===t.id?700:400}}>{t.label}</button>
         ))}
-        {tcTipo==="manual"&&<input type="number" value={tcManual} onChange={e=>setTcManual(+e.target.value)} style={{...INP,width:88,padding:"4px 8px",fontSize:11}}/>}
+        {tcTipo==="manual"&&esAdmin&&<input type="number" value={tcManual} onChange={e=>setTcManual(+e.target.value)} style={{...INP,width:88,padding:"4px 8px",fontSize:11}}/>}
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
         {esAdmin&&<div style={{gridColumn:"1/-1",background:"#1a3d0a12",border:`1px solid ${C.green}33`,borderRadius:10,padding:"12px 14px"}}>
