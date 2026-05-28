@@ -974,28 +974,7 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
 
     {editM&&<Modal title="Editar gasto" onClose={()=>setEditM(null)}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-          <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Categoría</div>
-            <select style={SEL} value={editM.cat_id} onChange={e=>{const c=cats.find(x=>x.id===e.target.value);setEditM(m=>({...m,cat_id:e.target.value,sub_id:c?.subs?.[0]?.id||""}));}}>
-              {cats.map(c=><option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
-            </select>
-          </div>
-          <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Subcategoría</div>
-            <select style={SEL} value={editM.sub_id} onChange={e=>setEditM(m=>({...m,sub_id:e.target.value}))}>
-              {(catE?.subs||[]).map(s=><option key={s.id} value={s.id}>{s.label}</option>)}
-            </select>
-          </div>
-          <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Moneda</div><select style={SEL} value={editM.moneda} onChange={e=>setEditM(m=>({...m,moneda:e.target.value}))}><option>ARS</option><option>USD</option></select></div>
-          <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Fecha</div><input style={INP} type="date" value={editM.fecha} onChange={e=>setEditM(m=>({...m,fecha:e.target.value}))}/></div>
-          {esAdmin&&<div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Visibilidad</div>
-            <select style={SEL} value={editM.visibilidad} onChange={e=>setEditM(m=>({...m,visibilidad:e.target.value}))}>
-              <option value="publico">🌐 Público</option>
-              <option value="solo_admin">👷 Solo equipo</option>
-              <option value="privado">🔒 Solo yo</option>
-            </select>
-          </div>}
-          <div style={{gridColumn:"1/-1"}}><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Descripción</div><input style={INP} value={editM.descripcion||""} onChange={e=>setEditM(m=>({...m,descripcion:e.target.value}))}/></div>
-        </div>
+        {/* Montos arriba */}
         <div style={{background:"#1a3d0a18",border:`1px solid ${C.green}33`,borderRadius:10,padding:"12px 14px"}}>
           <div style={{fontSize:12,fontWeight:700,color:C.green,marginBottom:10}}>💰 Montos</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
@@ -1007,6 +986,35 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
               <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>🌐 Monto cliente <span style={{color:C.t3,fontWeight:400}}>(opc.)</span></div>
               <input style={{...INP,borderColor:C.lima+"66"}} type="number" placeholder="igual al real" value={editM.monto_cliente||""} onChange={e=>setEditM(m=>({...m,monto_cliente:e.target.value}))}/>
             </div>
+          </div>
+        </div>
+        {/* Categoría y sub */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Categoría</div>
+            <select style={SEL} value={editM.cat_id} onChange={e=>{const c=cats.find(x=>x.id===e.target.value);setEditM(m=>({...m,cat_id:e.target.value,sub_id:c?.subs?.[0]?.id||""}));}}>
+              {cats.map(c=><option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
+            </select>
+          </div>
+          <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Subcategoría</div>
+            <select style={SEL} value={editM.sub_id} onChange={e=>setEditM(m=>({...m,sub_id:e.target.value}))}>
+              {(catE?.subs||[]).map(s=><option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+          </div>
+          <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Moneda</div>
+            <select style={SEL} value={editM.moneda} onChange={e=>setEditM(m=>({...m,moneda:e.target.value}))}><option>ARS</option><option>USD</option></select>
+          </div>
+          <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Fecha</div>
+            <input style={INP} type="date" value={editM.fecha} onChange={e=>setEditM(m=>({...m,fecha:e.target.value}))}/>
+          </div>
+          {esAdmin&&<div style={{gridColumn:"1/-1"}}><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Visibilidad</div>
+            <select style={SEL} value={editM.visibilidad} onChange={e=>setEditM(m=>({...m,visibilidad:e.target.value}))}>
+              <option value="publico">🌐 Público (todos)</option>
+              <option value="solo_admin">👷 Solo equipo (arq. + ayudante)</option>
+              <option value="privado">🔒 Solo yo (arquitecto)</option>
+            </select>
+          </div>}
+          <div style={{gridColumn:"1/-1"}}><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Descripción</div>
+            <input style={INP} placeholder="Ej: Cuadrilla lunes..." value={editM.descripcion||""} onChange={e=>setEditM(m=>({...m,descripcion:e.target.value}))}/>
           </div>
         </div>
         <div style={{display:"flex",gap:8}}><Btn primary onClick={saveEdit} loading={saving}>Guardar</Btn><Btn onClick={()=>setEditM(null)}>Cancelar</Btn></div>
@@ -1121,9 +1129,22 @@ function ComentariosModal({gasto,comentarios,obra,user,esAdmin,toast,reload,onCl
   const [visib,setVisib]=useState("publico");
   const save=async()=>{
     if(!texto.trim())return;setSaving(true);
-    const{error}=await supabase.from("comentarios_gasto").insert({obra_id:obra.id,gasto_id:gasto.id,user_id:user.id,texto:texto.trim(),visibilidad:visib,autor_email:user.email});
-    if(error)toast.error("Error");else{toast.success("Comentario guardado");await reload();}
+    const{error}=await supabase.from("comentarios_gasto").insert({
+      obra_id:obra.id,
+      gasto_id:gasto.id,
+      user_id:user.id,
+      texto:texto.trim(),
+      visibilidad:visib,
+      autor_email:user.email,
+      autor_nombre:user.email.split("@")[0],
+    });
+    if(error){
+      toast.error("Error al guardar: "+error.message);
+      setSaving(false);return;
+    }
+    toast.success("Comentario guardado");
     setTexto("");setSaving(false);
+    await reload();
   };
   return <Modal title={`Comentarios — ${gasto.descripcion||"Gasto"}`} onClose={onClose}>
     <div style={{display:"flex",flexDirection:"column",gap:12,maxHeight:"60vh",overflow:"auto"}}>
