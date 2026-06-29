@@ -731,7 +731,6 @@ function PresupuestoTab({obra,gastos,presup,tcRef,cats,toast,reload,monedaVista,
       </div>
       <div style={{display:"flex",gap:8}}>
         <Btn small onClick={doExport}>⬇ CSV</Btn>
-        <Btn small onClick={handleShowInfl}>{showInfl?"Ocultar IPC":"📈 IPC"}</Btn>
         <Btn primary onClick={()=>{setDraft({cat_id:cats[0]?.id||"",monto:"",moneda:"ARS",fecha:todayISO(),descripcion:""});setModal(true);}}>+ Agregar presupuesto</Btn>
       </div>
     </div>
@@ -743,49 +742,6 @@ function PresupuestoTab({obra,gastos,presup,tcRef,cats,toast,reload,monedaVista,
       <StatCard label={`Disponible (${monedaVista})`} value={fmt(Math.max(0,totalPMV-totalEMV))} color={totalPMV-totalEMV<0?C.red:C.lima} icon="✅"/>
       {presupAjustado&&<StatCard label="Presup. ajustado inflación" value={fmt(enUSD?(presupAjustado/tcRef):presupAjustado)} color={C.amber} icon="📊"/>}
     </div>
-
-    {/* Ajuste por inflación detalle */}
-    <Card style={{marginBottom:14,border:`1px solid ${C.amber}44`,background:C.amber+"08"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <span style={{fontSize:22}}>📈</span>
-          <div>
-            <div style={{fontWeight:700,fontSize:13,color:C.t}}>Ajuste por inflación acumulada</div>
-            <div style={{fontSize:11,color:C.t3}}>Desde inicio de obra ({obra.created_at?.slice(0,7)||"—"}) · IPC INDEC</div>
-          </div>
-        </div>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          {!inflData&&<Btn small onClick={()=>{fetchIPC();setShowInfl(true);}}>Cargar datos IPC</Btn>}
-          {inflData&&<button onClick={handleShowInfl} style={{background:C.amber+"18",border:`1px solid ${C.amber}44`,borderRadius:8,padding:"5px 12px",cursor:"pointer",color:C.amber,fontSize:11,fontWeight:600}}>{showInfl?"Ocultar":"Ver detalle"}</button>}
-        </div>
-      </div>
-      {inflData&&calcInflacion&&<>
-        <div style={{display:"flex",gap:12,flexWrap:"wrap",marginTop:14}}>
-          <div style={{flex:"1 1 130px",background:C.bg2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.bd}`}}>
-            <div style={{fontSize:10,color:C.t3,marginBottom:4,fontWeight:600,textTransform:"uppercase"}}>Inflación acumulada</div>
-            <div style={{fontSize:22,fontWeight:700,color:C.amber}}>{inflAcum?.toFixed(1)}%</div>
-            <div style={{fontSize:10,color:C.t3,marginTop:2}}>{calcInflacion.length} meses</div>
-          </div>
-          {presupBaseARS>0&&<div style={{flex:"1 1 180px",background:C.bg2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.bd}`}}>
-            <div style={{fontSize:10,color:C.t3,marginBottom:4,fontWeight:600,textTransform:"uppercase"}}>Presup. original</div>
-            <div style={{fontSize:18,fontWeight:700,color:C.blue}}>{fmtARS(presupBaseARS)}</div>
-            <div style={{fontSize:10,color:C.t3,marginTop:2}}>al inicio de obra</div>
-          </div>}
-          {presupAjustado&&<div style={{flex:"1 1 180px",background:C.bg2,borderRadius:10,padding:"12px 14px",border:`2px solid ${C.amber}`,boxShadow:`0 0 12px ${C.amber}22`}}>
-            <div style={{fontSize:10,color:C.amber,marginBottom:4,fontWeight:700,textTransform:"uppercase"}}>Presup. ajustado hoy</div>
-            <div style={{fontSize:18,fontWeight:700,color:C.amber}}>{fmtARS(presupAjustado)}</div>
-            <div style={{fontSize:10,color:C.t3,marginTop:2}}>+{inflAcum?.toFixed(1)}% desde inicio</div>
-          </div>}
-        </div>
-        {showInfl&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:12}}>
-          {calcInflacion.map(x=><div key={x.ym} style={{background:C.bg2,border:`1px solid ${C.bd}`,borderRadius:8,padding:"6px 12px",textAlign:"center"}}>
-            <div style={{fontSize:10,color:C.t3}}>{x.ym.slice(5,7)}/{x.ym.slice(2,4)}</div>
-            <div style={{fontSize:12,fontWeight:700,color:C.amber}}>{x.val?.toFixed(1)}%</div>
-            <div style={{fontSize:10,color:C.t2}}>Acum: {x.acum?.toFixed(1)}%</div>
-          </div>)}
-        </div>}
-      </>}
-    </Card>
 
     {/* Tabla por categoría con historial expandible */}
     <Card style={{overflowX:"auto"}}>
@@ -838,7 +794,7 @@ function PresupuestoTab({obra,gastos,presup,tcRef,cats,toast,reload,monedaVista,
                   <td style={{padding:"6px 10px",textAlign:"right",color:C.blue,fontSize:12,fontWeight:600}}>{fmt(pMVr)}</td>
                   <td style={{padding:"6px 10px",textAlign:"right",color:C.t3,fontSize:11}} colSpan={2}>
                     {ajustado!=null&&<span style={{background:C.amber+"18",color:C.amber,borderRadius:5,padding:"1px 7px",fontSize:10,fontWeight:600}}>Ajustado: {fmt(ajustado)} (+{(infl*100).toFixed(1)}%)</span>}
-                    {ajustado===null&&inflData&&<span style={{color:C.t3,fontSize:10}}>Sin datos IPC</span>}
+                    {ajustado===null&&inflData&&<span style={{background:C.green+"18",color:C.green,borderRadius:5,padding:"1px 7px",fontSize:10,fontWeight:600}}>✓ Al día</span>}
                   </td>
                   <td style={{padding:"6px 10px"}} colSpan={2}>
                     <div style={{display:"flex",justifyContent:"flex-end"}}>
@@ -858,6 +814,50 @@ function PresupuestoTab({obra,gastos,presup,tcRef,cats,toast,reload,monedaVista,
           <td colSpan={2}/>
         </tr></tfoot>
       </table>
+    </Card>
+
+    {/* Panel ajuste por inflación — debajo de la tabla */}
+    <Card style={{marginTop:14,border:`1px solid ${C.amber}44`,background:C.amber+"08"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:20}}>📈</span>
+          <div>
+            <div style={{fontWeight:700,fontSize:13,color:C.t}}>Ajuste por inflación acumulada</div>
+            <div style={{fontSize:11,color:C.t3}}>Desde inicio de obra ({obra.created_at?.slice(0,7)||"—"}) · IPC INDEC</div>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          {!inflData&&<Btn small onClick={()=>{fetchIPC();setShowInfl(true);}}>Cargar datos IPC</Btn>}
+          {inflData&&<button onClick={handleShowInfl} style={{background:C.amber+"18",border:`1px solid ${C.amber}44`,borderRadius:8,padding:"5px 12px",cursor:"pointer",color:C.amber,fontSize:11,fontWeight:600}}>{showInfl?"Ocultar detalle":"Ver detalle"}</button>}
+        </div>
+      </div>
+      {inflData&&calcInflacion&&<>
+        <div style={{display:"flex",gap:12,flexWrap:"wrap",marginTop:14}}>
+          <div style={{flex:"1 1 130px",background:C.bg2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.bd}`}}>
+            <div style={{fontSize:10,color:C.t3,marginBottom:4,fontWeight:600,textTransform:"uppercase"}}>Inflación acumulada</div>
+            <div style={{fontSize:22,fontWeight:700,color:C.amber}}>{inflAcum?.toFixed(1)}%</div>
+            <div style={{fontSize:10,color:C.t3,marginTop:2}}>{calcInflacion.length} meses medidos</div>
+          </div>
+          {presupBaseARS>0&&<div style={{flex:"1 1 180px",background:C.bg2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.bd}`}}>
+            <div style={{fontSize:10,color:C.t3,marginBottom:4,fontWeight:600,textTransform:"uppercase"}}>Presup. original</div>
+            <div style={{fontSize:18,fontWeight:700,color:C.blue}}>{fmtARS(presupBaseARS)}</div>
+            <div style={{fontSize:10,color:C.t3,marginTop:2}}>al inicio de obra</div>
+          </div>}
+          {presupAjustado&&<div style={{flex:"1 1 180px",background:C.bg2,borderRadius:10,padding:"12px 14px",border:`2px solid ${C.amber}`,boxShadow:`0 0 12px ${C.amber}22`}}>
+            <div style={{fontSize:10,color:C.amber,marginBottom:4,fontWeight:700,textTransform:"uppercase"}}>Presup. ajustado hoy</div>
+            <div style={{fontSize:18,fontWeight:700,color:C.amber}}>{fmtARS(presupAjustado)}</div>
+            <div style={{fontSize:10,color:C.t3,marginTop:2}}>+{inflAcum?.toFixed(1)}% desde inicio</div>
+          </div>}
+        </div>
+        {showInfl&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:12}}>
+          {calcInflacion.map(x=><div key={x.ym} style={{background:C.bg2,border:`1px solid ${C.bd}`,borderRadius:8,padding:"6px 12px",textAlign:"center"}}>
+            <div style={{fontSize:10,color:C.t3}}>{x.ym.slice(5,7)}/{x.ym.slice(2,4)}</div>
+            <div style={{fontSize:12,fontWeight:700,color:C.amber}}>{x.val?.toFixed(1)}%</div>
+            <div style={{fontSize:10,color:C.t2}}>Acum: {x.acum?.toFixed(1)}%</div>
+          </div>)}
+        </div>}
+      </>}
+      {!inflData&&<div style={{fontSize:12,color:C.t3,marginTop:10}}>Cargá los datos IPC para ver el presupuesto ajustado por inflación desde el inicio de la obra.</div>}
     </Card>
 
     {modal&&<Modal title="Agregar presupuesto" onClose={()=>setModal(false)}>
