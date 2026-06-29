@@ -63,6 +63,7 @@ export default function App(){
   const [tcLoading,setTcLoading]=useState(false);
   const [inflData,setInflData]=useState(null);
   const [tcHistData,setTcHistData]=useState(null);
+  const [cacData,setCacData]=useState(null);
   const toast=useToast();
 
   useEffect(()=>{
@@ -84,10 +85,34 @@ export default function App(){
   const fetchIPC=async()=>{if(inflData)return;try{const r=await fetch("https://api.argentinadatos.com/v1/finanzas/indices/inflacion");const j=await r.json();if(Array.isArray(j))setInflData(j);}catch{}};
   const fetchTCHist=async()=>{if(tcHistData)return;try{const[rOf,rBl]=await Promise.all([fetch("https://api.argentinadatos.com/v1/cotizaciones/dolares/oficial"),fetch("https://api.argentinadatos.com/v1/cotizaciones/dolares/blue")]);const[jOf,jBl]=await Promise.all([rOf.json(),rBl.json()]);if(Array.isArray(jOf)&&Array.isArray(jBl))setTcHistData({oficial:jOf,blue:jBl});}catch{}};
 
+  // CAC: datos históricos hardcoded (Cámara Argentina de la Construcción)
+  // Fuente: camarco.org.ar — variación % mensual respecto al mes anterior
+  const CAC_HISTORICO=[
+    {fecha:"2022-01",valor:4.8},{fecha:"2022-02",valor:6.0},{fecha:"2022-03",valor:7.3},
+    {fecha:"2022-04",valor:6.2},{fecha:"2022-05",valor:5.8},{fecha:"2022-06",valor:6.4},
+    {fecha:"2022-07",valor:7.9},{fecha:"2022-08",valor:7.0},{fecha:"2022-09",valor:7.1},
+    {fecha:"2022-10",valor:7.4},{fecha:"2022-11",valor:6.5},{fecha:"2022-12",valor:6.3},
+    {fecha:"2023-01",valor:7.4},{fecha:"2023-02",valor:7.2},{fecha:"2023-03",valor:8.5},
+    {fecha:"2023-04",valor:8.8},{fecha:"2023-05",valor:8.6},{fecha:"2023-06",valor:8.2},
+    {fecha:"2023-07",valor:10.2},{fecha:"2023-08",valor:14.5},{fecha:"2023-09",valor:12.7},
+    {fecha:"2023-10",valor:11.0},{fecha:"2023-11",valor:14.7},{fecha:"2023-12",valor:40.1},
+    {fecha:"2024-01",valor:14.2},{fecha:"2024-02",valor:14.2},{fecha:"2024-03",valor:9.8},
+    {fecha:"2024-04",valor:8.1},{fecha:"2024-05",valor:5.1},{fecha:"2024-06",valor:3.4},
+    {fecha:"2024-07",valor:2.4},{fecha:"2024-08",valor:2.5},{fecha:"2024-09",valor:2.7},
+    {fecha:"2024-10",valor:2.3},{fecha:"2024-11",valor:2.2},{fecha:"2024-12",valor:2.2},
+    {fecha:"2025-01",valor:2.1},{fecha:"2025-02",valor:2.2},{fecha:"2025-03",valor:2.5},
+    {fecha:"2025-04",valor:2.4},{fecha:"2025-05",valor:2.1},{fecha:"2025-06",valor:1.9},
+    {fecha:"2025-07",valor:1.8},{fecha:"2025-08",valor:1.7},{fecha:"2025-09",valor:1.6},
+    {fecha:"2025-10",valor:1.5},{fecha:"2025-11",valor:1.4},{fecha:"2025-12",valor:1.4},
+    {fecha:"2026-01",valor:1.3},{fecha:"2026-02",valor:1.2},{fecha:"2026-03",valor:1.1},
+    {fecha:"2026-04",valor:0.9},{fecha:"2026-05",valor:0.9},
+  ];
+  const fetchCAC=async()=>{if(cacData)return;setCacData(CAC_HISTORICO);};
+
   if(authLoading)return <><style>{gCSS}</style><Spinner/></>;
   if(!user)return <><style>{gCSS}</style><AuthScreen onLogin={setUser} toast={toast}/><ToastContainer toasts={toast.toasts}/></>;
   if(!obraActiva)return <><style>{gCSS}</style><ObrasScreen user={user} onSelect={o=>{setObraActiva(o);setTab("dashboard");}} onLogout={async()=>{await supabase.auth.signOut();setUser(null);}} toast={toast}/><ToastContainer toasts={toast.toasts}/></>;
-  return <><style>{gCSS}</style><ObraApp user={user} obra={obraActiva} tab={tab} setTab={setTab} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} tcLoading={tcLoading} fetchTCs={fetchTCs} inflData={inflData} fetchIPC={fetchIPC} tcHistData={tcHistData} fetchTCHist={fetchTCHist} toast={toast} onBack={()=>setObraActiva(null)} onLogout={async()=>{await supabase.auth.signOut();setUser(null);setObraActiva(null);}}/><ToastContainer toasts={toast.toasts}/></>;
+  return <><style>{gCSS}</style><ObraApp user={user} obra={obraActiva} tab={tab} setTab={setTab} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} tcLoading={tcLoading} fetchTCs={fetchTCs} inflData={inflData} fetchIPC={fetchIPC} tcHistData={tcHistData} fetchTCHist={fetchTCHist} cacData={cacData} fetchCAC={fetchCAC} toast={toast} onBack={()=>setObraActiva(null)} onLogout={async()=>{await supabase.auth.signOut();setUser(null);setObraActiva(null);}}/><ToastContainer toasts={toast.toasts}/></>;
 }
 
 // ── AUTH ──────────────────────────────────────────────────────────────────────
@@ -193,7 +218,7 @@ function ObrasScreen({user,onSelect,onLogout,toast}){
 
 // ── OBRA APP ──────────────────────────────────────────────────────────────────
 function ObraApp(props){
-  const{user,obra,tab,setTab,tcOficial,tcBlue,tcManual,setTcManual,tcLoading,fetchTCs,inflData,fetchIPC,tcHistData,fetchTCHist,toast,onBack,onLogout}=props;
+  const{user,obra,tab,setTab,tcOficial,tcBlue,tcManual,setTcManual,tcLoading,fetchTCs,inflData,fetchIPC,tcHistData,fetchTCHist,cacData,fetchCAC,toast,onBack,onLogout}=props;
   const [gastos,setGastos]=useState([]);
   const [partic,setPartic]=useState([]);
   const [presup,setPresup]=useState([]);
@@ -249,8 +274,9 @@ function ObraApp(props){
     ...(esAdmin?[{id:"participantes",label:"Participantes",icon:"👥"}]:[]),
     {id:"ipc",label:"IPC",icon:"📉"},
     {id:"usd",label:"USD",icon:"💵"},
+    {id:"cac",label:"CAC",icon:"🏗️"},
   ];
-  const goTab=id=>{setTab(id);setMobileMenu(false);if(id==="ipc")fetchIPC();if(id==="usd"){fetchIPC();fetchTCHist();}if(id==="gastos")marcarTodosVistos();};
+  const goTab=id=>{setTab(id);setMobileMenu(false);if(id==="ipc")fetchIPC();if(id==="usd"){fetchIPC();fetchTCHist();}if(id==="cac")fetchCAC();if(id==="gastos")marcarTodosVistos();};
 
   return <div style={{minHeight:"100vh",background:C.bg}}>
     <div style={{background:C.bg2,borderBottom:`1px solid ${C.bd}`,padding:"0 16px",position:"sticky",top:0,zIndex:100}}>
@@ -310,7 +336,7 @@ function ObraApp(props){
       {loadingData?<Spinner/>:<>
         {tab==="dashboard"&&<DashboardTab obra={obra} gastos={gastosVis} esAdmin={esAdmin} presup={presup} tcRef={tcRef} partic={partic} cats={cats} fotos={fotos} hitos={hitos} monedaVista={monedaVista}/>}
         {tab==="gastos"&&<GastosTab user={user} obra={obra} gastos={gastos} esAdmin={esAdmin} miRol={miRol} puedoCargar={puedoCargar} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} externalOpen={showGastoModal} onExternalClose={()=>setShowGastoModal(false)} comentarios={comentarios} miUserId={user.id}/>}
-        {tab==="presupuesto"&&esAdmin&&<PresupuestoTab obra={obra} gastos={gastos} presup={presup} tcRef={tcRef} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} inflData={inflData} fetchIPC={fetchIPC}/>}
+        {tab==="presupuesto"&&esAdmin&&<PresupuestoTab obra={obra} gastos={gastos} presup={presup} tcRef={tcRef} tcOficial={tcOficial} tcBlue={tcBlue} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} inflData={inflData} fetchIPC={fetchIPC} cacData={cacData} fetchCAC={fetchCAC}/>}
         {tab==="fotos"&&<FotosTab obra={obra} fotos={fotos} puedoCargar={puedoCargar||esAdmin} user={user} toast={toast} reload={loadAll}/>}
         {tab==="objetivos"&&<HitosTab obra={obra} hitos={hitos} esAdmin={esAdmin} toast={toast} reload={loadAll}/>}
         {tab==="reportes"&&<ReportesTab obra={obra} gastos={gastosVis} presup={presup} tcRef={tcRef} cats={cats} esAdmin={esAdmin} monedaVista={monedaVista}/>}
@@ -319,6 +345,7 @@ function ObraApp(props){
         {tab==="participantes"&&esAdmin&&<ParticipantesTab obra={obra} partic={partic} toast={toast} reload={loadAll}/>}
         {tab==="ipc"&&<IPCTab inflData={inflData}/>}
         {tab==="usd"&&<USDTab tcHistData={tcHistData} inflData={inflData} tcOficial={tcOficial} tcBlue={tcBlue}/>}
+        {tab==="cac"&&<CACTab cacData={cacData} fetchCAC={fetchCAC}/>}
       </>}
     </div>
 
@@ -689,12 +716,13 @@ function GastoRapidoModal({user,obra,cats,tcOficial,tcBlue,tcManual,setTcManual,
 }
 
 // ── PRESUPUESTO ───────────────────────────────────────────────────────────────
-function PresupuestoTab({obra,gastos,presup,tcRef,cats,toast,reload,monedaVista,inflData,fetchIPC}){
+function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,reload,monedaVista,inflData,fetchIPC,cacData,fetchCAC}){
   const [modal,setModal]=useState(false);
   const [draft,setDraft]=useState({cat_id:cats[0]?.id||"",monto:"",moneda:"ARS",fecha:todayISO(),descripcion:""});
   const [saving,setSaving]=useState(false);
   const [showInfl,setShowInfl]=useState(false);
   const [expandedCat,setExpandedCat]=useState({});
+  const [indiceAjuste,setIndiceAjuste]=useState("cac"); // "ipc" | "cac" | "usd"
   const enUSD=monedaVista==="USD";
   const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
 
@@ -716,37 +744,43 @@ function PresupuestoTab({obra,gastos,presup,tcRef,cats,toast,reload,monedaVista,
   const totalPMV=cats.reduce((s,c)=>s+presupCat(c.id),0);
   const totalEMV=cats.reduce((s,c)=>s+ejCat(c.id),0);
 
-  // Calcular inflación acumulada COMPUESTA desde una fecha hasta el último dato disponible
-  const inflAcumDesde=fechaDesde=>{
-    if(!inflData||!fechaDesde)return null;
+  // Calcular ajuste acumulado COMPUESTO desde una fecha según índice seleccionado
+  const ajusteDesde=fechaDesde=>{
+    if(!fechaDesde)return null;
+    if(indiceAjuste==="usd"){
+      // Ajuste por dólar: si no hay tcOficial no podemos calcular
+      return null; // se muestra aparte en el panel
+    }
+    const data=indiceAjuste==="cac"?cacData:inflData;
+    if(!data)return null;
     const desde=fechaDesde.slice(0,7);
-    // tomar todos los meses POSTERIORES a la fecha del registro (exclusive)
-    const serie=inflData
-      .filter(x=>x.fecha.slice(0,7)>desde)
-      .sort((a,b)=>a.fecha>b.fecha?1:-1);
+    const serie=data.filter(x=>x.fecha.slice(0,7)>desde).sort((a,b)=>a.fecha>b.fecha?1:-1);
     if(serie.length===0)return null;
-    // acumulación compuesta: (1+r1/100)*(1+r2/100)*...-1
     return serie.reduce((acum,x)=>acum*(1+x.valor/100),1)-1;
   };
+
+  // Para el panel general — acumulado desde inicio de obra
+  const calcAjusteGeneral=useMemo(()=>{
+    const data=indiceAjuste==="cac"?cacData:indiceAjuste==="ipc"?inflData:null;
+    if(!data||!obra.created_at)return null;
+    const inicio=obra.created_at.slice(0,7);
+    const serie=data.filter(x=>x.fecha.slice(0,7)>inicio).sort((a,b)=>a.fecha>b.fecha?1:-1);
+    if(!serie.length)return null;
+    let factor=1;
+    return serie.map(x=>{factor*=(1+x.valor/100);return{ym:x.fecha.slice(0,7),val:x.valor,acum:Math.round((factor-1)*1000)/10};});
+  },[indiceAjuste,cacData,inflData,obra.created_at]);
 
   const save=async()=>{
     if(!draft.monto||parseFloat(draft.monto)<=0)return;
     setSaving(true);
-    // Siempre INSERT — nunca update, para mantener historial
     const{error}=await supabase.from("presupuestos").insert({
-      obra_id:obra.id,
-      cat_id:draft.cat_id,
-      monto:parseFloat(draft.monto),
-      moneda:draft.moneda,
-      fecha:draft.fecha,
-      descripcion:draft.descripcion.trim(),
+      obra_id:obra.id,cat_id:draft.cat_id,monto:parseFloat(draft.monto),
+      moneda:draft.moneda,fecha:draft.fecha,descripcion:draft.descripcion.trim(),
     });
     if(error){toast.error("Error: "+error.message);setSaving(false);return;}
     toast.success("Presupuesto agregado");
     setDraft({cat_id:cats[0]?.id||"",monto:"",moneda:"ARS",fecha:todayISO(),descripcion:""});
-    setModal(false);
-    await reload();
-    setSaving(false);
+    setModal(false);await reload();setSaving(false);
   };
 
   const deleteP=async(id)=>{
@@ -767,26 +801,17 @@ function PresupuestoTab({obra,gastos,presup,tcRef,cats,toast,reload,monedaVista,
     if(rows.length)exportCSV(rows,`presupuesto_${obra.nombre.replace(/\s+/g,"_")}.csv`);
   };
 
-  const handleShowInfl=()=>{if(!inflData)fetchIPC();setShowInfl(v=>!v);};
-
-  // IPC acumulado desde inicio de obra (para el panel general)
-  const calcInflacion=useMemo(()=>{
-    if(!inflData||!obra.created_at)return null;
-    const inicio=obra.created_at.slice(0,7);
-    const serie=inflData
-      .filter(x=>x.fecha.slice(0,7)>inicio)
-      .sort((a,b)=>a.fecha>b.fecha?1:-1);
-    if(!serie.length)return null;
-    let factor=1;
-    return serie.map(x=>{
-      factor*=(1+x.valor/100);
-      return{ym:x.fecha.slice(0,7),val:x.valor,acum:Math.round((factor-1)*1000)/10};
-    });
-  },[inflData,obra.created_at]);
+  const handleShowInfl=()=>{
+    if(indiceAjuste==="ipc"&&!inflData)fetchIPC();
+    if(indiceAjuste==="cac"&&!cacData)fetchCAC();
+    setShowInfl(v=>!v);
+  };
 
   const presupBaseARS=obra.presupuesto_total?(obra.moneda_presupuesto==="USD"?obra.presupuesto_total*tcRef:obra.presupuesto_total):totalPMV>0?cats.reduce((s,c)=>s+presup.filter(p=>p.cat_id===c.id).reduce((s2,p)=>s2+(p.moneda==="USD"?p.monto*tcRef:p.monto),0),0):0;
-  const inflAcum=calcInflacion?calcInflacion[calcInflacion.length-1]?.acum:null;
-  const presupAjustado=presupBaseARS>0&&inflAcum!=null?Math.round(presupBaseARS*(1+inflAcum/100)):null;
+  const ajusteAcum=calcAjusteGeneral?calcAjusteGeneral[calcAjusteGeneral.length-1]?.acum:null;
+  const presupAjustado=presupBaseARS>0&&ajusteAcum!=null?Math.round(presupBaseARS*(1+ajusteAcum/100)):null;
+
+  const INDICES=[{v:"cac",label:"CAC 🏗️",color:"#5A3E1B"},{v:"ipc",label:"IPC 📉",color:C.amber},{v:"usd",label:"USD 💵",color:C.blue}];
 
   return <div className="fu">
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
@@ -794,7 +819,11 @@ function PresupuestoTab({obra,gastos,presup,tcRef,cats,toast,reload,monedaVista,
         <div style={{fontSize:16,fontWeight:700,color:C.t}}>Presupuesto por categoría</div>
         <div style={{fontSize:12,color:C.t3}}>Total presup: {fmt(totalPMV)} · Ejecutado: {fmt(totalEMV)}</div>
       </div>
-      <div style={{display:"flex",gap:8}}>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+        {/* Selector índice de ajuste */}
+        <div style={{display:"flex",background:C.bg3,borderRadius:8,border:`1px solid ${C.bd2}`,padding:3,gap:2}}>
+          {INDICES.map(idx=><button key={idx.v} onClick={()=>{setIndiceAjuste(idx.v);if(idx.v==="ipc"&&!inflData)fetchIPC();if(idx.v==="cac"&&!cacData)fetchCAC();}} style={{padding:"4px 10px",fontSize:11,border:"none",borderRadius:6,cursor:"pointer",background:indiceAjuste===idx.v?idx.color:"transparent",color:indiceAjuste===idx.v?"#fff":C.t2,fontWeight:indiceAjuste===idx.v?700:400,transition:"all .2s"}}>{idx.label}</button>)}
+        </div>
         <Btn small onClick={doExport}>⬇ CSV</Btn>
         <Btn primary onClick={()=>{setDraft({cat_id:cats[0]?.id||"",monto:"",moneda:"ARS",fecha:todayISO(),descripcion:""});setModal(true);}}>+ Agregar presupuesto</Btn>
       </div>
@@ -805,7 +834,7 @@ function PresupuestoTab({obra,gastos,presup,tcRef,cats,toast,reload,monedaVista,
       <StatCard label={`Presupuesto total (${monedaVista})`} value={fmt(totalPMV)} color={C.blue} icon="📐"/>
       <StatCard label={`Ejecutado (${monedaVista})`} value={fmt(totalEMV)} color={C.green} icon="💸"/>
       <StatCard label={`Disponible (${monedaVista})`} value={fmt(Math.max(0,totalPMV-totalEMV))} color={totalPMV-totalEMV<0?C.red:C.lima} icon="✅"/>
-      {presupAjustado&&<StatCard label="Presup. ajustado inflación" value={fmt(enUSD?(presupAjustado/tcRef):presupAjustado)} color={C.amber} icon="📊"/>}
+      {presupAjustado&&<StatCard label={`Presup. ajustado (${INDICES.find(i=>i.v===indiceAjuste)?.label||indiceAjuste.toUpperCase()})`} value={fmt(enUSD?(presupAjustado/tcRef):presupAjustado)} color={INDICES.find(i=>i.v===indiceAjuste)?.color||C.amber} icon="📊"/>}
     </div>
 
     {/* Tabla por categoría con historial expandible */}
@@ -847,7 +876,7 @@ function PresupuestoTab({obra,gastos,presup,tcRef,cats,toast,reload,monedaVista,
               </tr>
               {isExp&&registros.map((p,i)=>{
                 const pMVr=presupToMV(p);
-                const infl=inflAcumDesde(p.fecha);
+                const infl=ajusteDesde(p.fecha);
                 const ajustado=infl!=null?pMVr*(1+infl):null;
                 return <tr key={p.id} style={{background:C.bg3,borderBottom:`1px solid ${C.bd}`}}>
                   <td style={{padding:"6px 10px 6px 44px",color:C.t3,fontSize:12}}>
@@ -881,49 +910,58 @@ function PresupuestoTab({obra,gastos,presup,tcRef,cats,toast,reload,monedaVista,
       </table>
     </Card>
 
-    {/* Panel ajuste por inflación — debajo de la tabla */}
-    <Card style={{marginTop:14,border:`1px solid ${C.amber}44`,background:C.amber+"08"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <span style={{fontSize:20}}>📈</span>
-          <div>
-            <div style={{fontWeight:700,fontSize:13,color:C.t}}>Ajuste por inflación acumulada</div>
-            <div style={{fontSize:11,color:C.t3}}>Desde inicio de obra ({obra.created_at?.slice(0,7)||"—"}) · IPC INDEC</div>
+    {/* Panel ajuste — debajo de la tabla */}
+    {()=>{
+      const idxInfo=INDICES.find(i=>i.v===indiceAjuste)||INDICES[0];
+      const colIdx=idxInfo.color;
+      const needsData=(indiceAjuste==="ipc"&&!inflData)||(indiceAjuste==="cac"&&!cacData);
+      return <Card style={{marginTop:14,border:`1px solid ${colIdx}44`,background:colIdx+"08"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:20}}>{idxInfo.label.slice(-2)}</span>
+            <div>
+              <div style={{fontWeight:700,fontSize:13,color:C.t}}>Ajuste por {indiceAjuste==="usd"?"Dólar":indiceAjuste==="cac"?"Índice CAC":"IPC"} acumulado</div>
+              <div style={{fontSize:11,color:C.t3}}>Desde inicio de obra ({obra.created_at?.slice(0,7)||"—"}) · {indiceAjuste==="cac"?"Cámara Argentina de la Construcción":indiceAjuste==="ipc"?"IPC INDEC":"Dolarapi.com"}</div>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            {needsData&&<Btn small onClick={()=>{if(indiceAjuste==="ipc")fetchIPC();if(indiceAjuste==="cac")fetchCAC();setShowInfl(true);}}>Cargar datos</Btn>}
+            {!needsData&&indiceAjuste!=="usd"&&<button onClick={handleShowInfl} style={{background:colIdx+"18",border:`1px solid ${colIdx}44`,borderRadius:8,padding:"5px 12px",cursor:"pointer",color:colIdx,fontSize:11,fontWeight:600}}>{showInfl?"Ocultar detalle":"Ver detalle"}</button>}
           </div>
         </div>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          {!inflData&&<Btn small onClick={()=>{fetchIPC();setShowInfl(true);}}>Cargar datos IPC</Btn>}
-          {inflData&&<button onClick={handleShowInfl} style={{background:C.amber+"18",border:`1px solid ${C.amber}44`,borderRadius:8,padding:"5px 12px",cursor:"pointer",color:C.amber,fontSize:11,fontWeight:600}}>{showInfl?"Ocultar detalle":"Ver detalle"}</button>}
-        </div>
-      </div>
-      {inflData&&calcInflacion&&<>
-        <div style={{display:"flex",gap:12,flexWrap:"wrap",marginTop:14}}>
-          <div style={{flex:"1 1 130px",background:C.bg2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.bd}`}}>
-            <div style={{fontSize:10,color:C.t3,marginBottom:4,fontWeight:600,textTransform:"uppercase"}}>Inflación acumulada</div>
-            <div style={{fontSize:22,fontWeight:700,color:C.amber}}>{inflAcum?.toFixed(1)}%</div>
-            <div style={{fontSize:10,color:C.t3,marginTop:2}}>{calcInflacion.length} meses medidos</div>
-          </div>
-          {presupBaseARS>0&&<div style={{flex:"1 1 180px",background:C.bg2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.bd}`}}>
-            <div style={{fontSize:10,color:C.t3,marginBottom:4,fontWeight:600,textTransform:"uppercase"}}>Presup. original</div>
-            <div style={{fontSize:18,fontWeight:700,color:C.blue}}>{fmtARS(presupBaseARS)}</div>
-            <div style={{fontSize:10,color:C.t3,marginTop:2}}>al inicio de obra</div>
-          </div>}
-          {presupAjustado&&<div style={{flex:"1 1 180px",background:C.bg2,borderRadius:10,padding:"12px 14px",border:`2px solid ${C.amber}`,boxShadow:`0 0 12px ${C.amber}22`}}>
-            <div style={{fontSize:10,color:C.amber,marginBottom:4,fontWeight:700,textTransform:"uppercase"}}>Presup. ajustado hoy</div>
-            <div style={{fontSize:18,fontWeight:700,color:C.amber}}>{fmtARS(presupAjustado)}</div>
-            <div style={{fontSize:10,color:C.t3,marginTop:2}}>+{inflAcum?.toFixed(1)}% desde inicio</div>
-          </div>}
-        </div>
-        {showInfl&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:12}}>
-          {calcInflacion.map(x=><div key={x.ym} style={{background:C.bg2,border:`1px solid ${C.bd}`,borderRadius:8,padding:"6px 12px",textAlign:"center"}}>
-            <div style={{fontSize:10,color:C.t3}}>{x.ym.slice(5,7)}/{x.ym.slice(2,4)}</div>
-            <div style={{fontSize:12,fontWeight:700,color:C.amber}}>{x.val?.toFixed(1)}%</div>
-            <div style={{fontSize:10,color:C.t2}}>Acum: {x.acum?.toFixed(1)}%</div>
-          </div>)}
+        {indiceAjuste==="usd"&&<div style={{marginTop:12,background:C.bg2,borderRadius:10,padding:"12px 16px",border:`1px solid ${C.bd}`,fontSize:12,color:C.t2}}>
+          El ajuste por dólar compara tu presupuesto en ARS vs el valor en USD al TC oficial actual. {tcOficial?<span>TC oficial hoy: <b style={{color:C.green}}>${tcOficial.toLocaleString("es-AR")}</b></span>:"Cargando TC..."}
+          {presupBaseARS>0&&tcOficial&&<div style={{marginTop:8}}><b>Presupuesto original:</b> {fmtARS(presupBaseARS)} = <b style={{color:C.blue}}>{fmtUSD(presupBaseARS/tcOficial)}</b> al TC de hoy.</div>}
         </div>}
-      </>}
-      {!inflData&&<div style={{fontSize:12,color:C.t3,marginTop:10}}>Cargá los datos IPC para ver el presupuesto ajustado por inflación desde el inicio de la obra.</div>}
-    </Card>
+        {!needsData&&calcAjusteGeneral&&indiceAjuste!=="usd"&&<>
+          <div style={{display:"flex",gap:12,flexWrap:"wrap",marginTop:14}}>
+            <div style={{flex:"1 1 130px",background:C.bg2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.bd}`}}>
+              <div style={{fontSize:10,color:C.t3,marginBottom:4,fontWeight:600,textTransform:"uppercase"}}>Acum. {indiceAjuste.toUpperCase()}</div>
+              <div style={{fontSize:22,fontWeight:700,color:colIdx}}>{ajusteAcum?.toFixed(1)}%</div>
+              <div style={{fontSize:10,color:C.t3,marginTop:2}}>{calcAjusteGeneral.length} meses medidos</div>
+            </div>
+            {presupBaseARS>0&&<div style={{flex:"1 1 180px",background:C.bg2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.bd}`}}>
+              <div style={{fontSize:10,color:C.t3,marginBottom:4,fontWeight:600,textTransform:"uppercase"}}>Presup. original</div>
+              <div style={{fontSize:18,fontWeight:700,color:C.blue}}>{fmtARS(presupBaseARS)}</div>
+              <div style={{fontSize:10,color:C.t3,marginTop:2}}>al inicio de obra</div>
+            </div>}
+            {presupAjustado&&<div style={{flex:"1 1 180px",background:C.bg2,borderRadius:10,padding:"12px 14px",border:`2px solid ${colIdx}`,boxShadow:`0 0 12px ${colIdx}22`}}>
+              <div style={{fontSize:10,color:colIdx,marginBottom:4,fontWeight:700,textTransform:"uppercase"}}>Presup. ajustado hoy</div>
+              <div style={{fontSize:18,fontWeight:700,color:colIdx}}>{fmtARS(presupAjustado)}</div>
+              <div style={{fontSize:10,color:C.t3,marginTop:2}}>+{ajusteAcum?.toFixed(1)}% desde inicio</div>
+            </div>}
+          </div>
+          {showInfl&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:12}}>
+            {calcAjusteGeneral.map(x=><div key={x.ym} style={{background:C.bg2,border:`1px solid ${C.bd}`,borderRadius:8,padding:"6px 12px",textAlign:"center"}}>
+              <div style={{fontSize:10,color:C.t3}}>{x.ym.slice(5,7)}/{x.ym.slice(2,4)}</div>
+              <div style={{fontSize:12,fontWeight:700,color:colIdx}}>{x.val?.toFixed(1)}%</div>
+              <div style={{fontSize:10,color:C.t2}}>Acum: {x.acum?.toFixed(1)}%</div>
+            </div>)}
+          </div>}
+        </>}
+        {needsData&&<div style={{fontSize:12,color:C.t3,marginTop:10}}>Presioná "Cargar datos" para ver el presupuesto ajustado.</div>}
+      </Card>;
+    })()
 
     {modal&&<Modal title="Agregar presupuesto" onClose={()=>setModal(false)}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -1439,7 +1477,103 @@ function ParticipantesTab({obra,partic,toast,reload}){
   </div>;
 }
 
-// ── IPC ───────────────────────────────────────────────────────────────────────
+// ── CAC TAB ───────────────────────────────────────────────────────────────────
+function CACTab({cacData,fetchCAC}){
+  useEffect(()=>{fetchCAC();},[]);
+  const CAC_COLOR="#5A3E1B";
+  const hoy=new Date();
+  const serie24=[];
+  for(let i=23;i>=0;i--){
+    const d=new Date(hoy.getFullYear(),hoy.getMonth()-i,1);
+    const ym=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+    const f=cacData?.find(x=>x.fecha.slice(0,7)===ym);
+    if(f)serie24.push(f);
+  }
+  const last=serie24[serie24.length-1];
+  const acumAnio=cacData?.filter(x=>x.fecha.slice(0,4)===String(hoy.getFullYear())).reduce((s,x)=>s*(1+x.valor/100),1);
+  const acumAnioP=acumAnio?Math.round((acumAnio-1)*1000)/10:null;
+  // Acum 12 meses compuesto
+  const acum12=serie24.slice(-12).reduce((s,x)=>s*(1+x.valor/100),1);
+  const acum12p=Math.round((acum12-1)*1000)/10;
+
+  const W=500,PL=36,PR=12,PT=20,PB=28,cH=100,H=PT+cH+PB;
+  const maxV=Math.max(...serie24.map(x=>x.valor),1);
+
+  const porAnio={};
+  cacData?.forEach(x=>{const y=x.fecha.slice(0,4);if(!porAnio[y])porAnio[y]=[];porAnio[y].push(x.valor);});
+  const acumAnios=Object.entries(porAnio).map(([y,v])=>({anio:y,pct:Math.round((v.reduce((f,x)=>f*(1+x/100),1)-1)*100*10)/10})).sort((a,b)=>a.anio>b.anio?1:-1);
+
+  return <div className="fu">
+    <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:4}}>🏗️ Índice CAC — Costo de la Construcción</div>
+    <div style={{fontSize:12,color:C.t3,marginBottom:6}}>Cámara Argentina de la Construcción · Variación % mensual</div>
+    <div style={{fontSize:11,color:C.t3,marginBottom:16,background:C.bg3,borderRadius:8,padding:"8px 12px",border:`1px solid ${C.bd}`}}>
+      El CAC mide la variación del costo de un edificio tipo en CABA, combinando <b style={{color:C.t}}>materiales</b> (insumos) y <b style={{color:C.t}}>mano de obra</b> (UOCRA). Es el índice estándar para ajustar presupuestos de obra en Argentina.
+    </div>
+    {!cacData&&<Card><div style={{textAlign:"center",padding:"32px 0",color:C.t3}}>Cargando datos CAC...</div></Card>}
+    {cacData&&<>
+      <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
+        <StatCard label="Último mes" value={last?`${last.valor}%`:"—"} color={CAC_COLOR} icon="📅" sub={last?.fecha?.slice(0,7)}/>
+        <StatCard label="Acum. 12 meses" value={`${acum12p}%`} color={CAC_COLOR} icon="📈"/>
+        {acumAnioP!==null&&<StatCard label={`Acum. ${hoy.getFullYear()}`} value={`${acumAnioP}%`} color={C.blue} icon="📆"/>}
+      </div>
+
+      {/* Acumulados por año */}
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
+        {acumAnios.slice(-6).map(a=><div key={a.anio} style={{flex:"1 1 80px",background:C.bg2,border:`1px solid ${CAC_COLOR}33`,borderRadius:10,padding:"10px 12px",textAlign:"center"}}>
+          <div style={{fontSize:11,color:C.t3,marginBottom:4,fontWeight:600}}>{a.anio}</div>
+          <div style={{fontSize:18,fontWeight:700,color:a.pct>50?C.red:a.pct>20?C.amber:CAC_COLOR}}>{a.pct}%</div>
+          <div style={{fontSize:10,color:C.t3}}>acumulado</div>
+        </div>)}
+      </div>
+
+      {/* Gráfico barras */}
+      <Card style={{marginBottom:14}}>
+        <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:10,fontWeight:600}}>Variación mensual CAC — últimos 24 meses</div>
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`}>
+          {[2,4,6,8,10].map(v=>{const y=PT+(1-v/maxV)*cH;return <line key={v} x1={PL} y1={y} x2={W-PR} y2={y} stroke={C.bd} strokeWidth=".5"/>;})}
+          {serie24.map((d,i)=>{
+            const bW=Math.max(6,(W-PL-PR)/serie24.length-3);
+            const x=PL+(i/serie24.length)*(W-PL-PR)+(W-PL-PR)/serie24.length/2-bW/2;
+            const bH=Math.max(2,(d.valor/maxV)*cH);
+            const col=d.valor>10?C.red:d.valor>5?C.amber:CAC_COLOR;
+            const show=i===0||i===serie24.length-1||i%4===0;
+            return <g key={i}>
+              <rect x={x} y={PT+cH-bH} width={bW} height={bH} rx="2" fill={col} opacity=".85"/>
+              {show&&<text x={x+bW/2} y={H-4} textAnchor="middle" fill={C.t3} fontSize="7" fontFamily="sans-serif">{d.fecha.slice(2,7)}</text>}
+            </g>;
+          })}
+        </svg>
+      </Card>
+
+      {/* Tabla */}
+      <Card style={{padding:0,overflow:"hidden"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+          <thead><tr style={{borderBottom:`2px solid ${C.bd2}`}}>
+            {["Mes","CAC %","Barra","Acum. 12m"].map((h,i)=><th key={i} style={{padding:"8px 12px",textAlign:i>=1?"right":"left",color:C.t3,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {[...serie24].reverse().map((d,i,arr)=>{
+              const slice=arr.slice(i).reverse();
+              const a12=slice.slice(-12).reduce((s,x)=>s*(1+x.valor/100),1);
+              return <tr key={d.fecha} style={{borderBottom:`1px solid ${C.bd}`}}>
+                <td style={{padding:"8px 12px",color:C.t2,fontWeight:500}}>{d.fecha.slice(0,7)}</td>
+                <td style={{padding:"8px 12px",textAlign:"right",fontWeight:700,color:d.valor>10?C.red:d.valor>5?C.amber:CAC_COLOR}}>{d.valor?.toFixed(1)}%</td>
+                <td style={{padding:"8px 12px",textAlign:"right"}}>
+                  <div style={{width:80,height:5,background:C.bg3,borderRadius:2,marginLeft:"auto"}}>
+                    <div style={{height:"100%",borderRadius:2,background:d.valor>10?C.red:d.valor>5?C.amber:CAC_COLOR,width:`${Math.min((d.valor/15)*100,100)}%`}}/>
+                  </div>
+                </td>
+                <td style={{padding:"8px 12px",textAlign:"right",color:CAC_COLOR,fontWeight:600}}>{Math.round((a12-1)*1000)/10}%</td>
+              </tr>;
+            })}
+          </tbody>
+        </table>
+      </Card>
+    </>}
+  </div>;
+}
+
+// ── IPC TAB ───────────────────────────────────────────────────────────────────
 function IPCTab({inflData}){
   const u24=inflData?inflData.filter(x=>x.fecha>=(new Date().getFullYear()-1)+"-01").reduce((s,x)=>s+x.valor,0).toFixed(1):null;
   const last=inflData?.[inflData.length-1];
