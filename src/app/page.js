@@ -231,6 +231,7 @@ function ObraApp(props){
   const [showGastoModal,setShowGastoModal]=useState(false);
   const [monedaVista,setMonedaVista]=useState("ARS");
   const [notifVistas,setNotifVistas]=useState(()=>{try{return JSON.parse(localStorage.getItem("nv_"+obra.id)||"{}")}catch{return {}}});
+  const [tabsClienteLocal,setTabsClienteLocal]=useState(obra.tabs_cliente||null);
 
   const loadAll=useCallback(async()=>{
     setLoadingData(true);
@@ -262,19 +263,24 @@ function ObraApp(props){
   const totalNotifs=gastosNuevos;
   const marcarTodosVistos=()=>{const nv={...notifVistas};gastosVis.forEach(g=>{nv[g.id]=1;});comentarios.forEach(c=>{nv["c_"+c.id]=1;});setNotifVistas(nv);try{localStorage.setItem("nv_"+obra.id,JSON.stringify(nv));}catch{}};
 
+  // Tabs permitidas para clientes (guardadas en obra.tabs_cliente)
+  const TABS_CLIENTE_DEFAULT=["dashboard","gastos","fotos","objetivos","reportes","resumen","ipc","usd","cac"];
+  const tabsCliente=tabsClienteLocal||TABS_CLIENTE_DEFAULT;
+
   const TABS=[
     {id:"dashboard",label:"Dashboard",icon:"📊"},
     {id:"gastos",label:"Gastos",icon:"💸",badge:totalNotifs},
     ...(esAdmin?[{id:"presupuesto",label:"Presupuesto",icon:"📐"}]:[]),
-    {id:"fotos",label:"Fotos",icon:"📷"},
-    {id:"objetivos",label:"Objetivos",icon:"🏁"},
-    {id:"reportes",label:"Reportes",icon:"📈"},
-    ...(!esAdmin?[{id:"resumen",label:"Mi Resumen",icon:"📋"}]:[]),
+    ...(esAdmin||tabsCliente.includes("fotos")?[{id:"fotos",label:"Fotos",icon:"📷"}]:[]),
+    ...(esAdmin||tabsCliente.includes("objetivos")?[{id:"objetivos",label:"Objetivos",icon:"🏁"}]:[]),
+    ...(esAdmin||tabsCliente.includes("reportes")?[{id:"reportes",label:"Reportes",icon:"📈"}]:[]),
+    ...(!esAdmin&&tabsCliente.includes("resumen")?[{id:"resumen",label:"Mi Resumen",icon:"📋"}]:[]),
     ...(esAdmin?[{id:"categorias",label:"Categorías",icon:"🏷️"}]:[]),
     ...(esAdmin?[{id:"participantes",label:"Participantes",icon:"👥"}]:[]),
-    {id:"ipc",label:"IPC",icon:"📉"},
-    {id:"usd",label:"USD",icon:"💵"},
-    {id:"cac",label:"CAC",icon:"🏗️"},
+    ...(esAdmin?[{id:"accesos",label:"Accesos",icon:"🔐"}]:[]),
+    ...(esAdmin||tabsCliente.includes("ipc")?[{id:"ipc",label:"IPC",icon:"📉"}]:[]),
+    ...(esAdmin||tabsCliente.includes("usd")?[{id:"usd",label:"USD",icon:"💵"}]:[]),
+    ...(esAdmin||tabsCliente.includes("cac")?[{id:"cac",label:"CAC",icon:"🏗️"}]:[]),
   ];
   const goTab=id=>{setTab(id);setMobileMenu(false);if(id==="ipc")fetchIPC();if(id==="usd"){fetchIPC();fetchTCHist();}if(id==="cac")fetchCAC();if(id==="gastos")marcarTodosVistos();};
 
@@ -343,6 +349,7 @@ function ObraApp(props){
         {tab==="resumen"&&!esAdmin&&<ResumenClienteTab obra={obra} gastos={gastosVis} presup={presup} tcRef={tcRef} cats={cats} fotos={fotos} hitos={hitos} monedaVista={monedaVista}/>}
         {tab==="categorias"&&esAdmin&&<CategoriasTab cats={cats} obra={obra} toast={toast} reload={loadAll}/>}
         {tab==="participantes"&&esAdmin&&<ParticipantesTab obra={obra} partic={partic} toast={toast} reload={loadAll}/>}
+        {tab==="accesos"&&esAdmin&&<AccesosTab obra={obra} tabsClienteLocal={tabsClienteLocal} setTabsClienteLocal={setTabsClienteLocal} toast={toast}/>}
         {tab==="ipc"&&<IPCTab inflData={inflData}/>}
         {tab==="usd"&&<USDTab tcHistData={tcHistData} inflData={inflData} tcOficial={tcOficial} tcBlue={tcBlue}/>}
         {tab==="cac"&&<CACTab cacData={cacData} fetchCAC={fetchCAC}/>}
@@ -1461,6 +1468,85 @@ function CategoriasTab({cats,obra,toast,reload}){
         <div style={{display:"flex",gap:8}}><Btn primary onClick={saveSub} loading={saving}>Guardar</Btn><Btn onClick={()=>setSubM(null)}>Cancelar</Btn></div>
       </div>
     </Modal>}
+  </div>;
+}
+
+// ── ACCESOS TAB ───────────────────────────────────────────────────────────────
+function AccesosTab({obra,tabsClienteLocal,setTabsClienteLocal,toast}){
+  const TABS_DISPONIBLES=[
+    {id:"dashboard",label:"Dashboard",icon:"📊",desc:"Resumen general de la obra"},
+    {id:"gastos",label:"Gastos",icon:"💸",desc:"Lista de gastos (solo los marcados como públicos)"},
+    {id:"fotos",label:"Fotos",icon:"📷",desc:"Galería de fotos de avance"},
+    {id:"objetivos",label:"Objetivos",icon:"🏁",desc:"Hitos y avance de obra"},
+    {id:"reportes",label:"Reportes",icon:"📈",desc:"Gráficos y reportes de gastos"},
+    {id:"resumen",label:"Mi Resumen",icon:"📋",desc:"Vista simplificada del cliente"},
+    {id:"ipc",label:"IPC",icon:"📉",desc:"Índice de inflación (INDEC)"},
+    {id:"usd",label:"USD / Dólar",icon:"💵",desc:"Cotizaciones y evolución del dólar"},
+    {id:"cac",label:"CAC",icon:"🏗️",desc:"Índice costo de construcción"},
+  ];
+
+  const DEFAULT=["dashboard","gastos","fotos","objetivos","reportes","resumen","ipc","usd","cac"];
+  const [tabs,setTabs]=useState(()=>tabsClienteLocal||DEFAULT);
+  const [saving,setSaving]=useState(false);
+
+  const toggle=id=>{
+    if(id==="dashboard"||id==="gastos")return; // siempre visibles
+    setTabs(prev=>prev.includes(id)?prev.filter(t=>t!==id):[...prev,id]);
+  };
+
+  const save=async()=>{
+    setSaving(true);
+    const{error}=await supabase.from("obras").update({tabs_cliente:tabs}).eq("id",obra.id);
+    if(error){toast.error("Error: "+error.message);}
+    else{
+      setTabsClienteLocal(tabs); // actualiza inmediatamente sin recargar
+      toast.success("✓ Accesos guardados");
+    }
+    setSaving(false);
+  };
+
+  const resetAll=()=>setTabs(DEFAULT);
+
+  return <div className="fu">
+    <div style={{marginBottom:18}}>
+      <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:4}}>🔐 Control de accesos — Cliente</div>
+      <div style={{fontSize:12,color:C.t3}}>Elegí qué solapas pueden ver los <b style={{color:C.lima}}>clientes</b> de esta obra. Los cambios aplican a todos los clientes del proyecto.</div>
+    </div>
+
+    <Card style={{marginBottom:14}}>
+      <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:14,fontWeight:600}}>Solapas visibles para el cliente</div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {TABS_DISPONIBLES.map(t=>{
+          const activo=tabs.includes(t.id);
+          const fija=t.id==="dashboard"||t.id==="gastos";
+          return <div key={t.id} onClick={()=>toggle(t.id)} style={{display:"flex",alignItems:"center",gap:14,padding:"12px 16px",borderRadius:10,border:`2px solid ${activo?C.green:C.bd}`,background:activo?C.green+"08":"transparent",cursor:fija?"default":"pointer",transition:"all .2s"}}>
+            <div style={{width:36,height:36,borderRadius:9,background:activo?C.green+"18":C.bg3,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{t.icon}</div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:13,fontWeight:600,color:activo?C.t:C.t2}}>{t.label}</div>
+              <div style={{fontSize:11,color:C.t3,marginTop:2}}>{t.desc}{fija&&<span style={{marginLeft:6,color:C.amber,fontWeight:600}}>(siempre visible)</span>}</div>
+            </div>
+            <div style={{flexShrink:0}}>
+              {fija
+                ?<span style={{fontSize:11,color:C.amber,fontWeight:600}}>🔒 Fijo</span>
+                :<div style={{width:44,height:24,borderRadius:12,background:activo?C.green:C.bd2,position:"relative",transition:"background .2s"}}>
+                  <div style={{position:"absolute",top:3,left:activo?22:3,width:18,height:18,borderRadius:"50%",background:"#fff",transition:"left .2s",boxShadow:"0 1px 4px rgba(0,0,0,.2)"}}/>
+                </div>
+              }
+            </div>
+          </div>;
+        })}
+      </div>
+    </Card>
+
+    <div style={{display:"flex",gap:10,alignItems:"center"}}>
+      <Btn primary onClick={save} loading={saving}>💾 Guardar accesos</Btn>
+      <Btn onClick={resetAll}>Restablecer todo</Btn>
+      <span style={{fontSize:11,color:C.t3,marginLeft:4}}>{tabs.length} de {TABS_DISPONIBLES.length} solapas activas</span>
+    </div>
+
+    <div style={{marginTop:16,background:C.bg3,border:`1px solid ${C.bd}`,borderRadius:10,padding:"12px 16px",fontSize:12,color:C.t3}}>
+      ℹ️ <b style={{color:C.t}}>Dashboard</b> y <b style={{color:C.t}}>Gastos</b> son siempre visibles para el cliente. Las solapas de administración (Presupuesto, Categorías, Participantes, Accesos) nunca son visibles para clientes.
+    </div>
   </div>;
 }
 
