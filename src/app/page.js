@@ -753,14 +753,14 @@ function PanelAjuste({indiceAjuste,inflData,cacData,tcOficial,obra,presupBaseARS
           <div style={{fontSize:10,color:C.t3,marginTop:2}}>{calcAjusteGeneral.length} meses medidos</div>
         </div>
         {presupBaseARS>0&&<div style={{flex:"1 1 180px",background:C.bg2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.bd}`}}>
-          <div style={{fontSize:10,color:C.t3,marginBottom:4,fontWeight:600,textTransform:"uppercase"}}>Presup. original</div>
+          <div style={{fontSize:10,color:C.t3,marginBottom:4,fontWeight:600,textTransform:"uppercase"}}>Presup. original (suma)</div>
           <div style={{fontSize:18,fontWeight:700,color:C.blue}}>{fmtARS(presupBaseARS)}</div>
-          <div style={{fontSize:10,color:C.t3,marginTop:2}}>al inicio de obra</div>
+          <div style={{fontSize:10,color:C.t3,marginTop:2}}>sin ajuste por {indiceAjuste.toUpperCase()}</div>
         </div>}
         {presupAjustado&&<div style={{flex:"1 1 180px",background:C.bg2,borderRadius:10,padding:"12px 14px",border:`2px solid ${colIdx}`,boxShadow:`0 0 12px ${colIdx}22`}}>
           <div style={{fontSize:10,color:colIdx,marginBottom:4,fontWeight:700,textTransform:"uppercase"}}>Presup. ajustado hoy</div>
           <div style={{fontSize:18,fontWeight:700,color:colIdx}}>{fmtARS(presupAjustado)}</div>
-          <div style={{fontSize:10,color:C.t3,marginTop:2}}>+{ajusteAcum?.toFixed(1)}% desde inicio</div>
+          <div style={{fontSize:10,color:C.t3,marginTop:2}}>cada ítem ajustado desde su fecha</div>
         </div>}
       </div>
       {showInfl&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:12}}>
@@ -869,7 +869,22 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
 
   const presupBaseARS=obra.presupuesto_total?(obra.moneda_presupuesto==="USD"?obra.presupuesto_total*tcRef:obra.presupuesto_total):totalPMV>0?cats.reduce((s,c)=>s+presup.filter(p=>p.cat_id===c.id).reduce((s2,p)=>s2+(p.moneda==="USD"?p.monto*tcRef:p.monto),0),0):0;
   const ajusteAcum=calcAjusteGeneral?calcAjusteGeneral[calcAjusteGeneral.length-1]?.acum:null;
-  const presupAjustado=presupBaseARS>0&&ajusteAcum!=null?Math.round(presupBaseARS*(1+ajusteAcum/100)):null;
+
+  // Presupuesto ajustado: cada registro ajustado desde SU fecha particular, sumados
+  const presupAjustado=useMemo(()=>{
+    if(indiceAjuste==="usd")return null;
+    const data=indiceAjuste==="cac"?cacData:inflData;
+    if(!data||!presup.length)return null;
+    const total=presup.reduce((sum,p)=>{
+      const montoARS=p.moneda==="USD"?p.monto*tcRef:p.monto;
+      const desde=p.fecha?.slice(0,7);
+      if(!desde)return sum+montoARS;
+      const serie=data.filter(x=>x.fecha.slice(0,7)>desde).sort((a,b)=>a.fecha>b.fecha?1:-1);
+      const factor=serie.length>0?serie.reduce((f,x)=>f*(1+x.valor/100),1)-1:null;
+      return sum+(factor!=null?montoARS*(1+factor):montoARS);
+    },0);
+    return Math.round(total);
+  },[presup,indiceAjuste,cacData,inflData,tcRef]);
 
   const INDICES=[{v:"cac",label:"CAC 🏗️",color:"#5A3E1B"},{v:"ipc",label:"IPC 📉",color:C.amber},{v:"usd",label:"USD 💵",color:C.blue}];
 
@@ -894,7 +909,7 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
       <StatCard label={`Presupuesto total (${monedaVista})`} value={fmt(totalPMV)} color={C.blue} icon="📐"/>
       <StatCard label={`Ejecutado (${monedaVista})`} value={fmt(totalEMV)} color={C.green} icon="💸"/>
       <StatCard label={`Disponible (${monedaVista})`} value={fmt(Math.max(0,totalPMV-totalEMV))} color={totalPMV-totalEMV<0?C.red:C.lima} icon="✅"/>
-      {presupAjustado&&<StatCard label={`Presup. ajustado (${INDICES.find(i=>i.v===indiceAjuste)?.label||indiceAjuste.toUpperCase()})`} value={fmt(enUSD?(presupAjustado/tcRef):presupAjustado)} color={INDICES.find(i=>i.v===indiceAjuste)?.color||C.amber} icon="📊"/>}
+      {presupAjustado&&<StatCard label={`Presup. ajustado (${INDICES.find(i=>i.v===indiceAjuste)?.label||indiceAjuste.toUpperCase()})`} value={fmt(enUSD?(presupAjustado/tcRef):presupAjustado)} color={INDICES.find(i=>i.v===indiceAjuste)?.color||C.amber} icon="📊" sub={totalPMV>0?`+${fmt(enUSD?((presupAjustado-totalPMV*tcRef)/tcRef):(presupAjustado-totalPMV))} vs original`:undefined}/>}
     </div>
 
     {/* Tabla por categoría con historial expandible */}
@@ -1326,14 +1341,15 @@ function ResumenClienteTab({obra,gastos,presup,tcRef,cats,fotos,hitos=[],monedaV
 
 // ── REPORTES ──────────────────────────────────────────────────────────────────
 function ReportesTab({obra,gastos,presup,tcRef,cats,esAdmin,monedaVista}){
-  const [vistaR,setVistaR]=useState("mensual");
+  const [vistaR,setVistaR]=useState("resumen");
   const enUSD=monedaVista==="USD";
   const conv=useCallback(g=>enUSD?toUSD(g,tcRef):toARS(g,tcRef),[enUSD,tcRef]);
   const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
+  const totalGlobal=gastos.reduce((s,g)=>s+conv(g),0);
 
   const porMes=useMemo(()=>{
     const m={};
-    gastos.forEach(g=>{const ym=g.fecha?.slice(0,7)||"";if(!m[ym])m[ym]={ym,total:0,items:[]};m[ym].total+=conv(g);m[ym].items.push(g);});
+    gastos.forEach(g=>{const ym=g.fecha?.slice(0,7)||"";if(!m[ym])m[ym]={ym,total:0,count:0};m[ym].total+=conv(g);m[ym].count++;});
     return Object.values(m).sort((a,b)=>a.ym>b.ym?1:-1);
   },[gastos,conv]);
 
@@ -1344,93 +1360,259 @@ function ReportesTab({obra,gastos,presup,tcRef,cats,esAdmin,monedaVista}){
   },[gastos,conv]);
 
   const porCat=useMemo(()=>
-    cats.map(c=>({...c,total:gastos.filter(g=>g.cat_id===c.id).reduce((s,g)=>s+conv(g),0),count:gastos.filter(g=>g.cat_id===c.id).length})).filter(c=>c.total>0).sort((a,b)=>b.total-a.total)
-  ,[gastos,cats,conv]);
+    cats.map(c=>({...c,
+      total:gastos.filter(g=>g.cat_id===c.id).reduce((s,g)=>s+conv(g),0),
+      count:gastos.filter(g=>g.cat_id===c.id).length,
+      presup:presup.filter(p=>p.cat_id===c.id).reduce((s,p)=>s+(p.moneda==="USD"?p.monto*tcRef:p.monto),0),
+    })).filter(c=>c.total>0||c.presup>0).sort((a,b)=>b.total-a.total)
+  ,[gastos,cats,conv,presup,tcRef]);
 
-  const topGastos=useMemo(()=>[...gastos].sort((a,b)=>conv(b)-conv(a)).slice(0,5),[gastos,conv]);
-  const totalGlobal=gastos.reduce((s,g)=>s+conv(g),0);
+  const totalPresup=presup.reduce((s,p)=>s+(p.moneda==="USD"?p.monto*tcRef:p.monto),0);
+  const pctAvance=totalPresup>0?Math.round((totalGlobal/totalPresup)*100):null;
 
-  const miniBar=(data,key,color)=>{
-    const maxV=Math.max(...data.map(d=>d[key]),1);
-    const W=300,PL=0,PR=0,PT=8,PB=20,cH=60,H=PT+cH+PB;
-    const bW=Math.max(4,Math.floor((W-PL-PR)/data.length)-2);
+  // Gráfico de línea para evolución mensual
+  const LineChart=({data})=>{
+    if(!data.length)return null;
+    const W=560,PL=58,PR=16,PT=16,PB=32,H=140;
+    const maxV=Math.max(...data.map(d=>d.total),1);
+    const x=i=>PL+(i/(Math.max(data.length-1,1)))*(W-PL-PR);
+    const y=v=>PT+(1-v/maxV)*(H-PT-PB);
+    const pts=data.map((d,i)=>`${x(i)},${y(d.total)}`).join(" ");
+    const area=`M${x(0)},${H-PB} ${data.map((d,i)=>`L${x(i)},${y(d.total)}`).join(" ")} L${x(data.length-1)},${H-PB} Z`;
+    const ticks=[0,0.25,0.5,0.75,1].map(f=>({v:maxV*f,y:y(maxV*f)}));
     return <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{overflow:"visible"}}>
-      {data.map((d,i)=>{
-        const x=PL+(i*(W-PL-PR)/data.length)+(W-PL-PR)/data.length/2-bW/2;
-        const bH=Math.max(2,(d[key]/maxV)*cH);
-        const b={x,y:PT+cH-bH,w:bW,h:bH,label:d.ym?.slice(5,7)||d.anio||""};
-        return <g key={i}>
-          <rect x={b.x} y={b.y} width={b.w} height={b.h} rx={2} fill={color} opacity={.82}/>
-          {data.length<=18&&<text x={b.x+b.w/2} y={H-4} textAnchor="middle" fill={C.t3} fontSize="7" fontFamily="sans-serif">{b.label}</text>}
-        </g>;
-      })}
+      {ticks.map((t,i)=><g key={i}>
+        <line x1={PL} y1={t.y} x2={W-PR} y2={t.y} stroke={C.bd} strokeWidth=".6" strokeDasharray="3,3"/>
+        <text x={PL-6} y={t.y+4} textAnchor="end" fill={C.t3} fontSize="9" fontFamily="sans-serif">
+          {enUSD?`$${Math.round(t.v/1000)}k`:`$${(t.v/1000000).toFixed(1)}M`}
+        </text>
+      </g>)}
+      <path d={area} fill={C.green} opacity=".08"/>
+      <polyline points={pts} fill="none" stroke={C.green} strokeWidth="2" strokeLinejoin="round"/>
+      {data.map((d,i)=><g key={i}>
+        <circle cx={x(i)} cy={y(d.total)} r="3.5" fill={C.green} stroke="#fff" strokeWidth="1.5"/>
+        {(i===0||i===data.length-1||data.length<=6)&&<text x={x(i)} y={H-PB+14} textAnchor="middle" fill={C.t3} fontSize="9" fontFamily="sans-serif">
+          {d.ym?.slice(5,7)+"/"+d.ym?.slice(2,4)}
+        </text>}
+      </g>)}
     </svg>;
   };
 
+  const VISTAS=[{v:"resumen",l:"Resumen ejecutivo"},{v:"mensual",l:"Evolución mensual"},{v:"cat",l:"Por rubro"},{v:"anual",l:"Por año"}];
+
   return <div className="fu">
-    <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
-      {[{v:"mensual",l:"Por mes"},{v:"anual",l:"Por año"},{v:"cat",l:"Por categoría"},{v:"top",l:"Top gastos"}].map(o=>(
-        <button key={o.v} onClick={()=>setVistaR(o.v)} style={{padding:"6px 14px",fontSize:12,border:`1px solid ${vistaR===o.v?C.green:C.bd2}`,borderRadius:20,cursor:"pointer",background:vistaR===o.v?C.green+"18":"transparent",color:vistaR===o.v?C.green:C.t2,fontWeight:vistaR===o.v?600:400}}>{o.l}</button>
-      ))}
-      <button onClick={()=>exportCSV(gastos.map(g=>{const cat=cats.find(c=>c.id===g.cat_id);return{fecha:g.fecha,categoria:cat?.label||"",descripcion:g.descripcion||"",monto:g.monto,moneda:g.moneda,visibilidad:g.visibilidad};}),`gastos_${obra.nombre.replace(/\s+/g,"_")}.csv`)} style={{marginLeft:"auto",padding:"6px 12px",fontSize:11,border:`1px solid ${C.bd2}`,borderRadius:20,cursor:"pointer",background:"transparent",color:C.t2}}>⬇ CSV</button>
+    {/* Header */}
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,flexWrap:"wrap",gap:10}}>
+      <div>
+        <div style={{fontSize:17,fontWeight:700,color:C.t}}>{obra.nombre} — Reporte de obra</div>
+        <div style={{fontSize:12,color:C.t3,marginTop:2}}>Generado el {new Date().toLocaleDateString("es-AR",{day:"2-digit",month:"long",year:"numeric"})} · {gastos.length} movimientos registrados</div>
+      </div>
+      <button onClick={()=>exportCSV(gastos.map(g=>{const cat=cats.find(c=>c.id===g.cat_id);const sub=cat?.subs?.find(s=>s.id===g.sub_id);return{Fecha:g.fecha,Rubro:cat?.label||"",Subrubro:sub?.label||"",Descripcion:g.descripcion||"",Monto:g.monto,Moneda:g.moneda,Monto_ARS:Math.round(toARS(g,tcRef))};}),`reporte_${obra.nombre.replace(/\s+/g,"_")}.csv`)} style={{background:C.bg3,border:`1px solid ${C.bd2}`,borderRadius:8,padding:"7px 14px",cursor:"pointer",color:C.t2,fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>⬇ Exportar CSV</button>
     </div>
 
-    {vistaR==="mensual"&&<Card>
-      <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:12,fontWeight:600}}>Gastos por mes</div>
-      {porMes.length>0&&<div style={{marginBottom:12}}>{miniBar(porMes,"total",C.green)}</div>}
-      {porMes.map(m=><div key={m.ym} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.bd}`,fontSize:13}}>
-        <span style={{color:C.t2,fontWeight:500}}>{m.ym}</span>
-        <span style={{color:C.t3,fontSize:11}}>{m.items.length} gastos</span>
-        <span style={{fontWeight:700,color:C.green}}>{fmt(m.total)}</span>
-      </div>)}
-      {porMes.length===0&&<div style={{textAlign:"center",padding:"24px",color:C.t3}}>Sin datos</div>}
-      <div style={{display:"flex",justifyContent:"space-between",marginTop:10,fontSize:13}}>
-        <span style={{color:C.t3}}>Total general</span>
-        <span style={{fontWeight:700,color:C.t}}>{fmt(totalGlobal)}</span>
+    {/* KPIs siempre visibles */}
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:12,marginBottom:20}}>
+      <div style={{background:C.bg2,border:`1px solid ${C.bd}`,borderRadius:12,padding:"16px 18px"}}>
+        <div style={{fontSize:10,color:C.t3,fontWeight:600,textTransform:"uppercase",letterSpacing:".08em",marginBottom:6}}>Total ejecutado</div>
+        <div style={{fontSize:20,fontWeight:800,color:C.green}}>{fmt(totalGlobal)}</div>
+        {totalPresup>0&&<div style={{fontSize:11,color:C.t3,marginTop:4}}>{pctAvance}% del presupuesto</div>}
       </div>
-    </Card>}
+      {totalPresup>0&&<div style={{background:C.bg2,border:`1px solid ${C.bd}`,borderRadius:12,padding:"16px 18px"}}>
+        <div style={{fontSize:10,color:C.t3,fontWeight:600,textTransform:"uppercase",letterSpacing:".08em",marginBottom:6}}>Presupuestado</div>
+        <div style={{fontSize:20,fontWeight:800,color:C.blue}}>{fmt(enUSD?totalPresup/tcRef:totalPresup)}</div>
+        <div style={{fontSize:11,color:totalGlobal>totalPresup?C.red:C.green,marginTop:4}}>{fmt(enUSD?(totalPresup-totalGlobal)/tcRef:totalPresup-totalGlobal)} disponible</div>
+      </div>}
+      <div style={{background:C.bg2,border:`1px solid ${C.bd}`,borderRadius:12,padding:"16px 18px"}}>
+        <div style={{fontSize:10,color:C.t3,fontWeight:600,textTransform:"uppercase",letterSpacing:".08em",marginBottom:6}}>Promedio mensual</div>
+        <div style={{fontSize:20,fontWeight:800,color:C.t}}>{porMes.length>0?fmt(totalGlobal/porMes.length):"—"}</div>
+        <div style={{fontSize:11,color:C.t3,marginTop:4}}>en {porMes.length} {porMes.length===1?"mes":"meses"}</div>
+      </div>
+      <div style={{background:C.bg2,border:`1px solid ${C.bd}`,borderRadius:12,padding:"16px 18px"}}>
+        <div style={{fontSize:10,color:C.t3,fontWeight:600,textTransform:"uppercase",letterSpacing:".08em",marginBottom:6}}>Rubros activos</div>
+        <div style={{fontSize:20,fontWeight:800,color:C.t}}>{porCat.filter(c=>c.total>0).length}</div>
+        <div style={{fontSize:11,color:C.t3,marginTop:4}}>de {cats.length} categorías</div>
+      </div>
+    </div>
 
-    {vistaR==="anual"&&<Card>
-      <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:12,fontWeight:600}}>Gastos por año</div>
-      {porAnio.length>0&&<div style={{marginBottom:12}}>{miniBar(porAnio,"total",C.blue)}</div>}
-      {porAnio.map(a=><div key={a.anio} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.bd}`,fontSize:13}}>
-        <span style={{color:C.t2,fontWeight:500}}>{a.anio}</span>
-        <span style={{color:C.t3,fontSize:11}}>{a.count} gastos</span>
-        <span style={{fontWeight:700,color:C.blue}}>{fmt(a.total)}</span>
-      </div>)}
-      <div style={{display:"flex",justifyContent:"space-between",marginTop:10,fontSize:13}}><span style={{color:C.t3}}>Total general</span><span style={{fontWeight:700,color:C.t}}>{fmt(totalGlobal)}</span></div>
-    </Card>}
+    {/* Navegación */}
+    <div style={{display:"flex",gap:6,marginBottom:16,borderBottom:`1px solid ${C.bd}`,paddingBottom:0}}>
+      {VISTAS.map(o=><button key={o.v} onClick={()=>setVistaR(o.v)} style={{padding:"8px 16px",fontSize:12,border:"none",borderBottom:vistaR===o.v?`2px solid ${C.green}`:"2px solid transparent",cursor:"pointer",background:"transparent",color:vistaR===o.v?C.green:C.t3,fontWeight:vistaR===o.v?700:400,whiteSpace:"nowrap",marginBottom:-1}}>{o.l}</button>)}
+    </div>
 
+    {/* RESUMEN EJECUTIVO */}
+    {vistaR==="resumen"&&<>
+      {totalPresup>0&&<Card style={{marginBottom:14}}>
+        <div style={{fontSize:13,fontWeight:700,color:C.t,marginBottom:12}}>Avance de obra respecto al presupuesto</div>
+        <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:10}}>
+          <div style={{flex:1,height:14,borderRadius:7,background:C.bg3,overflow:"hidden"}}>
+            <div style={{height:"100%",borderRadius:7,background:pctAvance>100?C.red:pctAvance>85?C.amber:C.green,width:`${Math.min(pctAvance||0,100)}%`,transition:"width .8s ease"}}/>
+          </div>
+          <span style={{fontSize:16,fontWeight:800,color:pctAvance>100?C.red:C.green,minWidth:48}}>{pctAvance}%</span>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.t3}}>
+          <span>Ejecutado: <b style={{color:C.t}}>{fmt(totalGlobal)}</b></span>
+          <span>Presupuesto: <b style={{color:C.t}}>{fmt(enUSD?totalPresup/tcRef:totalPresup)}</b></span>
+        </div>
+      </Card>}
+
+      <Card style={{marginBottom:14}}>
+        <div style={{fontSize:13,fontWeight:700,color:C.t,marginBottom:12}}>Distribución por rubro</div>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+          <thead><tr style={{borderBottom:`2px solid ${C.bd2}`}}>
+            <th style={{padding:"7px 10px",textAlign:"left",fontSize:11,color:C.t3,fontWeight:700}}>Rubro</th>
+            <th style={{padding:"7px 10px",textAlign:"right",fontSize:11,color:C.t3,fontWeight:700}}>Ejecutado</th>
+            {totalPresup>0&&<th style={{padding:"7px 10px",textAlign:"right",fontSize:11,color:C.t3,fontWeight:700}}>Presupuestado</th>}
+            <th style={{padding:"7px 10px",textAlign:"right",fontSize:11,color:C.t3,fontWeight:700}}>% del total</th>
+            <th style={{padding:"7px 10px",minWidth:100,fontSize:11,color:C.t3,fontWeight:700}}>Ejecución</th>
+          </tr></thead>
+          <tbody>
+            {porCat.map(c=>{
+              const pTotal=totalGlobal>0?Math.round((c.total/totalGlobal)*100):0;
+              const pPresup=c.presup>0?Math.round((c.total/(enUSD?c.presup/tcRef:c.presup))*100):null;
+              const col=pPresup===null?C.t3:pPresup>100?C.red:pPresup>85?C.amber:C.green;
+              return <tr key={c.id} style={{borderBottom:`1px solid ${C.bd}`}}>
+                <td style={{padding:"10px"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:16}}>{c.icon}</span>
+                    <span style={{fontWeight:600,color:C.t}}>{c.label}</span>
+                  </div>
+                </td>
+                <td style={{padding:"10px",textAlign:"right",fontWeight:700,color:c.color||C.green}}>{fmt(c.total)}</td>
+                {totalPresup>0&&<td style={{padding:"10px",textAlign:"right",color:C.t2}}>{c.presup>0?fmt(enUSD?c.presup/tcRef:c.presup):"—"}</td>}
+                <td style={{padding:"10px",textAlign:"right",color:C.t2,fontWeight:600}}>{pTotal}%</td>
+                <td style={{padding:"10px"}}>
+                  {pPresup!==null?<>
+                    <div style={{height:5,borderRadius:3,background:C.bg3,marginBottom:3}}>
+                      <div style={{height:"100%",borderRadius:3,background:col,width:`${Math.min(pPresup,100)}%`}}/>
+                    </div>
+                    <span style={{fontSize:10,color:col,fontWeight:700}}>{pPresup}%</span>
+                  </>:<span style={{fontSize:11,color:C.t3}}>Sin presup.</span>}
+                </td>
+              </tr>;
+            })}
+          </tbody>
+          <tfoot><tr style={{borderTop:`2px solid ${C.bd2}`,background:C.bg3}}>
+            <td style={{padding:"10px",fontWeight:700,color:C.t}}>TOTAL</td>
+            <td style={{padding:"10px",textAlign:"right",fontWeight:700,color:C.green}}>{fmt(totalGlobal)}</td>
+            {totalPresup>0&&<td style={{padding:"10px",textAlign:"right",fontWeight:700,color:C.t}}>{fmt(enUSD?totalPresup/tcRef:totalPresup)}</td>}
+            <td style={{padding:"10px",textAlign:"right",fontWeight:700,color:C.t}}>100%</td>
+            <td/>
+          </tr></tfoot>
+        </table>
+      </Card>
+    </>}
+
+    {/* EVOLUCIÓN MENSUAL */}
+    {vistaR==="mensual"&&<>
+      <Card style={{marginBottom:14}}>
+        <div style={{fontSize:13,fontWeight:700,color:C.t,marginBottom:14}}>Evolución del gasto mensual</div>
+        <LineChart data={porMes}/>
+      </Card>
+      <Card>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+          <thead><tr style={{borderBottom:`2px solid ${C.bd2}`}}>
+            <th style={{padding:"8px 12px",textAlign:"left",fontSize:11,color:C.t3,fontWeight:700}}>Período</th>
+            <th style={{padding:"8px 12px",textAlign:"right",fontSize:11,color:C.t3,fontWeight:700}}>Movimientos</th>
+            <th style={{padding:"8px 12px",textAlign:"right",fontSize:11,color:C.t3,fontWeight:700}}>Total del mes</th>
+            <th style={{padding:"8px 12px",textAlign:"right",fontSize:11,color:C.t3,fontWeight:700}}>Acumulado</th>
+          </tr></thead>
+          <tbody>
+            {(()=>{let acum=0;return porMes.map(m=>{acum+=m.total;const mesLabel=new Date(m.ym+"-15").toLocaleDateString("es-AR",{month:"long",year:"numeric"});return <tr key={m.ym} style={{borderBottom:`1px solid ${C.bd}`}}>
+              <td style={{padding:"10px 12px",fontWeight:600,color:C.t,textTransform:"capitalize"}}>{mesLabel}</td>
+              <td style={{padding:"10px 12px",textAlign:"right",color:C.t3}}>{m.count}</td>
+              <td style={{padding:"10px 12px",textAlign:"right",fontWeight:700,color:C.green}}>{fmt(m.total)}</td>
+              <td style={{padding:"10px 12px",textAlign:"right",color:C.t2}}>{fmt(acum)}</td>
+            </tr>;});})()}
+          </tbody>
+          <tfoot><tr style={{borderTop:`2px solid ${C.bd2}`,background:C.bg3}}>
+            <td style={{padding:"10px 12px",fontWeight:700,color:C.t}}>TOTAL</td>
+            <td style={{padding:"10px 12px",textAlign:"right",fontWeight:700,color:C.t}}>{gastos.length}</td>
+            <td style={{padding:"10px 12px",textAlign:"right",fontWeight:700,color:C.green}}>{fmt(totalGlobal)}</td>
+            <td/>
+          </tr></tfoot>
+        </table>
+      </Card>
+    </>}
+
+    {/* POR RUBRO */}
     {vistaR==="cat"&&<Card>
-      <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:12,fontWeight:600}}>Gastos por categoría</div>
-      <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:16}}>
-        <Donut data={porCat.map(c=>({val:c.total,color:c.color||C.green}))} size={120}/>
-        <div style={{flex:1,minWidth:180}}>
-          {porCat.map(c=>{const p=totalGlobal>0?Math.round((c.total/totalGlobal)*100):0;return <div key={c.id} style={{marginBottom:8}}>
-            <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}><span style={{fontSize:12,color:C.t}}>{c.icon} {c.label}</span><span style={{fontSize:12,fontWeight:600,color:c.color||C.green}}>{fmt(c.total)}</span></div>
-            <div style={{height:4,borderRadius:2,background:C.bg3}}><div style={{height:"100%",borderRadius:2,background:c.color||C.green,width:`${p}%`}}/></div>
-            <div style={{fontSize:10,color:C.t3,marginTop:1}}>{p}% · {c.count} gastos</div>
-          </div>;})}
-        </div>
-      </div>
-      <div style={{display:"flex",justifyContent:"space-between",fontSize:13}}><span style={{color:C.t3}}>Total general</span><span style={{fontWeight:700,color:C.t}}>{fmt(totalGlobal)}</span></div>
+      <div style={{fontSize:13,fontWeight:700,color:C.t,marginBottom:14}}>Detalle por rubro de obra</div>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+        <thead><tr style={{borderBottom:`2px solid ${C.bd2}`}}>
+          <th style={{padding:"8px 12px",textAlign:"left",fontSize:11,color:C.t3,fontWeight:700}}>Rubro</th>
+          <th style={{padding:"8px 12px",textAlign:"right",fontSize:11,color:C.t3,fontWeight:700}}>Movimientos</th>
+          <th style={{padding:"8px 12px",textAlign:"right",fontSize:11,color:C.t3,fontWeight:700}}>Ejecutado</th>
+          <th style={{padding:"8px 12px",textAlign:"right",fontSize:11,color:C.t3,fontWeight:700}}>% del total</th>
+          <th style={{padding:"8px 12px",minWidth:120,fontSize:11,color:C.t3,fontWeight:700}}>Participación</th>
+        </tr></thead>
+        <tbody>
+          {porCat.map(c=>{
+            const p=totalGlobal>0?Math.round((c.total/totalGlobal)*100):0;
+            return <tr key={c.id} style={{borderBottom:`1px solid ${C.bd}`}}>
+              <td style={{padding:"10px 12px"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{width:28,height:28,borderRadius:7,background:(c.color||C.green)+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15}}>{c.icon}</div>
+                  <span style={{fontWeight:600,color:C.t}}>{c.label}</span>
+                </div>
+              </td>
+              <td style={{padding:"10px 12px",textAlign:"right",color:C.t3}}>{c.count}</td>
+              <td style={{padding:"10px 12px",textAlign:"right",fontWeight:700,color:c.color||C.green}}>{fmt(c.total)}</td>
+              <td style={{padding:"10px 12px",textAlign:"right",fontWeight:700,color:C.t}}>{p}%</td>
+              <td style={{padding:"10px 12px"}}>
+                <div style={{height:6,borderRadius:3,background:C.bg3}}>
+                  <div style={{height:"100%",borderRadius:3,background:c.color||C.green,width:`${p}%`}}/>
+                </div>
+              </td>
+            </tr>;
+          })}
+        </tbody>
+        <tfoot><tr style={{borderTop:`2px solid ${C.bd2}`,background:C.bg3}}>
+          <td style={{padding:"10px 12px",fontWeight:700,color:C.t}}>TOTAL</td>
+          <td style={{padding:"10px 12px",textAlign:"right",fontWeight:700,color:C.t}}>{gastos.length}</td>
+          <td style={{padding:"10px 12px",textAlign:"right",fontWeight:700,color:C.green}}>{fmt(totalGlobal)}</td>
+          <td style={{padding:"10px 12px",textAlign:"right",fontWeight:700,color:C.t}}>100%</td>
+          <td/>
+        </tr></tfoot>
+      </table>
     </Card>}
 
-    {vistaR==="top"&&<Card>
-      <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:12,fontWeight:600}}>Top 5 gastos individuales más altos</div>
-      {topGastos.length===0&&<div style={{textAlign:"center",padding:"24px",color:C.t3}}>Sin datos</div>}
-      {topGastos.map((g,i)=>{const cat=cats.find(c=>c.id===g.cat_id);const sub=cat?.subs?.find(s=>s.id===g.sub_id);const p=totalGlobal>0?Math.round((conv(g)/totalGlobal)*100):0;return <div key={g.id} style={{display:"flex",gap:12,alignItems:"center",marginBottom:12,paddingBottom:12,borderBottom:`1px solid ${C.bd}`}}>
-        <div style={{width:28,height:28,borderRadius:"50%",background:C.green+"18",border:`2px solid ${C.green}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:C.green,flexShrink:0}}>#{i+1}</div>
-        <div style={{width:32,height:32,borderRadius:8,background:(cat?.color||C.green)+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{cat?.icon||"📦"}</div>
-        <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:13,fontWeight:600,color:C.t,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.descripcion||sub?.label||cat?.label||"—"}</div>
-          <div style={{fontSize:11,color:C.t3,marginTop:2}}>{g.fecha} · {cat?.label}</div>
-        </div>
-        <div style={{textAlign:"right",flexShrink:0}}>
-          <div style={{fontSize:14,fontWeight:700,color:cat?.color||C.green}}>{fmt(conv(g))}</div>
-          <div style={{fontSize:10,color:C.t3}}>{p}% del total</div>
-        </div>
-      </div>;})}
+    {/* POR AÑO */}
+    {vistaR==="anual"&&<Card>
+      <div style={{fontSize:13,fontWeight:700,color:C.t,marginBottom:14}}>Resumen anual</div>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+        <thead><tr style={{borderBottom:`2px solid ${C.bd2}`}}>
+          <th style={{padding:"8px 12px",textAlign:"left",fontSize:11,color:C.t3,fontWeight:700}}>Año</th>
+          <th style={{padding:"8px 12px",textAlign:"right",fontSize:11,color:C.t3,fontWeight:700}}>Movimientos</th>
+          <th style={{padding:"8px 12px",textAlign:"right",fontSize:11,color:C.t3,fontWeight:700}}>Total ejecutado</th>
+          <th style={{padding:"8px 12px",textAlign:"right",fontSize:11,color:C.t3,fontWeight:700}}>Promedio mensual</th>
+          <th style={{padding:"8px 12px",minWidth:120,fontSize:11,color:C.t3,fontWeight:700}}>Proporción</th>
+        </tr></thead>
+        <tbody>
+          {porAnio.map(a=>{
+            const meses=porMes.filter(m=>m.ym?.slice(0,4)===a.anio).length;
+            const p=totalGlobal>0?Math.round((a.total/totalGlobal)*100):0;
+            return <tr key={a.anio} style={{borderBottom:`1px solid ${C.bd}`}}>
+              <td style={{padding:"10px 12px",fontWeight:700,color:C.t}}>{a.anio}</td>
+              <td style={{padding:"10px 12px",textAlign:"right",color:C.t3}}>{a.count}</td>
+              <td style={{padding:"10px 12px",textAlign:"right",fontWeight:700,color:C.blue}}>{fmt(a.total)}</td>
+              <td style={{padding:"10px 12px",textAlign:"right",color:C.t2}}>{meses>0?fmt(a.total/meses):"—"}</td>
+              <td style={{padding:"10px 12px"}}>
+                <div style={{height:6,borderRadius:3,background:C.bg3,marginBottom:3}}>
+                  <div style={{height:"100%",borderRadius:3,background:C.blue,width:`${p}%`}}/>
+                </div>
+                <span style={{fontSize:10,color:C.t3}}>{p}%</span>
+              </td>
+            </tr>;
+          })}
+        </tbody>
+        <tfoot><tr style={{borderTop:`2px solid ${C.bd2}`,background:C.bg3}}>
+          <td style={{padding:"10px 12px",fontWeight:700,color:C.t}}>TOTAL</td>
+          <td style={{padding:"10px 12px",textAlign:"right",fontWeight:700,color:C.t}}>{gastos.length}</td>
+          <td style={{padding:"10px 12px",textAlign:"right",fontWeight:700,color:C.blue}}>{fmt(totalGlobal)}</td>
+          <td style={{padding:"10px 12px",textAlign:"right",color:C.t2}}>{porMes.length>0?fmt(totalGlobal/porMes.length):"—"}</td>
+          <td/>
+        </tr></tfoot>
+      </table>
     </Card>}
   </div>;
 }
