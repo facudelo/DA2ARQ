@@ -715,6 +715,59 @@ function GastoRapidoModal({user,obra,cats,tcOficial,tcBlue,tcManual,setTcManual,
   </Modal>;
 }
 
+// ── PANEL AJUSTE (componente auxiliar de PresupuestoTab) ─────────────────────
+function PanelAjuste({indiceAjuste,inflData,cacData,tcOficial,obra,presupBaseARS,presupAjustado,ajusteAcum,calcAjusteGeneral,showInfl,handleShowInfl,fetchIPC,fetchCAC,setShowInfl,INDICES}){
+  const idxInfo=INDICES.find(i=>i.v===indiceAjuste)||INDICES[0];
+  const colIdx=idxInfo.color;
+  const needsData=(indiceAjuste==="ipc"&&!inflData)||(indiceAjuste==="cac"&&!cacData);
+  return <Card style={{marginTop:14,border:`1px solid ${colIdx}44`,background:colIdx+"08"}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        <span style={{fontSize:20}}>{idxInfo.label.slice(-2)}</span>
+        <div>
+          <div style={{fontWeight:700,fontSize:13,color:C.t}}>Ajuste por {indiceAjuste==="usd"?"Dólar":indiceAjuste==="cac"?"Índice CAC":"IPC"} acumulado</div>
+          <div style={{fontSize:11,color:C.t3}}>Desde inicio de obra ({obra.created_at?.slice(0,7)||"—"}) · {indiceAjuste==="cac"?"Cámara Argentina de la Construcción":indiceAjuste==="ipc"?"IPC INDEC":"Dolarapi.com"}</div>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        {needsData&&<Btn small onClick={()=>{if(indiceAjuste==="ipc")fetchIPC();if(indiceAjuste==="cac")fetchCAC();setShowInfl(true);}}>Cargar datos</Btn>}
+        {!needsData&&indiceAjuste!=="usd"&&<button onClick={handleShowInfl} style={{background:colIdx+"18",border:`1px solid ${colIdx}44`,borderRadius:8,padding:"5px 12px",cursor:"pointer",color:colIdx,fontSize:11,fontWeight:600}}>{showInfl?"Ocultar detalle":"Ver detalle"}</button>}
+      </div>
+    </div>
+    {indiceAjuste==="usd"&&<div style={{marginTop:12,background:C.bg2,borderRadius:10,padding:"12px 16px",border:`1px solid ${C.bd}`,fontSize:12,color:C.t2}}>
+      El ajuste por dólar compara tu presupuesto en ARS vs el valor en USD al TC oficial actual. {tcOficial?<span>TC oficial hoy: <b style={{color:C.green}}>${tcOficial.toLocaleString("es-AR")}</b></span>:"Cargando TC..."}
+      {presupBaseARS>0&&tcOficial&&<div style={{marginTop:8}}><b>Presupuesto original:</b> {fmtARS(presupBaseARS)} = <b style={{color:C.blue}}>{fmtUSD(presupBaseARS/tcOficial)}</b> al TC de hoy.</div>}
+    </div>}
+    {!needsData&&calcAjusteGeneral&&indiceAjuste!=="usd"&&<>
+      <div style={{display:"flex",gap:12,flexWrap:"wrap",marginTop:14}}>
+        <div style={{flex:"1 1 130px",background:C.bg2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.bd}`}}>
+          <div style={{fontSize:10,color:C.t3,marginBottom:4,fontWeight:600,textTransform:"uppercase"}}>Acum. {indiceAjuste.toUpperCase()}</div>
+          <div style={{fontSize:22,fontWeight:700,color:colIdx}}>{ajusteAcum?.toFixed(1)}%</div>
+          <div style={{fontSize:10,color:C.t3,marginTop:2}}>{calcAjusteGeneral.length} meses medidos</div>
+        </div>
+        {presupBaseARS>0&&<div style={{flex:"1 1 180px",background:C.bg2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.bd}`}}>
+          <div style={{fontSize:10,color:C.t3,marginBottom:4,fontWeight:600,textTransform:"uppercase"}}>Presup. original</div>
+          <div style={{fontSize:18,fontWeight:700,color:C.blue}}>{fmtARS(presupBaseARS)}</div>
+          <div style={{fontSize:10,color:C.t3,marginTop:2}}>al inicio de obra</div>
+        </div>}
+        {presupAjustado&&<div style={{flex:"1 1 180px",background:C.bg2,borderRadius:10,padding:"12px 14px",border:`2px solid ${colIdx}`,boxShadow:`0 0 12px ${colIdx}22`}}>
+          <div style={{fontSize:10,color:colIdx,marginBottom:4,fontWeight:700,textTransform:"uppercase"}}>Presup. ajustado hoy</div>
+          <div style={{fontSize:18,fontWeight:700,color:colIdx}}>{fmtARS(presupAjustado)}</div>
+          <div style={{fontSize:10,color:C.t3,marginTop:2}}>+{ajusteAcum?.toFixed(1)}% desde inicio</div>
+        </div>}
+      </div>
+      {showInfl&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:12}}>
+        {calcAjusteGeneral.map(x=><div key={x.ym} style={{background:C.bg2,border:`1px solid ${C.bd}`,borderRadius:8,padding:"6px 12px",textAlign:"center"}}>
+          <div style={{fontSize:10,color:C.t3}}>{x.ym.slice(5,7)}/{x.ym.slice(2,4)}</div>
+          <div style={{fontSize:12,fontWeight:700,color:colIdx}}>{x.val?.toFixed(1)}%</div>
+          <div style={{fontSize:10,color:C.t2}}>Acum: {x.acum?.toFixed(1)}%</div>
+        </div>)}
+      </div>}
+    </>}
+    {needsData&&<div style={{fontSize:12,color:C.t3,marginTop:10}}>Presioná "Cargar datos" para ver el presupuesto ajustado.</div>}
+  </Card>;
+}
+
 // ── PRESUPUESTO ───────────────────────────────────────────────────────────────
 function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,reload,monedaVista,inflData,fetchIPC,cacData,fetchCAC}){
   const [modal,setModal]=useState(false);
@@ -911,57 +964,14 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
     </Card>
 
     {/* Panel ajuste — debajo de la tabla */}
-    {()=>{
-      const idxInfo=INDICES.find(i=>i.v===indiceAjuste)||INDICES[0];
-      const colIdx=idxInfo.color;
-      const needsData=(indiceAjuste==="ipc"&&!inflData)||(indiceAjuste==="cac"&&!cacData);
-      return <Card style={{marginTop:14,border:`1px solid ${colIdx}44`,background:colIdx+"08"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:20}}>{idxInfo.label.slice(-2)}</span>
-            <div>
-              <div style={{fontWeight:700,fontSize:13,color:C.t}}>Ajuste por {indiceAjuste==="usd"?"Dólar":indiceAjuste==="cac"?"Índice CAC":"IPC"} acumulado</div>
-              <div style={{fontSize:11,color:C.t3}}>Desde inicio de obra ({obra.created_at?.slice(0,7)||"—"}) · {indiceAjuste==="cac"?"Cámara Argentina de la Construcción":indiceAjuste==="ipc"?"IPC INDEC":"Dolarapi.com"}</div>
-            </div>
-          </div>
-          <div style={{display:"flex",gap:8,alignItems:"center"}}>
-            {needsData&&<Btn small onClick={()=>{if(indiceAjuste==="ipc")fetchIPC();if(indiceAjuste==="cac")fetchCAC();setShowInfl(true);}}>Cargar datos</Btn>}
-            {!needsData&&indiceAjuste!=="usd"&&<button onClick={handleShowInfl} style={{background:colIdx+"18",border:`1px solid ${colIdx}44`,borderRadius:8,padding:"5px 12px",cursor:"pointer",color:colIdx,fontSize:11,fontWeight:600}}>{showInfl?"Ocultar detalle":"Ver detalle"}</button>}
-          </div>
-        </div>
-        {indiceAjuste==="usd"&&<div style={{marginTop:12,background:C.bg2,borderRadius:10,padding:"12px 16px",border:`1px solid ${C.bd}`,fontSize:12,color:C.t2}}>
-          El ajuste por dólar compara tu presupuesto en ARS vs el valor en USD al TC oficial actual. {tcOficial?<span>TC oficial hoy: <b style={{color:C.green}}>${tcOficial.toLocaleString("es-AR")}</b></span>:"Cargando TC..."}
-          {presupBaseARS>0&&tcOficial&&<div style={{marginTop:8}}><b>Presupuesto original:</b> {fmtARS(presupBaseARS)} = <b style={{color:C.blue}}>{fmtUSD(presupBaseARS/tcOficial)}</b> al TC de hoy.</div>}
-        </div>}
-        {!needsData&&calcAjusteGeneral&&indiceAjuste!=="usd"&&<>
-          <div style={{display:"flex",gap:12,flexWrap:"wrap",marginTop:14}}>
-            <div style={{flex:"1 1 130px",background:C.bg2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.bd}`}}>
-              <div style={{fontSize:10,color:C.t3,marginBottom:4,fontWeight:600,textTransform:"uppercase"}}>Acum. {indiceAjuste.toUpperCase()}</div>
-              <div style={{fontSize:22,fontWeight:700,color:colIdx}}>{ajusteAcum?.toFixed(1)}%</div>
-              <div style={{fontSize:10,color:C.t3,marginTop:2}}>{calcAjusteGeneral.length} meses medidos</div>
-            </div>
-            {presupBaseARS>0&&<div style={{flex:"1 1 180px",background:C.bg2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.bd}`}}>
-              <div style={{fontSize:10,color:C.t3,marginBottom:4,fontWeight:600,textTransform:"uppercase"}}>Presup. original</div>
-              <div style={{fontSize:18,fontWeight:700,color:C.blue}}>{fmtARS(presupBaseARS)}</div>
-              <div style={{fontSize:10,color:C.t3,marginTop:2}}>al inicio de obra</div>
-            </div>}
-            {presupAjustado&&<div style={{flex:"1 1 180px",background:C.bg2,borderRadius:10,padding:"12px 14px",border:`2px solid ${colIdx}`,boxShadow:`0 0 12px ${colIdx}22`}}>
-              <div style={{fontSize:10,color:colIdx,marginBottom:4,fontWeight:700,textTransform:"uppercase"}}>Presup. ajustado hoy</div>
-              <div style={{fontSize:18,fontWeight:700,color:colIdx}}>{fmtARS(presupAjustado)}</div>
-              <div style={{fontSize:10,color:C.t3,marginTop:2}}>+{ajusteAcum?.toFixed(1)}% desde inicio</div>
-            </div>}
-          </div>
-          {showInfl&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:12}}>
-            {calcAjusteGeneral.map(x=><div key={x.ym} style={{background:C.bg2,border:`1px solid ${C.bd}`,borderRadius:8,padding:"6px 12px",textAlign:"center"}}>
-              <div style={{fontSize:10,color:C.t3}}>{x.ym.slice(5,7)}/{x.ym.slice(2,4)}</div>
-              <div style={{fontSize:12,fontWeight:700,color:colIdx}}>{x.val?.toFixed(1)}%</div>
-              <div style={{fontSize:10,color:C.t2}}>Acum: {x.acum?.toFixed(1)}%</div>
-            </div>)}
-          </div>}
-        </>}
-        {needsData&&<div style={{fontSize:12,color:C.t3,marginTop:10}}>Presioná "Cargar datos" para ver el presupuesto ajustado.</div>}
-      </Card>;
-    })()
+    <PanelAjuste
+      indiceAjuste={indiceAjuste} inflData={inflData} cacData={cacData}
+      tcOficial={tcOficial} obra={obra} presupBaseARS={presupBaseARS}
+      presupAjustado={presupAjustado} ajusteAcum={ajusteAcum}
+      calcAjusteGeneral={calcAjusteGeneral} showInfl={showInfl}
+      handleShowInfl={handleShowInfl} fetchIPC={fetchIPC} fetchCAC={fetchCAC}
+      setShowInfl={setShowInfl} INDICES={INDICES}
+    />
 
     {modal&&<Modal title="Agregar presupuesto" onClose={()=>setModal(false)}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
