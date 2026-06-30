@@ -805,29 +805,42 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
   const totalEMV=cats.reduce((s,c)=>s+ejCat(c.id),0);
 
   // Calcular ajuste acumulado COMPUESTO desde una fecha según índice seleccionado
-  const ajusteDesde=fechaDesde=>{
-    if(!fechaDesde)return null;
-    if(indiceAjuste==="usd"){
-      // Ajuste por dólar: si no hay tcOficial no podemos calcular
-      return null; // se muestra aparte en el panel
-    }
+  // Función pura: producto compuesto desde el mes de fechaDesde (inclusive) al último dato
+  // monto × (1 + r_mes0/100) × (1 + r_mes1/100) × ... × (1 + r_mesN/100)
+  const factorAjuste=useCallback((fechaDesde)=>{
+    if(!fechaDesde)return 1;
+    if(indiceAjuste==="usd")return 1;
     const data=indiceAjuste==="cac"?cacData:inflData;
-    if(!data)return null;
-    const desde=fechaDesde.slice(0,7);
-    const serie=data.filter(x=>x.fecha.slice(0,7)>desde).sort((a,b)=>a.fecha>b.fecha?1:-1);
-    if(serie.length===0)return null;
-    return serie.reduce((acum,x)=>acum*(1+x.valor/100),1)-1;
+    if(!data||!data.length)return 1;
+    const desde=fechaDesde.slice(0,7); // "YYYY-MM"
+    // Incluir el mes de carga y todos los posteriores hasta el último disponible
+    const serie=data
+      .filter(x=>x.fecha.slice(0,7)>=desde)
+      .sort((a,b)=>a.fecha<b.fecha?-1:1);
+    if(!serie.length)return 1;
+    return serie.reduce((f,x)=>f*(1+x.valor/100),1);
+  },[indiceAjuste,cacData,inflData]);
+
+  // Para el historial expandible — devuelve el % de variación (no el factor)
+  const ajusteDesde=fechaDesde=>{
+    const f=factorAjuste(fechaDesde);
+    return f===1?null:f-1;
   };
 
-  // Para el panel general — acumulado desde inicio de obra
+  // Panel general: acumulado desde inicio de obra (mes inclusive), con detalle mes a mes
   const calcAjusteGeneral=useMemo(()=>{
     const data=indiceAjuste==="cac"?cacData:indiceAjuste==="ipc"?inflData:null;
     if(!data||!obra.created_at)return null;
     const inicio=obra.created_at.slice(0,7);
-    const serie=data.filter(x=>x.fecha.slice(0,7)>inicio).sort((a,b)=>a.fecha>b.fecha?1:-1);
+    const serie=data
+      .filter(x=>x.fecha.slice(0,7)>=inicio)
+      .sort((a,b)=>a.fecha<b.fecha?-1:1);
     if(!serie.length)return null;
     let factor=1;
-    return serie.map(x=>{factor*=(1+x.valor/100);return{ym:x.fecha.slice(0,7),val:x.valor,acum:Math.round((factor-1)*1000)/10};});
+    return serie.map(x=>{
+      factor*=(1+x.valor/100);
+      return{ym:x.fecha.slice(0,7),val:x.valor,acum:+(((factor-1)*100).toFixed(2))};
+    });
   },[indiceAjuste,cacData,inflData,obra.created_at]);
 
   const save=async()=>{
@@ -870,18 +883,20 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
   const presupBaseARS=obra.presupuesto_total?(obra.moneda_presupuesto==="USD"?obra.presupuesto_total*tcRef:obra.presupuesto_total):totalPMV>0?cats.reduce((s,c)=>s+presup.filter(p=>p.cat_id===c.id).reduce((s2,p)=>s2+(p.moneda==="USD"?p.monto*tcRef:p.monto),0),0):0;
   const ajusteAcum=calcAjusteGeneral?calcAjusteGeneral[calcAjusteGeneral.length-1]?.acum:null;
 
-  // Presupuesto ajustado: cada registro ajustado desde SU fecha particular, sumados
+  // Presupuesto ajustado: cada ítem × su factor compuesto desde su fecha, sumados
   const presupAjustado=useMemo(()=>{
     if(indiceAjuste==="usd")return null;
     const data=indiceAjuste==="cac"?cacData:inflData;
     if(!data||!presup.length)return null;
     const total=presup.reduce((sum,p)=>{
       const montoARS=p.moneda==="USD"?p.monto*tcRef:p.monto;
-      const desde=p.fecha?.slice(0,7);
-      if(!desde)return sum+montoARS;
-      const serie=data.filter(x=>x.fecha.slice(0,7)>desde).sort((a,b)=>a.fecha>b.fecha?1:-1);
-      const factor=serie.length>0?serie.reduce((f,x)=>f*(1+x.valor/100),1)-1:null;
-      return sum+(factor!=null?montoARS*(1+factor):montoARS);
+      if(!p.fecha)return sum+montoARS;
+      const desde=p.fecha.slice(0,7);
+      const serie=data
+        .filter(x=>x.fecha.slice(0,7)>=desde)
+        .sort((a,b)=>a.fecha<b.fecha?-1:1);
+      const f=serie.length>0?serie.reduce((f,x)=>f*(1+x.valor/100),1):1;
+      return sum+montoARS*f;
     },0);
     return Math.round(total);
   },[presup,indiceAjuste,cacData,inflData,tcRef]);
@@ -1341,7 +1356,7 @@ function ResumenClienteTab({obra,gastos,presup,tcRef,cats,fotos,hitos=[],monedaV
 
 // ── REPORTES ──────────────────────────────────────────────────────────────────
 function ReportesTab({obra,gastos,presup,tcRef,cats,esAdmin,monedaVista}){
-  const [vistaR,setVistaR]=useState("resumen");
+  const [vistaR,setVistaR]=useState("mensual");
   const enUSD=monedaVista==="USD";
   const conv=useCallback(g=>enUSD?toUSD(g,tcRef):toARS(g,tcRef),[enUSD,tcRef]);
   const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
@@ -1398,7 +1413,7 @@ function ReportesTab({obra,gastos,presup,tcRef,cats,esAdmin,monedaVista}){
     </svg>;
   };
 
-  const VISTAS=[{v:"resumen",l:"Resumen ejecutivo"},{v:"mensual",l:"Evolución mensual"},{v:"cat",l:"Por rubro"},{v:"anual",l:"Por año"}];
+  const VISTAS=[{v:"mensual",l:"Evolución mensual"},{v:"cat",l:"Por rubro"},{v:"anual",l:"Por año"}];
 
   return <div className="fu">
     {/* Header */}
@@ -1438,69 +1453,6 @@ function ReportesTab({obra,gastos,presup,tcRef,cats,esAdmin,monedaVista}){
     <div style={{display:"flex",gap:6,marginBottom:16,borderBottom:`1px solid ${C.bd}`,paddingBottom:0}}>
       {VISTAS.map(o=><button key={o.v} onClick={()=>setVistaR(o.v)} style={{padding:"8px 16px",fontSize:12,border:"none",borderBottom:vistaR===o.v?`2px solid ${C.green}`:"2px solid transparent",cursor:"pointer",background:"transparent",color:vistaR===o.v?C.green:C.t3,fontWeight:vistaR===o.v?700:400,whiteSpace:"nowrap",marginBottom:-1}}>{o.l}</button>)}
     </div>
-
-    {/* RESUMEN EJECUTIVO */}
-    {vistaR==="resumen"&&<>
-      {totalPresup>0&&<Card style={{marginBottom:14}}>
-        <div style={{fontSize:13,fontWeight:700,color:C.t,marginBottom:12}}>Avance de obra respecto al presupuesto</div>
-        <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:10}}>
-          <div style={{flex:1,height:14,borderRadius:7,background:C.bg3,overflow:"hidden"}}>
-            <div style={{height:"100%",borderRadius:7,background:pctAvance>100?C.red:pctAvance>85?C.amber:C.green,width:`${Math.min(pctAvance||0,100)}%`,transition:"width .8s ease"}}/>
-          </div>
-          <span style={{fontSize:16,fontWeight:800,color:pctAvance>100?C.red:C.green,minWidth:48}}>{pctAvance}%</span>
-        </div>
-        <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.t3}}>
-          <span>Ejecutado: <b style={{color:C.t}}>{fmt(totalGlobal)}</b></span>
-          <span>Presupuesto: <b style={{color:C.t}}>{fmt(enUSD?totalPresup/tcRef:totalPresup)}</b></span>
-        </div>
-      </Card>}
-
-      <Card style={{marginBottom:14}}>
-        <div style={{fontSize:13,fontWeight:700,color:C.t,marginBottom:12}}>Distribución por rubro</div>
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-          <thead><tr style={{borderBottom:`2px solid ${C.bd2}`}}>
-            <th style={{padding:"7px 10px",textAlign:"left",fontSize:11,color:C.t3,fontWeight:700}}>Rubro</th>
-            <th style={{padding:"7px 10px",textAlign:"right",fontSize:11,color:C.t3,fontWeight:700}}>Ejecutado</th>
-            {totalPresup>0&&<th style={{padding:"7px 10px",textAlign:"right",fontSize:11,color:C.t3,fontWeight:700}}>Presupuestado</th>}
-            <th style={{padding:"7px 10px",textAlign:"right",fontSize:11,color:C.t3,fontWeight:700}}>% del total</th>
-            <th style={{padding:"7px 10px",minWidth:100,fontSize:11,color:C.t3,fontWeight:700}}>Ejecución</th>
-          </tr></thead>
-          <tbody>
-            {porCat.map(c=>{
-              const pTotal=totalGlobal>0?Math.round((c.total/totalGlobal)*100):0;
-              const pPresup=c.presup>0?Math.round((c.total/(enUSD?c.presup/tcRef:c.presup))*100):null;
-              const col=pPresup===null?C.t3:pPresup>100?C.red:pPresup>85?C.amber:C.green;
-              return <tr key={c.id} style={{borderBottom:`1px solid ${C.bd}`}}>
-                <td style={{padding:"10px"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:8}}>
-                    <span style={{fontSize:16}}>{c.icon}</span>
-                    <span style={{fontWeight:600,color:C.t}}>{c.label}</span>
-                  </div>
-                </td>
-                <td style={{padding:"10px",textAlign:"right",fontWeight:700,color:c.color||C.green}}>{fmt(c.total)}</td>
-                {totalPresup>0&&<td style={{padding:"10px",textAlign:"right",color:C.t2}}>{c.presup>0?fmt(enUSD?c.presup/tcRef:c.presup):"—"}</td>}
-                <td style={{padding:"10px",textAlign:"right",color:C.t2,fontWeight:600}}>{pTotal}%</td>
-                <td style={{padding:"10px"}}>
-                  {pPresup!==null?<>
-                    <div style={{height:5,borderRadius:3,background:C.bg3,marginBottom:3}}>
-                      <div style={{height:"100%",borderRadius:3,background:col,width:`${Math.min(pPresup,100)}%`}}/>
-                    </div>
-                    <span style={{fontSize:10,color:col,fontWeight:700}}>{pPresup}%</span>
-                  </>:<span style={{fontSize:11,color:C.t3}}>Sin presup.</span>}
-                </td>
-              </tr>;
-            })}
-          </tbody>
-          <tfoot><tr style={{borderTop:`2px solid ${C.bd2}`,background:C.bg3}}>
-            <td style={{padding:"10px",fontWeight:700,color:C.t}}>TOTAL</td>
-            <td style={{padding:"10px",textAlign:"right",fontWeight:700,color:C.green}}>{fmt(totalGlobal)}</td>
-            {totalPresup>0&&<td style={{padding:"10px",textAlign:"right",fontWeight:700,color:C.t}}>{fmt(enUSD?totalPresup/tcRef:totalPresup)}</td>}
-            <td style={{padding:"10px",textAlign:"right",fontWeight:700,color:C.t}}>100%</td>
-            <td/>
-          </tr></tfoot>
-        </table>
-      </Card>
-    </>}
 
     {/* EVOLUCIÓN MENSUAL */}
     {vistaR==="mensual"&&<>
