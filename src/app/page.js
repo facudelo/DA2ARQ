@@ -85,34 +85,19 @@ export default function App(){
   const fetchIPC=async()=>{if(inflData)return;try{const r=await fetch("https://api.argentinadatos.com/v1/finanzas/indices/inflacion");const j=await r.json();if(Array.isArray(j))setInflData(j);}catch{}};
   const fetchTCHist=async()=>{if(tcHistData)return;try{const[rOf,rBl]=await Promise.all([fetch("https://api.argentinadatos.com/v1/cotizaciones/dolares/oficial"),fetch("https://api.argentinadatos.com/v1/cotizaciones/dolares/blue")]);const[jOf,jBl]=await Promise.all([rOf.json(),rBl.json()]);if(Array.isArray(jOf)&&Array.isArray(jBl))setTcHistData({oficial:jOf,blue:jBl});}catch{}};
 
-  // CAC: datos históricos hardcoded (Cámara Argentina de la Construcción)
-  // Fuente: camarco.org.ar — variación % mensual respecto al mes anterior
-  const CAC_HISTORICO=[
-    {fecha:"2022-01",valor:4.8},{fecha:"2022-02",valor:6.0},{fecha:"2022-03",valor:7.3},
-    {fecha:"2022-04",valor:6.2},{fecha:"2022-05",valor:5.8},{fecha:"2022-06",valor:6.4},
-    {fecha:"2022-07",valor:7.9},{fecha:"2022-08",valor:7.0},{fecha:"2022-09",valor:7.1},
-    {fecha:"2022-10",valor:7.4},{fecha:"2022-11",valor:6.5},{fecha:"2022-12",valor:6.3},
-    {fecha:"2023-01",valor:7.4},{fecha:"2023-02",valor:7.2},{fecha:"2023-03",valor:8.5},
-    {fecha:"2023-04",valor:8.8},{fecha:"2023-05",valor:8.6},{fecha:"2023-06",valor:8.2},
-    {fecha:"2023-07",valor:10.2},{fecha:"2023-08",valor:14.5},{fecha:"2023-09",valor:12.7},
-    {fecha:"2023-10",valor:11.0},{fecha:"2023-11",valor:14.7},{fecha:"2023-12",valor:40.1},
-    {fecha:"2024-01",valor:14.2},{fecha:"2024-02",valor:14.2},{fecha:"2024-03",valor:9.8},
-    {fecha:"2024-04",valor:8.1},{fecha:"2024-05",valor:5.1},{fecha:"2024-06",valor:3.4},
-    {fecha:"2024-07",valor:2.4},{fecha:"2024-08",valor:2.5},{fecha:"2024-09",valor:2.7},
-    {fecha:"2024-10",valor:2.3},{fecha:"2024-11",valor:2.2},{fecha:"2024-12",valor:2.2},
-    {fecha:"2025-01",valor:2.1},{fecha:"2025-02",valor:2.2},{fecha:"2025-03",valor:2.5},
-    {fecha:"2025-04",valor:2.4},{fecha:"2025-05",valor:2.1},{fecha:"2025-06",valor:1.9},
-    {fecha:"2025-07",valor:1.8},{fecha:"2025-08",valor:1.7},{fecha:"2025-09",valor:1.6},
-    {fecha:"2025-10",valor:1.5},{fecha:"2025-11",valor:1.4},{fecha:"2025-12",valor:1.4},
-    {fecha:"2026-01",valor:1.3},{fecha:"2026-02",valor:1.2},{fecha:"2026-03",valor:1.1},
-    {fecha:"2026-04",valor:0.9},{fecha:"2026-05",valor:0.9},{fecha:"2026-06",valor:0.8},
-  ];
-  const fetchCAC=async()=>{if(cacData)return;setCacData(CAC_HISTORICO);};
+  const fetchCAC=async()=>{
+    if(cacData)return;
+    try{const{data,error}=await supabase.from("cac_historico").select("fecha,valor").order("fecha",{ascending:true});if(!error&&data?.length)setCacData(data);}catch{}
+  };
+  const refreshCAC=async()=>{
+    setCacData(null);
+    try{const{data,error}=await supabase.from("cac_historico").select("fecha,valor").order("fecha",{ascending:true});if(!error&&data?.length)setCacData(data);}catch{}
+  };
 
   if(authLoading)return <><style>{gCSS}</style><Spinner/></>;
   if(!user)return <><style>{gCSS}</style><AuthScreen onLogin={setUser} toast={toast}/><ToastContainer toasts={toast.toasts}/></>;
   if(!obraActiva)return <><style>{gCSS}</style><ObrasScreen user={user} onSelect={o=>{setObraActiva(o);setTab("dashboard");}} onLogout={async()=>{await supabase.auth.signOut();setUser(null);}} toast={toast}/><ToastContainer toasts={toast.toasts}/></>;
-  return <><style>{gCSS}</style><ObraApp user={user} obra={obraActiva} tab={tab} setTab={setTab} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} tcLoading={tcLoading} fetchTCs={fetchTCs} inflData={inflData} fetchIPC={fetchIPC} tcHistData={tcHistData} fetchTCHist={fetchTCHist} cacData={cacData} fetchCAC={fetchCAC} toast={toast} onBack={()=>setObraActiva(null)} onLogout={async()=>{await supabase.auth.signOut();setUser(null);setObraActiva(null);}}/><ToastContainer toasts={toast.toasts}/></>;
+  return <><style>{gCSS}</style><ObraApp user={user} obra={obraActiva} tab={tab} setTab={setTab} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} tcLoading={tcLoading} fetchTCs={fetchTCs} inflData={inflData} fetchIPC={fetchIPC} tcHistData={tcHistData} fetchTCHist={fetchTCHist} cacData={cacData} fetchCAC={fetchCAC} refreshCAC={refreshCAC} toast={toast} onBack={()=>setObraActiva(null)} onLogout={async()=>{await supabase.auth.signOut();setUser(null);setObraActiva(null);}}/><ToastContainer toasts={toast.toasts}/></>;
 }
 
 // ── AUTH ──────────────────────────────────────────────────────────────────────
@@ -218,7 +203,7 @@ function ObrasScreen({user,onSelect,onLogout,toast}){
 
 // ── OBRA APP ──────────────────────────────────────────────────────────────────
 function ObraApp(props){
-  const{user,obra,tab,setTab,tcOficial,tcBlue,tcManual,setTcManual,tcLoading,fetchTCs,inflData,fetchIPC,tcHistData,fetchTCHist,cacData,fetchCAC,toast,onBack,onLogout}=props;
+  const{user,obra,tab,setTab,tcOficial,tcBlue,tcManual,setTcManual,tcLoading,fetchTCs,inflData,fetchIPC,tcHistData,fetchTCHist,cacData,fetchCAC,refreshCAC,toast,onBack,onLogout}=props;
   const [gastos,setGastos]=useState([]);
   const [partic,setPartic]=useState([]);
   const [presup,setPresup]=useState([]);
@@ -352,7 +337,7 @@ function ObraApp(props){
         {tab==="accesos"&&esAdmin&&<AccesosTab obra={obra} tabsClienteLocal={tabsClienteLocal} setTabsClienteLocal={setTabsClienteLocal} toast={toast}/>}
         {tab==="ipc"&&<IPCTab inflData={inflData}/>}
         {tab==="usd"&&<USDTab tcHistData={tcHistData} inflData={inflData} tcOficial={tcOficial} tcBlue={tcBlue}/>}
-        {tab==="cac"&&<CACTab cacData={cacData} fetchCAC={fetchCAC}/>}
+        {tab==="cac"&&<CACTab cacData={cacData} fetchCAC={fetchCAC} esAdmin={esAdmin} toast={toast} refreshCAC={refreshCAC}/>}
       </>}
     </div>
 
@@ -1767,10 +1752,40 @@ function ParticipantesTab({obra,partic,toast,reload}){
 }
 
 // ── CAC TAB ───────────────────────────────────────────────────────────────────
-function CACTab({cacData,fetchCAC}){
+function CACTab({cacData,fetchCAC,esAdmin,toast,refreshCAC}){
   useEffect(()=>{fetchCAC();},[]);
   const CAC_COLOR="#5A3E1B";
   const hoy=new Date();
+  const [draft,setDraft]=useState({fecha:"",valor:""});
+  const [saving,setSaving]=useState(false);
+  const [editId,setEditId]=useState(null);
+
+  // Próximo mes a cargar (el siguiente al último dato)
+  const proximoMes=useMemo(()=>{
+    if(!cacData?.length)return "";
+    const last=[...cacData].sort((a,b)=>a.fecha>b.fecha?1:-1).pop();
+    const[y,m]=last.fecha.split("-").map(Number);
+    const next=new Date(y,m,1);
+    return next.getFullYear()+"-"+String(next.getMonth()+1).padStart(2,"0");
+  },[cacData]);
+
+  useEffect(()=>{if(proximoMes)setDraft(d=>({...d,fecha:proximoMes}));},[proximoMes]);
+
+  const saveNuevo=async()=>{
+    const v=parseFloat(draft.valor);
+    if(!draft.fecha||isNaN(v)||v<0||v>100)return toast.error("Fecha y valor (0-100) requeridos");
+    setSaving(true);
+    const{error}=await supabase.from("cac_historico").upsert({fecha:draft.fecha.slice(0,7),valor:v},{onConflict:"fecha"});
+    if(error)toast.error("Error: "+error.message);
+    else{toast.success(`CAC ${draft.fecha.slice(0,7)} guardado (${v}%)`);setDraft(d=>({...d,valor:""}));await refreshCAC();}
+    setSaving(false);
+  };
+
+  const deleteCAC=async(fecha)=>{
+    const{error}=await supabase.from("cac_historico").delete().eq("fecha",fecha);
+    if(error)toast.error("Error");else{toast.success("Eliminado");await refreshCAC();}
+  };
+
   const serie24=[];
   for(let i=23;i>=0;i--){
     const d=new Date(hoy.getFullYear(),hoy.getMonth()-i,1);
@@ -1780,24 +1795,44 @@ function CACTab({cacData,fetchCAC}){
   }
   const last=serie24[serie24.length-1];
   const acumAnio=cacData?.filter(x=>x.fecha.slice(0,4)===String(hoy.getFullYear())).reduce((s,x)=>s*(1+x.valor/100),1);
-  const acumAnioP=acumAnio?Math.round((acumAnio-1)*1000)/10:null;
-  // Acum 12 meses compuesto
+  const acumAnioP=acumAnio?+(((acumAnio-1)*100).toFixed(1)):null;
   const acum12=serie24.slice(-12).reduce((s,x)=>s*(1+x.valor/100),1);
-  const acum12p=Math.round((acum12-1)*1000)/10;
-
+  const acum12p=+(((acum12-1)*100).toFixed(1));
   const W=500,PL=36,PR=12,PT=20,PB=28,cH=100,H=PT+cH+PB;
   const maxV=Math.max(...serie24.map(x=>x.valor),1);
-
   const porAnio={};
   cacData?.forEach(x=>{const y=x.fecha.slice(0,4);if(!porAnio[y])porAnio[y]=[];porAnio[y].push(x.valor);});
-  const acumAnios=Object.entries(porAnio).map(([y,v])=>({anio:y,pct:Math.round((v.reduce((f,x)=>f*(1+x/100),1)-1)*100*10)/10})).sort((a,b)=>a.anio>b.anio?1:-1);
+  const acumAnios=Object.entries(porAnio).map(([y,v])=>({anio:y,pct:+(((v.reduce((f,x)=>f*(1+x/100),1)-1)*100).toFixed(1))})).sort((a,b)=>a.anio>b.anio?1:-1);
 
   return <div className="fu">
     <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:4}}>🏗️ Índice CAC — Costo de la Construcción</div>
     <div style={{fontSize:12,color:C.t3,marginBottom:6}}>Cámara Argentina de la Construcción · Variación % mensual</div>
     <div style={{fontSize:11,color:C.t3,marginBottom:16,background:C.bg3,borderRadius:8,padding:"8px 12px",border:`1px solid ${C.bd}`}}>
-      El CAC mide la variación del costo de un edificio tipo en CABA, combinando <b style={{color:C.t}}>materiales</b> (insumos) y <b style={{color:C.t}}>mano de obra</b> (UOCRA). Es el índice estándar para ajustar presupuestos de obra en Argentina.
+      El CAC mide la variación del costo de un edificio tipo en CABA, combinando <b style={{color:C.t}}>materiales</b> y <b style={{color:C.t}}>mano de obra</b> (UOCRA). Es el índice estándar para ajustar presupuestos de obra en Argentina.
     </div>
+
+    {/* Panel de carga — solo arquitecto */}
+    {esAdmin&&<Card style={{marginBottom:16,border:`2px solid ${CAC_COLOR}33`,background:CAC_COLOR+"06"}}>
+      <div style={{fontSize:13,fontWeight:700,color:C.t,marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+        <span>📥</span> Cargar nuevo dato mensual CAC
+        <span style={{fontSize:11,color:C.t3,fontWeight:400}}>· Publicado por Camarco cada mes</span>
+      </div>
+      <div style={{display:"flex",gap:10,alignItems:"flex-end",flexWrap:"wrap"}}>
+        <div>
+          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Mes (YYYY-MM)</div>
+          <input style={{...INP,width:130}} type="month" value={draft.fecha} onChange={e=>setDraft(d=>({...d,fecha:e.target.value}))}/>
+        </div>
+        <div>
+          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Variación % mensual</div>
+          <input style={{...INP,width:110}} type="number" step="0.1" min="0" max="100" placeholder="Ej: 2.1" value={draft.valor} onChange={e=>setDraft(d=>({...d,valor:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&saveNuevo()}/>
+        </div>
+        <Btn primary onClick={saveNuevo} loading={saving}>Guardar</Btn>
+      </div>
+      {proximoMes&&<div style={{marginTop:10,fontSize:11,color:CAC_COLOR,fontWeight:600}}>
+        Próximo mes a cargar: <b>{proximoMes}</b> · Verificá el dato en <a href="https://www.camarco.org.ar" target="_blank" rel="noreferrer" style={{color:CAC_COLOR}}>camarco.org.ar</a>
+      </div>}
+    </Card>}
+
     {!cacData&&<Card><div style={{textAlign:"center",padding:"32px 0",color:C.t3}}>Cargando datos CAC...</div></Card>}
     {cacData&&<>
       <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
@@ -1806,7 +1841,6 @@ function CACTab({cacData,fetchCAC}){
         {acumAnioP!==null&&<StatCard label={`Acum. ${hoy.getFullYear()}`} value={`${acumAnioP}%`} color={C.blue} icon="📆"/>}
       </div>
 
-      {/* Acumulados por año */}
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
         {acumAnios.slice(-6).map(a=><div key={a.anio} style={{flex:"1 1 80px",background:C.bg2,border:`1px solid ${CAC_COLOR}33`,borderRadius:10,padding:"10px 12px",textAlign:"center"}}>
           <div style={{fontSize:11,color:C.t3,marginBottom:4,fontWeight:600}}>{a.anio}</div>
@@ -1815,7 +1849,6 @@ function CACTab({cacData,fetchCAC}){
         </div>)}
       </div>
 
-      {/* Gráfico barras */}
       <Card style={{marginBottom:14}}>
         <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:10,fontWeight:600}}>Variación mensual CAC — últimos 24 meses</div>
         <svg width="100%" viewBox={`0 0 ${W} ${H}`}>
@@ -1834,11 +1867,10 @@ function CACTab({cacData,fetchCAC}){
         </svg>
       </Card>
 
-      {/* Tabla */}
       <Card style={{padding:0,overflow:"hidden"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
           <thead><tr style={{borderBottom:`2px solid ${C.bd2}`}}>
-            {["Mes","CAC %","Barra","Acum. 12m"].map((h,i)=><th key={i} style={{padding:"8px 12px",textAlign:i>=1?"right":"left",color:C.t3,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>{h}</th>)}
+            {["Mes","CAC %","Barra","Acum. 12m",esAdmin?"":""].filter(Boolean).map((h,i)=><th key={i} style={{padding:"8px 12px",textAlign:i>=1?"right":"left",color:C.t3,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>{h}</th>)}
           </tr></thead>
           <tbody>
             {[...serie24].reverse().map((d,i,arr)=>{
@@ -1852,7 +1884,10 @@ function CACTab({cacData,fetchCAC}){
                     <div style={{height:"100%",borderRadius:2,background:d.valor>10?C.red:d.valor>5?C.amber:CAC_COLOR,width:`${Math.min((d.valor/15)*100,100)}%`}}/>
                   </div>
                 </td>
-                <td style={{padding:"8px 12px",textAlign:"right",color:CAC_COLOR,fontWeight:600}}>{Math.round((a12-1)*1000)/10}%</td>
+                <td style={{padding:"8px 12px",textAlign:"right",color:CAC_COLOR,fontWeight:600}}>{+(((a12-1)*100).toFixed(1))}%</td>
+                {esAdmin&&<td style={{padding:"8px 12px",textAlign:"right"}}>
+                  <button onClick={()=>deleteCAC(d.fecha)} style={{background:"none",border:"none",cursor:"pointer",color:C.t3,fontSize:14,padding:"2px 6px"}}>×</button>
+                </td>}
               </tr>;
             })}
           </tbody>
