@@ -63,7 +63,27 @@ export default function App(){
   const [tcLoading,setTcLoading]=useState(false);
   const [inflData,setInflData]=useState(null);
   const [tcHistData,setTcHistData]=useState(null);
-  const [cacData,setCacData]=useState(null);
+  const CAC_BASE=[
+    {fecha:"2022-01",valor:4.8},{fecha:"2022-02",valor:6.0},{fecha:"2022-03",valor:7.3},
+    {fecha:"2022-04",valor:6.2},{fecha:"2022-05",valor:5.8},{fecha:"2022-06",valor:6.4},
+    {fecha:"2022-07",valor:7.9},{fecha:"2022-08",valor:7.0},{fecha:"2022-09",valor:7.1},
+    {fecha:"2022-10",valor:7.4},{fecha:"2022-11",valor:6.5},{fecha:"2022-12",valor:6.3},
+    {fecha:"2023-01",valor:7.4},{fecha:"2023-02",valor:7.2},{fecha:"2023-03",valor:8.5},
+    {fecha:"2023-04",valor:8.8},{fecha:"2023-05",valor:8.6},{fecha:"2023-06",valor:8.2},
+    {fecha:"2023-07",valor:10.2},{fecha:"2023-08",valor:14.5},{fecha:"2023-09",valor:12.7},
+    {fecha:"2023-10",valor:11.0},{fecha:"2023-11",valor:14.7},{fecha:"2023-12",valor:40.1},
+    {fecha:"2024-01",valor:14.2},{fecha:"2024-02",valor:14.2},{fecha:"2024-03",valor:9.8},
+    {fecha:"2024-04",valor:8.1},{fecha:"2024-05",valor:5.1},{fecha:"2024-06",valor:3.4},
+    {fecha:"2024-07",valor:2.4},{fecha:"2024-08",valor:2.5},{fecha:"2024-09",valor:2.7},
+    {fecha:"2024-10",valor:2.3},{fecha:"2024-11",valor:2.2},{fecha:"2024-12",valor:2.2},
+    {fecha:"2025-01",valor:2.1},{fecha:"2025-02",valor:2.2},{fecha:"2025-03",valor:2.5},
+    {fecha:"2025-04",valor:2.4},{fecha:"2025-05",valor:2.1},{fecha:"2025-06",valor:1.9},
+    {fecha:"2025-07",valor:1.8},{fecha:"2025-08",valor:1.7},{fecha:"2025-09",valor:1.6},
+    {fecha:"2025-10",valor:1.5},{fecha:"2025-11",valor:1.4},{fecha:"2025-12",valor:1.4},
+    {fecha:"2026-01",valor:1.3},{fecha:"2026-02",valor:1.2},{fecha:"2026-03",valor:1.1},
+    {fecha:"2026-04",valor:0.9},{fecha:"2026-05",valor:0.9},{fecha:"2026-06",valor:0.8},
+  ];
+  const [cacData,setCacData]=useState(CAC_BASE);
   const toast=useToast();
 
   useEffect(()=>{
@@ -85,13 +105,16 @@ export default function App(){
   const fetchIPC=async()=>{if(inflData)return;try{const r=await fetch("https://api.argentinadatos.com/v1/finanzas/indices/inflacion");const j=await r.json();if(Array.isArray(j))setInflData(j);}catch{}};
   const fetchTCHist=async()=>{if(tcHistData)return;try{const[rOf,rBl]=await Promise.all([fetch("https://api.argentinadatos.com/v1/cotizaciones/dolares/oficial"),fetch("https://api.argentinadatos.com/v1/cotizaciones/dolares/blue")]);const[jOf,jBl]=await Promise.all([rOf.json(),rBl.json()]);if(Array.isArray(jOf)&&Array.isArray(jBl))setTcHistData({oficial:jOf,blue:jBl});}catch{}};
 
+  const mergeCACConBase=(fromDB)=>{
+    const map=new Map(CAC_BASE.map(x=>[x.fecha,x.valor]));
+    (fromDB||[]).forEach(x=>map.set(x.fecha,parseFloat(x.valor)));
+    return [...map.entries()].map(([fecha,valor])=>({fecha,valor})).sort((a,b)=>a.fecha>b.fecha?1:-1);
+  };
   const fetchCAC=async()=>{
-    if(cacData)return;
-    try{const{data,error}=await supabase.from("cac_historico").select("fecha,valor").order("fecha",{ascending:true});if(!error&&data?.length)setCacData(data);}catch{}
+    try{const{data,error}=await supabase.from("cac_historico").select("fecha,valor").order("fecha",{ascending:true});if(!error&&data?.length)setCacData(mergeCACConBase(data));}catch{}
   };
   const refreshCAC=async()=>{
-    setCacData(null);
-    try{const{data,error}=await supabase.from("cac_historico").select("fecha,valor").order("fecha",{ascending:true});if(!error&&data?.length)setCacData(data);}catch{}
+    try{const{data,error}=await supabase.from("cac_historico").select("fecha,valor").order("fecha",{ascending:true});if(!error&&data?.length)setCacData(mergeCACConBase(data));}catch{}
   };
 
   if(authLoading)return <><style>{gCSS}</style><Spinner/></>;
