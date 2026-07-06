@@ -234,6 +234,7 @@ function ObraApp(props){
   const [fotos,setFotos]=useState([]);
   const [hitos,setHitos]=useState([]);
   const [comentarios,setComentarios]=useState([]);
+  const [obraEtapas,setObraEtapas]=useState([]);
   const [loadingData,setLoadingData]=useState(true);
   const [mobileMenu,setMobileMenu]=useState(false);
   const [showGastoModal,setShowGastoModal]=useState(false);
@@ -243,7 +244,7 @@ function ObraApp(props){
 
   const loadAll=useCallback(async()=>{
     setLoadingData(true);
-    const[gRes,prRes,cRes,fRes,partRes,hRes,cRes2]=await Promise.all([
+    const[gRes,prRes,cRes,fRes,partRes,hRes,cRes2,etRes]=await Promise.all([
       supabase.from("gastos").select("*").eq("obra_id",obra.id).order("fecha",{ascending:false}),
       supabase.from("presupuestos").select("*").eq("obra_id",obra.id).order("fecha",{ascending:true}),
       supabase.from("categorias").select("*, subcategorias(*)").eq("obra_id",obra.id).order("orden"),
@@ -251,11 +252,13 @@ function ObraApp(props){
       supabase.from("participantes").select("*").eq("obra_id",obra.id),
       supabase.from("hitos").select("*").eq("obra_id",obra.id).order("fecha_estimada"),
       supabase.from("comentarios_gasto").select("*").eq("obra_id",obra.id).order("created_at"),
+      supabase.from("obra_etapas").select("*").eq("obra_id",obra.id).order("orden"),
     ]);
     setGastos(gRes.data||[]);setPresup(prRes.data||[]);
     setCats((cRes.data||[]).map(c=>({...c,subs:c.subcategorias||[]})));
     setFotos(fRes.data||[]);setPartic(partRes.data||[]);
     setHitos(hRes.data||[]);setComentarios(cRes2.data||[]);
+    setObraEtapas(etRes.data||[]);
     setLoadingData(false);
   },[obra.id]);
   useEffect(()=>{loadAll();},[loadAll]);
@@ -351,7 +354,7 @@ function ObraApp(props){
         {tab==="dashboard"&&<DashboardTab obra={obra} gastos={gastosVis} esAdmin={esAdmin} presup={presup} tcRef={tcRef} partic={partic} cats={cats} fotos={fotos} hitos={hitos} monedaVista={monedaVista}/>}
         {tab==="gastos"&&<GastosTab user={user} obra={obra} gastos={gastos} esAdmin={esAdmin} miRol={miRol} puedoCargar={puedoCargar} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} externalOpen={showGastoModal} onExternalClose={()=>setShowGastoModal(false)} comentarios={comentarios} miUserId={user.id}/>}
         {tab==="presupuesto"&&esAdmin&&<PresupuestoTab obra={obra} gastos={gastos} presup={presup} tcRef={tcRef} tcOficial={tcOficial} tcBlue={tcBlue} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} inflData={inflData} fetchIPC={fetchIPC} cacData={cacData} fetchCAC={fetchCAC}/>}
-        {tab==="fotos"&&<FotosTab obra={obra} fotos={fotos} puedoCargar={puedoCargar||esAdmin} user={user} toast={toast} reload={loadAll}/>}
+        {tab==="fotos"&&<FotosTab obra={obra} fotos={fotos} puedoCargar={puedoCargar||esAdmin} esAdmin={esAdmin} user={user} toast={toast} reload={loadAll} obraEtapas={obraEtapas}/>}
         {tab==="objetivos"&&<HitosTab obra={obra} hitos={hitos} esAdmin={esAdmin} toast={toast} reload={loadAll}/>}
         {tab==="reportes"&&<ReportesTab obra={obra} gastos={gastosVis} presup={presup} tcRef={tcRef} cats={cats} esAdmin={esAdmin} monedaVista={monedaVista}/>}
         {tab==="resumen"&&!esAdmin&&<ResumenClienteTab obra={obra} gastos={gastosVis} presup={presup} tcRef={tcRef} cats={cats} fotos={fotos} hitos={hitos} monedaVista={monedaVista}/>}
@@ -1112,21 +1115,26 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
 }
 
 // ── FOTOS ─────────────────────────────────────────────────────────────────────
-function FotosTab({obra,fotos,puedoCargar,user,toast,reload}){
+function FotosTab({obra,fotos,puedoCargar,esAdmin,user,toast,reload,obraEtapas}){
   const [modal,setModal]=useState(false);
-  const [editFoto,setEditFoto]=useState(null); // foto a editar
-  const [editDraft,setEditDraft]=useState({etapa:"",ambiente:""});
+  const [editFoto,setEditFoto]=useState(null);
+  const [editDraft,setEditDraft]=useState({etapa:"",ambiente:"",titulo:""});
   const [editSaving,setEditSaving]=useState(false);
   const [draft,setDraft]=useState({titulo:"",fecha:todayISO(),etapa:"",ambiente:"",file:null,preview:null,nombre:""});
   const [modoAgrup,setModoAgrup]=useState("etapa");
   const [filtroG,setFiltroG]=useState("todas");
   const [saving,setSaving]=useState(false);
   const [lightboxIdx,setLightboxIdx]=useState(null);
+  const [gestionModal,setGestionModal]=useState(false);
   const fileRef=useRef();
   const touchStartX=useRef(null);
 
-  const etapas=[...new Set(fotos.map(f=>f.etapa).filter(Boolean))].sort();
-  const ambientes=[...new Set(fotos.map(f=>f.ambiente).filter(Boolean))].sort();
+  const etapasProy=(obraEtapas||[]).filter(x=>x.tipo==="etapa").map(x=>x.nombre);
+  const ambientesProy=(obraEtapas||[]).filter(x=>x.tipo==="ambiente").map(x=>x.nombre);
+  const etapasUsadas=[...new Set(fotos.map(f=>f.etapa).filter(Boolean))];
+  const ambientesUsados=[...new Set(fotos.map(f=>f.ambiente).filter(Boolean))];
+  const etapas=[...new Set([...etapasProy,...etapasUsadas])].sort();
+  const ambientes=[...new Set([...ambientesProy,...ambientesUsados])].sort();
   const grupos=modoAgrup==="etapa"?etapas:ambientes;
 
   const filtradas=useMemo(()=>{
@@ -1144,7 +1152,8 @@ function FotosTab({obra,fotos,puedoCargar,user,toast,reload}){
     if(lightboxIdx===null)return;
     const h=e=>{if(e.key==="ArrowLeft")lbPrev();if(e.key==="ArrowRight")lbNext();if(e.key==="Escape")lbClose();};
     window.addEventListener("keydown",h);
-    return()=>window.removeEventListener("keydown",h);
+    document.body.style.overflow="hidden";
+    return()=>{window.removeEventListener("keydown",h);document.body.style.overflow="";};
   },[lightboxIdx,filtradas.length]);
 
   const handleFile=e=>{const file=e.target.files[0];if(!file)return;setDraft(d=>({...d,file,preview:URL.createObjectURL(file),nombre:file.name}));};
@@ -1157,26 +1166,16 @@ function FotosTab({obra,fotos,puedoCargar,user,toast,reload}){
     const{error:upErr}=await supabase.storage.from("obra-fotos").upload(path,draft.file);
     if(upErr){toast.error("Error al subir: "+upErr.message);setSaving(false);return;}
     const{data:{publicUrl}}=supabase.storage.from("obra-fotos").getPublicUrl(path);
-    const{error}=await supabase.from("fotos").insert({
-      obra_id:obra.id,titulo:draft.titulo.trim(),fecha:draft.fecha,
-      etapa:draft.etapa||null,ambiente:draft.ambiente||null,
-      storage_path:path,url:publicUrl,user_id:user.id
-    });
-    if(error)toast.error("Error al guardar");
-    else{toast.success("Foto subida");await reload();}
+    const{error}=await supabase.from("fotos").insert({obra_id:obra.id,titulo:draft.titulo.trim(),fecha:draft.fecha,etapa:draft.etapa||null,ambiente:draft.ambiente||null,storage_path:path,url:publicUrl,user_id:user.id});
+    if(error)toast.error("Error al guardar");else{toast.success("Foto subida");await reload();}
     setDraft({titulo:"",fecha:todayISO(),etapa:"",ambiente:"",file:null,preview:null,nombre:""});
     setModal(false);setSaving(false);
   };
 
   const saveEdit=async()=>{
-    if(!editFoto)return;
-    setEditSaving(true);
-    const{error}=await supabase.from("fotos").update({
-      etapa:editDraft.etapa||null,
-      ambiente:editDraft.ambiente||null,
-    }).eq("id",editFoto.id);
-    if(error)toast.error("Error");
-    else{toast.success("Actualizada");await reload();}
+    if(!editFoto)return;setEditSaving(true);
+    const{error}=await supabase.from("fotos").update({titulo:editDraft.titulo||editFoto.titulo,etapa:editDraft.etapa||null,ambiente:editDraft.ambiente||null}).eq("id",editFoto.id);
+    if(error)toast.error("Error");else{toast.success("Actualizada");await reload();}
     setEditFoto(null);setEditSaving(false);
   };
 
@@ -1189,41 +1188,32 @@ function FotosTab({obra,fotos,puedoCargar,user,toast,reload}){
 
   const downloadFoto=async(f,e)=>{
     e&&e.stopPropagation();
-    try{
-      const res=await fetch(f.url);const blob=await res.blob();
-      const ext=f.url.split(".").pop().split("?")[0]||"jpg";
-      const a=document.createElement("a");a.href=URL.createObjectURL(blob);
-      a.download=`${f.titulo||"foto"}.${ext}`;a.click();
-    }catch{toast.error("Error al descargar");}
+    try{const res=await fetch(f.url);const blob=await res.blob();const ext=f.url.split(".").pop().split("?")[0]||"jpg";const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`${f.titulo||"foto"}.${ext}`;a.click();}
+    catch{toast.error("Error al descargar");}
   };
 
   const seccionesAgrupadas=useMemo(()=>{
     const base=filtroG!=="todas"?filtradas:fotos;
     if(filtroG!=="todas")return [{grupo:filtroG==="sin_grupo"?"Sin clasificar":filtroG,fotos:base}];
     const mapa={};
-    base.forEach(f=>{
-      const k=(modoAgrup==="etapa"?f.etapa:f.ambiente)||"__sin__";
-      if(!mapa[k])mapa[k]=[];mapa[k].push(f);
-    });
+    base.forEach(f=>{const k=(modoAgrup==="etapa"?f.etapa:f.ambiente)||"__sin__";if(!mapa[k])mapa[k]=[];mapa[k].push(f);});
     const secciones=grupos.map(g=>({grupo:g,fotos:mapa[g]||[]})).filter(s=>s.fotos.length>0);
     if(mapa["__sin__"]?.length)secciones.push({grupo:"Sin clasificar",fotos:mapa["__sin__"]});
     return secciones;
   },[fotos,filtradas,filtroG,modoAgrup,grupos]);
 
-  const ETAPAS_DEFAULT=["Demolición","Excavación","Estructura","Mampostería","Instalaciones","Carpintería","Terminaciones","Exterior","Final"];
-  const AMBIENTES_DEFAULT=["Living","Comedor","Cocina","Dormitorio principal","Dormitorio 2","Dormitorio 3","Baño principal","Baño 2","Terraza","Jardín","Garaje","Fachada","Escalera","Hall","Estudio","Lavadero"];
-
   return <div className="fu">
-    {/* Header */}
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
       <div>
-        <div style={{fontSize:16,fontWeight:700,color:C.t}}>Galería de obra</div>
+        <div style={{fontSize:16,fontWeight:700,color:C.t}}>Galeria de obra</div>
         <div style={{fontSize:12,color:C.t3}}>{fotos.length} foto{fotos.length!==1?"s":""} · {etapas.length} etapa{etapas.length!==1?"s":""} · {ambientes.length} ambiente{ambientes.length!==1?"s":""}</div>
       </div>
-      {puedoCargar&&<Btn primary onClick={()=>setModal(true)}>+ Subir foto</Btn>}
+      <div style={{display:"flex",gap:8}}>
+        {esAdmin&&<Btn small onClick={()=>setGestionModal(true)}>⚙ Etapas / Ambientes</Btn>}
+        {puedoCargar&&<Btn primary onClick={()=>setModal(true)}>+ Subir foto</Btn>}
+      </div>
     </div>
 
-    {/* Controles */}
     <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
       <div style={{display:"flex",background:C.bg3,borderRadius:8,border:`1px solid ${C.bd2}`,padding:3}}>
         {[{v:"etapa",l:"Por etapa"},{v:"ambiente",l:"Por ambiente"}].map(o=><button key={o.v} onClick={()=>{setModoAgrup(o.v);setFiltroG("todas");}} style={{padding:"5px 14px",fontSize:12,border:"none",borderRadius:6,cursor:"pointer",background:modoAgrup===o.v?C.bg2:"transparent",color:modoAgrup===o.v?C.t:C.t3,fontWeight:modoAgrup===o.v?700:400,transition:"all .15s"}}>{o.l}</button>)}
@@ -1235,12 +1225,8 @@ function FotosTab({obra,fotos,puedoCargar,user,toast,reload}){
       </select>
     </div>
 
-    {fotos.length===0&&<Card><div style={{textAlign:"center",padding:"48px 0",color:C.t3}}>
-      <div style={{fontSize:36,marginBottom:12}}>📷</div>
-      <div style={{fontSize:14,fontWeight:600,color:C.t2}}>Sin fotos todavía</div>
-    </div></Card>}
+    {fotos.length===0&&<Card><div style={{textAlign:"center",padding:"48px 0",color:C.t3}}><div style={{fontSize:36,marginBottom:12}}>📷</div><div style={{fontSize:14,fontWeight:600,color:C.t2}}>Sin fotos todavía</div></div></Card>}
 
-    {/* Secciones */}
     {seccionesAgrupadas.map(({grupo,fotos:fs})=><div key={grupo} style={{marginBottom:28}}>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
         <div style={{height:1,width:16,background:C.bd2,flexShrink:0}}/>
@@ -1253,134 +1239,150 @@ function FotosTab({obra,fotos,puedoCargar,user,toast,reload}){
           const globalIdx=filtradas.indexOf(f);
           return <div key={f.id} className="foto-card" onClick={()=>setLightboxIdx(globalIdx)}
             style={{borderRadius:12,overflow:"hidden",cursor:"pointer",background:"#000",border:`1px solid ${C.bd}`,position:"relative",aspectRatio:"4/3",transition:"transform .2s, box-shadow .2s"}}>
-            <img src={f.url} alt={f.titulo} style={{width:"100%",height:"100%",objectFit:"cover",display:"block",transition:"opacity .2s"}}/>
-            {/* Overlay — controlado por CSS .foto-card:hover */}
-            <div className="foto-overlay" style={{position:"absolute",inset:0,background:"linear-gradient(to top, rgba(0,0,0,.82) 0%, rgba(0,0,0,.1) 55%, transparent 100%)",display:"flex",flexDirection:"column",justifyContent:"flex-end",padding:"12px"}}>
+            <img src={f.url} alt={f.titulo} style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+            <div className="foto-overlay" style={{position:"absolute",inset:0,background:"linear-gradient(to top,rgba(0,0,0,.82) 0%,rgba(0,0,0,.1) 55%,transparent 100%)",display:"flex",flexDirection:"column",justifyContent:"flex-end",padding:"12px"}}>
               <div style={{fontSize:12,fontWeight:700,color:"#fff",marginBottom:2}}>{f.titulo}</div>
               <div style={{fontSize:10,color:"rgba(255,255,255,.65)"}}>{f.fecha}{f.etapa&&` · ${f.etapa}`}{f.ambiente&&` · ${f.ambiente}`}</div>
               <div style={{display:"flex",gap:5,marginTop:8}} onClick={e=>e.stopPropagation()}>
-                <button onClick={e=>downloadFoto(f,e)} title="Descargar" style={{background:"rgba(255,255,255,.18)",border:"1px solid rgba(255,255,255,.25)",borderRadius:5,padding:"4px 9px",cursor:"pointer",color:"#fff",fontSize:11,backdropFilter:"blur(4px)"}}>⬇</button>
-                {puedoCargar&&<><button onClick={e=>{e.stopPropagation();setEditFoto(f);setEditDraft({etapa:f.etapa||"",ambiente:f.ambiente||"",titulo:f.titulo||""});}} title="Editar" style={{background:"rgba(255,255,255,.18)",border:"1px solid rgba(255,255,255,.25)",borderRadius:5,padding:"4px 9px",cursor:"pointer",color:"#fff",fontSize:11,backdropFilter:"blur(4px)"}}>✎</button>
-                <button onClick={e=>deleteFoto(f.id,f.storage_path,e)} title="Eliminar" style={{background:"rgba(180,40,40,.5)",border:"1px solid rgba(255,255,255,.2)",borderRadius:5,padding:"4px 9px",cursor:"pointer",color:"#fff",fontSize:11}}>×</button></>}
+                <button onClick={e=>downloadFoto(f,e)} style={{background:"rgba(255,255,255,.18)",border:"1px solid rgba(255,255,255,.25)",borderRadius:5,padding:"4px 9px",cursor:"pointer",color:"#fff",fontSize:11}}>⬇</button>
+                {puedoCargar&&<><button onClick={e=>{e.stopPropagation();setEditFoto(f);setEditDraft({etapa:f.etapa||"",ambiente:f.ambiente||"",titulo:f.titulo||""});}} style={{background:"rgba(255,255,255,.18)",border:"1px solid rgba(255,255,255,.25)",borderRadius:5,padding:"4px 9px",cursor:"pointer",color:"#fff",fontSize:11}}>✎</button>
+                <button onClick={e=>deleteFoto(f.id,f.storage_path,e)} style={{background:"rgba(180,40,40,.5)",border:"1px solid rgba(255,255,255,.2)",borderRadius:5,padding:"4px 9px",cursor:"pointer",color:"#fff",fontSize:11}}>×</button></>}
               </div>
             </div>
-            {/* Badges */}
-            {!f.etapa&&!f.ambiente&&<div style={{position:"absolute",top:8,left:8,background:"rgba(0,0,0,.5)",borderRadius:20,padding:"2px 8px",fontSize:9,color:"rgba(255,255,255,.7)",backdropFilter:"blur(4px)"}}>Sin clasificar</div>}
-            {modoAgrup==="etapa"&&f.ambiente&&<div style={{position:"absolute",top:8,right:8,background:"rgba(0,0,0,.55)",borderRadius:20,padding:"2px 8px",fontSize:9,color:"#fff",fontWeight:600,backdropFilter:"blur(4px)"}}>{f.ambiente}</div>}
-            {modoAgrup==="ambiente"&&f.etapa&&<div style={{position:"absolute",top:8,right:8,background:"rgba(0,0,0,.55)",borderRadius:20,padding:"2px 8px",fontSize:9,color:"#fff",fontWeight:600,backdropFilter:"blur(4px)"}}>{f.etapa}</div>}
+            {modoAgrup==="etapa"&&f.ambiente&&<div style={{position:"absolute",top:8,right:8,background:"rgba(0,0,0,.55)",borderRadius:20,padding:"2px 8px",fontSize:9,color:"#fff",fontWeight:600}}>{f.ambiente}</div>}
+            {modoAgrup==="ambiente"&&f.etapa&&<div style={{position:"absolute",top:8,right:8,background:"rgba(0,0,0,.55)",borderRadius:20,padding:"2px 8px",fontSize:9,color:"#fff",fontWeight:600}}>{f.etapa}</div>}
           </div>;
         })}
       </div>
     </div>)}
 
-    {/* LIGHTBOX — full screen */}
     {lbFoto&&<div
-      style={{position:"fixed",inset:0,zIndex:500,background:"#0a0f0a",display:"flex",flexDirection:"column",overflow:"hidden"}}
+      style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,background:"#080c08",display:"flex",flexDirection:"column"}}
       onTouchStart={e=>{touchStartX.current=e.touches[0].clientX;}}
       onTouchEnd={e=>{if(touchStartX.current===null)return;const dx=e.changedTouches[0].clientX-touchStartX.current;if(dx>60)lbPrev();else if(dx<-60)lbNext();touchStartX.current=null;}}>
-
-      {/* Top bar */}
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 20px",flexShrink:0,background:"rgba(0,0,0,.4)",backdropFilter:"blur(10px)"}}>
-        <div style={{color:"rgba(255,255,255,.45)",fontSize:12,fontWeight:500}}>{lightboxIdx+1} <span style={{color:"rgba(255,255,255,.25)"}}>/ {filtradas.length}</span></div>
-        <div style={{fontSize:13,fontWeight:600,color:"rgba(255,255,255,.85)"}}>{lbFoto.titulo}</div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 20px",background:"rgba(0,0,0,.6)",backdropFilter:"blur(12px)",flexShrink:0}}>
+        <span style={{color:"rgba(255,255,255,.4)",fontSize:12}}>{lightboxIdx+1} / {filtradas.length}</span>
+        <span style={{fontSize:13,fontWeight:600,color:"rgba(255,255,255,.9)"}}>{lbFoto.titulo}</span>
         <div style={{display:"flex",gap:8}}>
-          <button onClick={()=>downloadFoto(lbFoto)} style={{background:"rgba(255,255,255,.1)",border:"1px solid rgba(255,255,255,.15)",borderRadius:7,padding:"5px 13px",cursor:"pointer",color:"rgba(255,255,255,.8)",fontSize:12}}>⬇ Descargar</button>
-          <button onClick={lbClose} style={{background:"rgba(255,255,255,.08)",border:"1px solid rgba(255,255,255,.12)",borderRadius:7,width:34,height:32,cursor:"pointer",color:"rgba(255,255,255,.7)",fontSize:19,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+          <button onClick={()=>downloadFoto(lbFoto)} style={{background:"rgba(255,255,255,.1)",border:"1px solid rgba(255,255,255,.2)",borderRadius:7,padding:"5px 14px",cursor:"pointer",color:"rgba(255,255,255,.8)",fontSize:12}}>⬇ Descargar</button>
+          <button onClick={lbClose} style={{background:"rgba(255,255,255,.08)",border:"1px solid rgba(255,255,255,.15)",borderRadius:7,width:34,height:32,cursor:"pointer",color:"rgba(255,255,255,.7)",fontSize:20,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
         </div>
       </div>
-
-      {/* Área imagen — ocupa todo el espacio */}
-      <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",position:"relative",minHeight:0}}>
-        {/* Flechas sobre la imagen */}
-        <button onClick={lbPrev} style={{position:"absolute",left:16,zIndex:10,width:46,height:46,borderRadius:"50%",background:"rgba(0,0,0,.5)",border:"1px solid rgba(255,255,255,.15)",cursor:"pointer",color:"#fff",fontSize:24,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(8px)"}}>‹</button>
-        <img src={lbFoto.url} alt={lbFoto.titulo}
-          style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",userSelect:"none"}}
-          onClick={e=>e.stopPropagation()}/>
-        <button onClick={lbNext} style={{position:"absolute",right:16,zIndex:10,width:46,height:46,borderRadius:"50%",background:"rgba(0,0,0,.5)",border:"1px solid rgba(255,255,255,.15)",cursor:"pointer",color:"#fff",fontSize:24,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(8px)"}}>›</button>
+      <div style={{flex:1,position:"relative",display:"flex",alignItems:"center",justifyContent:"center",minHeight:0,overflow:"hidden"}}>
+        <button onClick={lbPrev} style={{position:"absolute",left:16,zIndex:1,width:48,height:48,borderRadius:"50%",background:"rgba(0,0,0,.55)",border:"1px solid rgba(255,255,255,.2)",cursor:"pointer",color:"#fff",fontSize:26,display:"flex",alignItems:"center",justifyContent:"center"}}>&#8249;</button>
+        <img src={lbFoto.url} alt={lbFoto.titulo} style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",userSelect:"none",pointerEvents:"none"}}/>
+        <button onClick={lbNext} style={{position:"absolute",right:16,zIndex:1,width:48,height:48,borderRadius:"50%",background:"rgba(0,0,0,.55)",border:"1px solid rgba(255,255,255,.2)",cursor:"pointer",color:"#fff",fontSize:26,display:"flex",alignItems:"center",justifyContent:"center"}}>&#8250;</button>
       </div>
-
-      {/* Bottom bar */}
-      <div style={{flexShrink:0,background:"rgba(0,0,0,.4)",backdropFilter:"blur(10px)",padding:"10px 20px 14px"}}>
-        <div style={{display:"flex",gap:14,justifyContent:"center",marginBottom:10,fontSize:11,color:"rgba(255,255,255,.4)"}}>
+      <div style={{background:"rgba(0,0,0,.6)",backdropFilter:"blur(12px)",padding:"10px 20px 16px",flexShrink:0}}>
+        <div style={{display:"flex",gap:14,justifyContent:"center",fontSize:11,color:"rgba(255,255,255,.4)",marginBottom:10}}>
           <span>📅 {lbFoto.fecha}</span>
           {lbFoto.etapa&&<span>🏗 {lbFoto.etapa}</span>}
           {lbFoto.ambiente&&<span>🏠 {lbFoto.ambiente}</span>}
         </div>
-        {/* Thumbnails */}
-        <div style={{display:"flex",gap:5,overflowX:"auto",justifyContent:"center",paddingBottom:2}}>
+        <div style={{display:"flex",gap:5,justifyContent:"center",overflowX:"auto",paddingBottom:2}}>
           {filtradas.slice(Math.max(0,lightboxIdx-5),lightboxIdx+6).map(f=>{
-            const idx=filtradas.indexOf(f);
-            const active=idx===lightboxIdx;
-            return <div key={f.id} onClick={()=>setLightboxIdx(idx)}
-              style={{flexShrink:0,width:active?56:42,height:active?56:42,borderRadius:7,overflow:"hidden",border:`2px solid ${active?"#fff":"rgba(255,255,255,.15)"}`,cursor:"pointer",transition:"all .18s",opacity:active?1:.5}}>
+            const idx=filtradas.indexOf(f);const active=idx===lightboxIdx;
+            return <div key={f.id} onClick={()=>setLightboxIdx(idx)} style={{flexShrink:0,width:active?58:42,height:active?58:42,borderRadius:6,overflow:"hidden",border:`2px solid ${active?"#fff":"rgba(255,255,255,.15)"}`,cursor:"pointer",transition:"all .18s",opacity:active?1:.5}}>
               <img src={f.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
             </div>;
           })}
         </div>
-        <div style={{textAlign:"center",marginTop:8,fontSize:10,color:"rgba(255,255,255,.2)"}}>← → teclado · swipe en móvil · ESC para cerrar</div>
+        <div style={{textAlign:"center",marginTop:8,fontSize:10,color:"rgba(255,255,255,.2)"}}>← → teclado · swipe · ESC</div>
       </div>
     </div>}
 
-    {/* Modal editar foto */}
+    {gestionModal&&<GestionEtapasModal obra={obra} obraEtapas={obraEtapas||[]} toast={toast} reload={reload} onClose={()=>setGestionModal(false)}/>}
+
     {editFoto&&<Modal title="Editar foto" onClose={()=>setEditFoto(null)}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
-        <img src={editFoto.url} alt="" style={{width:"100%",maxHeight:160,objectFit:"cover",borderRadius:8}}/>
-        <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Título</div>
-          <input style={INP} value={editDraft.titulo||""} onChange={e=>setEditDraft(d=>({...d,titulo:e.target.value}))}/>
+        <img src={editFoto.url} alt="" style={{width:"100%",maxHeight:150,objectFit:"cover",borderRadius:8}}/>
+        <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Título</div><input style={INP} value={editDraft.titulo} onChange={e=>setEditDraft(d=>({...d,titulo:e.target.value}))}/></div>
+        <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Etapa</div>
+          <select style={SEL} value={editDraft.etapa} onChange={e=>setEditDraft(d=>({...d,etapa:e.target.value}))}>
+            <option value="">— Sin etapa —</option>
+            {etapas.map(e=><option key={e} value={e}>{e}</option>)}
+          </select>
         </div>
-        <div>
-          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Etapa</div>
-          <input style={INP} list="etapas-edit-dl" placeholder="Escribí o elegí una etapa" value={editDraft.etapa} onChange={e=>setEditDraft(d=>({...d,etapa:e.target.value}))}/>
-          <datalist id="etapas-edit-dl">
-            {[...new Set([...ETAPAS_DEFAULT,...etapas])].map(e=><option key={e} value={e}/>)}
-          </datalist>
-          <div style={{fontSize:10,color:C.t3,marginTop:4}}>Podés escribir un nombre personalizado o elegir uno de la lista</div>
+        <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Ambiente</div>
+          <select style={SEL} value={editDraft.ambiente} onChange={e=>setEditDraft(d=>({...d,ambiente:e.target.value}))}>
+            <option value="">— Sin ambiente —</option>
+            {ambientes.map(a=><option key={a} value={a}>{a}</option>)}
+          </select>
         </div>
-        <div>
-          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Ambiente</div>
-          <input style={INP} list="ambientes-edit-dl" placeholder="Escribí o elegí un ambiente" value={editDraft.ambiente} onChange={e=>setEditDraft(d=>({...d,ambiente:e.target.value}))}/>
-          <datalist id="ambientes-edit-dl">
-            {[...new Set([...AMBIENTES_DEFAULT,...ambientes])].map(a=><option key={a} value={a}/>)}
-          </datalist>
-        </div>
-        <div style={{display:"flex",gap:8}}>
-          <Btn primary onClick={saveEdit} loading={editSaving}>Guardar cambios</Btn>
-          <Btn onClick={()=>setEditFoto(null)}>Cancelar</Btn>
-        </div>
+        <div style={{display:"flex",gap:8}}><Btn primary onClick={saveEdit} loading={editSaving}>Guardar</Btn><Btn onClick={()=>setEditFoto(null)}>Cancelar</Btn></div>
       </div>
     </Modal>}
 
-    {/* Modal subir foto */}
     {modal&&<Modal title="Subir foto" onClose={()=>setModal(false)}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
         <div onClick={()=>fileRef.current?.click()} style={{border:`2px dashed ${draft.preview?C.green:C.bd2}`,borderRadius:12,padding:"20px",textAlign:"center",cursor:"pointer",background:draft.preview?C.limaBg:C.bg3,transition:"all .2s"}}>
-          {draft.preview
-            ?<><img src={draft.preview} alt="" style={{maxHeight:120,borderRadius:8,marginBottom:8}}/><div style={{fontSize:12,color:C.green,fontWeight:600}}>✓ {draft.nombre}</div></>
-            :<><div style={{fontSize:36,marginBottom:8}}>📷</div><div style={{fontSize:13,fontWeight:600,color:C.t2}}>Seleccionar foto</div><div style={{fontSize:11,color:C.t3}}>JPG, PNG, WEBP</div></>}
+          {draft.preview?<><img src={draft.preview} alt="" style={{maxHeight:120,borderRadius:8,marginBottom:8}}/><div style={{fontSize:12,color:C.green,fontWeight:600}}>✓ {draft.nombre}</div></>:<><div style={{fontSize:36,marginBottom:8}}>📷</div><div style={{fontSize:13,fontWeight:600,color:C.t2}}>Seleccionar foto</div><div style={{fontSize:11,color:C.t3}}>JPG, PNG, WEBP</div></>}
         </div>
         <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleFile}/>
         <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Título *</div><input style={INP} placeholder="Ej: Losa planta baja" value={draft.titulo} onChange={e=>setDraft(d=>({...d,titulo:e.target.value}))}/></div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Fecha</div><input style={INP} type="date" value={draft.fecha} onChange={e=>setDraft(d=>({...d,fecha:e.target.value}))}/></div>
           <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Etapa</div>
-            <input style={INP} list="etapas-new-dl" placeholder="Ej: Estructura" value={draft.etapa} onChange={e=>setDraft(d=>({...d,etapa:e.target.value}))}/>
-            <datalist id="etapas-new-dl">{[...new Set([...ETAPAS_DEFAULT,...etapas])].map(e=><option key={e} value={e}/>)}</datalist>
+            <select style={SEL} value={draft.etapa} onChange={e=>setDraft(d=>({...d,etapa:e.target.value}))}>
+              <option value="">— Sin etapa —</option>
+              {etapas.map(e=><option key={e} value={e}>{e}</option>)}
+            </select>
           </div>
         </div>
         <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Ambiente <span style={{color:C.t3,fontWeight:400}}>(opcional)</span></div>
-          <input style={INP} list="ambientes-new-dl" placeholder="Ej: Living, Cocina..." value={draft.ambiente} onChange={e=>setDraft(d=>({...d,ambiente:e.target.value}))}/>
-          <datalist id="ambientes-new-dl">{[...new Set([...AMBIENTES_DEFAULT,...ambientes])].map(a=><option key={a} value={a}/>)}</datalist>
+          <select style={SEL} value={draft.ambiente} onChange={e=>setDraft(d=>({...d,ambiente:e.target.value}))}>
+            <option value="">— Sin ambiente —</option>
+            {ambientes.map(a=><option key={a} value={a}>{a}</option>)}
+          </select>
         </div>
-        <div style={{display:"flex",gap:8}}>
-          <Btn primary onClick={save} disabled={!draft.file||!draft.titulo.trim()} loading={saving}>Subir foto</Btn>
-          <Btn onClick={()=>setModal(false)}>Cancelar</Btn>
-        </div>
+        <div style={{display:"flex",gap:8}}><Btn primary onClick={save} disabled={!draft.file||!draft.titulo.trim()} loading={saving}>Subir foto</Btn><Btn onClick={()=>setModal(false)}>Cancelar</Btn></div>
       </div>
     </Modal>}
   </div>;
 }
 
+// ── GESTION ETAPAS/AMBIENTES ──────────────────────────────────────────────────
+function GestionEtapasModal({obra,obraEtapas,toast,reload,onClose}){
+  const [tab,setTab]=useState("etapa");
+  const [nuevo,setNuevo]=useState("");
+  const [saving,setSaving]=useState(false);
+  const lista=obraEtapas.filter(x=>x.tipo===tab);
 
+  const add=async()=>{
+    const n=nuevo.trim();
+    if(!n)return;
+    if(obraEtapas.find(x=>x.tipo===tab&&x.nombre.toLowerCase()===n.toLowerCase()))return toast.error("Ya existe");
+    setSaving(true);
+    const{error}=await supabase.from("obra_etapas").insert({obra_id:obra.id,nombre:n,tipo:tab,orden:lista.length});
+    if(error)toast.error("Error");else{toast.success("Agregado");setNuevo("");await reload();}
+    setSaving(false);
+  };
+
+  const del=async(id)=>{
+    const{error}=await supabase.from("obra_etapas").delete().eq("id",id);
+    if(error)toast.error("Error");else{toast.success("Eliminado");await reload();}
+  };
+
+  return <Modal title="Etapas y ambientes del proyecto" onClose={onClose}>
+    <div style={{display:"flex",gap:0,marginBottom:16,background:C.bg3,borderRadius:8,padding:3}}>
+      {[{v:"etapa",l:"Etapas 🏗️"},{v:"ambiente",l:"Ambientes 🏠"}].map(o=><button key={o.v} onClick={()=>setTab(o.v)} style={{flex:1,padding:"6px",fontSize:12,border:"none",borderRadius:6,cursor:"pointer",background:tab===o.v?C.bg2:"transparent",color:tab===o.v?C.t:C.t3,fontWeight:tab===o.v?700:400}}>{o.l}</button>)}
+    </div>
+    <div style={{display:"flex",gap:8,marginBottom:14}}>
+      <input style={{...INP,flex:1}} placeholder={`Nueva ${tab==="etapa"?"etapa":"ambiente"}...`} value={nuevo} onChange={e=>setNuevo(e.target.value)} onKeyDown={e=>e.key==="Enter"&&add()}/>
+      <Btn primary onClick={add} loading={saving}>+ Agregar</Btn>
+    </div>
+    <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:280,overflowY:"auto"}}>
+      {lista.length===0&&<div style={{textAlign:"center",padding:"16px 0",color:C.t3,fontSize:12}}>No hay {tab==="etapa"?"etapas":"ambientes"} cargadas para este proyecto.</div>}
+      {lista.map(x=><div key={x.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 12px",background:C.bg3,borderRadius:8,border:`1px solid ${C.bd}`}}>
+        <span style={{fontSize:13,color:C.t,fontWeight:500}}>{x.nombre}</span>
+        <button onClick={()=>del(x.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.t3,fontSize:18,lineHeight:1}}>×</button>
+      </div>)}
+    </div>
+    <div style={{marginTop:14,fontSize:11,color:C.t3,background:C.bg3,borderRadius:8,padding:"8px 12px"}}>
+      Las {tab==="etapa"?"etapas":"ambientes"} eliminadas no afectan las fotos ya clasificadas.
+    </div>
+  </Modal>;
+}
 // ── COMENTARIOS MODAL ─────────────────────────────────────────────────────────
 function ComentariosModal({gasto,comentarios,obra,user,esAdmin,toast,reload,onClose}){
   const [texto,setTexto]=useState("");
