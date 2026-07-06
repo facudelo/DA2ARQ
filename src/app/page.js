@@ -16,7 +16,7 @@ const C = {
   green:"#2E6E18",lima:"#7CBF3A",limaBg:"#EBF5DF",
   red:"#B84A3A",blue:"#2A6A5A",amber:"#7A6A1A",
 };
-const gCSS=`*{box-sizing:border-box;margin:0;padding:0}html,body{background:${C.bg};color:${C.t};font-family:'Helvetica Neue',Arial,sans-serif;font-size:13px}::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-thumb{background:rgba(42,80,28,0.18);border-radius:4px}select option{background:#fff;color:${C.t}}@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}@keyframes spin{to{transform:rotate(360deg)}}.fu{animation:fadeUp .28s ease both}.spin{animation:spin .8s linear infinite}input[type=date]::-webkit-calendar-picker-indicator{opacity:.5}input,select,textarea,button{font-family:inherit}@media(max-width:640px){.hide-mobile{display:none!important}.show-mobile{display:flex!important}}@media(min-width:641px){.show-mobile{display:none!important}}`;
+const gCSS=`*{box-sizing:border-box;margin:0;padding:0}html,body{background:${C.bg};color:${C.t};font-family:'Helvetica Neue',Arial,sans-serif;font-size:13px}::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-thumb{background:rgba(42,80,28,0.18);border-radius:4px}select option{background:#fff;color:${C.t}}@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}@keyframes spin{to{transform:rotate(360deg)}}.fu{animation:fadeUp .28s ease both}.spin{animation:spin .8s linear infinite}input[type=date]::-webkit-calendar-picker-indicator{opacity:.5}input,select,textarea,button{font-family:inherit}@media(max-width:640px){.hide-mobile{display:none!important}.show-mobile{display:flex!important}}@media(min-width:641px){.show-mobile{display:none!important}}.foto-card .foto-overlay{opacity:0;transition:opacity .22s}.foto-card:hover .foto-overlay{opacity:1}.foto-card:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(42,80,28,.18)}`;
 const INP={background:"#fff",border:`1px solid ${C.bd2}`,color:C.t,borderRadius:7,padding:"8px 11px",fontSize:13,outline:"none",width:"100%"};
 const SEL={...INP,cursor:"pointer"};
 const ROL_LABEL={arquitecto:"Arquitecto",ayudante:"Ayudante",cliente:"Cliente"};
@@ -1114,11 +1114,14 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
 // ── FOTOS ─────────────────────────────────────────────────────────────────────
 function FotosTab({obra,fotos,puedoCargar,user,toast,reload}){
   const [modal,setModal]=useState(false);
+  const [editFoto,setEditFoto]=useState(null); // foto a editar
+  const [editDraft,setEditDraft]=useState({etapa:"",ambiente:""});
+  const [editSaving,setEditSaving]=useState(false);
   const [draft,setDraft]=useState({titulo:"",fecha:todayISO(),etapa:"",ambiente:"",file:null,preview:null,nombre:""});
-  const [modoAgrup,setModoAgrup]=useState("etapa"); // "etapa" | "ambiente"
-  const [filtroG,setFiltroG]=useState("todas"); // grupo seleccionado
+  const [modoAgrup,setModoAgrup]=useState("etapa");
+  const [filtroG,setFiltroG]=useState("todas");
   const [saving,setSaving]=useState(false);
-  const [lightboxIdx,setLightboxIdx]=useState(null); // índice en filtradas
+  const [lightboxIdx,setLightboxIdx]=useState(null);
   const fileRef=useRef();
   const touchStartX=useRef(null);
 
@@ -1132,11 +1135,9 @@ function FotosTab({obra,fotos,puedoCargar,user,toast,reload}){
     return fotos.filter(f=>(modoAgrup==="etapa"?f.etapa:f.ambiente)===filtroG);
   },[fotos,filtroG,modoAgrup]);
 
-  // Lightbox navigation
   const lbFoto=lightboxIdx!=null?filtradas[lightboxIdx]:null;
   const lbPrev=()=>setLightboxIdx(i=>i>0?i-1:filtradas.length-1);
   const lbNext=()=>setLightboxIdx(i=>i<filtradas.length-1?i+1:0);
-  const lbOpen=idx=>{setLightboxIdx(idx);};
   const lbClose=()=>setLightboxIdx(null);
 
   useEffect(()=>{
@@ -1161,21 +1162,33 @@ function FotosTab({obra,fotos,puedoCargar,user,toast,reload}){
       etapa:draft.etapa||null,ambiente:draft.ambiente||null,
       storage_path:path,url:publicUrl,user_id:user.id
     });
-    if(error)toast.error("Error al guardar foto");
+    if(error)toast.error("Error al guardar");
     else{toast.success("Foto subida");await reload();}
     setDraft({titulo:"",fecha:todayISO(),etapa:"",ambiente:"",file:null,preview:null,nombre:""});
     setModal(false);setSaving(false);
   };
 
-  const deleteFoto=async(foto,e)=>{
+  const saveEdit=async()=>{
+    if(!editFoto)return;
+    setEditSaving(true);
+    const{error}=await supabase.from("fotos").update({
+      etapa:editDraft.etapa||null,
+      ambiente:editDraft.ambiente||null,
+    }).eq("id",editFoto.id);
+    if(error)toast.error("Error");
+    else{toast.success("Actualizada");await reload();}
+    setEditFoto(null);setEditSaving(false);
+  };
+
+  const deleteFoto=async(id,storagePath,e)=>{
     e.stopPropagation();
-    if(foto.storage_path)await supabase.storage.from("obra-fotos").remove([foto.storage_path]);
-    const{error}=await supabase.from("fotos").delete().eq("id",foto.id);
+    if(storagePath)await supabase.storage.from("obra-fotos").remove([storagePath]);
+    const{error}=await supabase.from("fotos").delete().eq("id",id);
     if(error)toast.error("Error");else{toast.success("Eliminada");await reload();}
   };
 
   const downloadFoto=async(f,e)=>{
-    e.stopPropagation();
+    e&&e.stopPropagation();
     try{
       const res=await fetch(f.url);const blob=await res.blob();
       const ext=f.url.split(".").pop().split("?")[0]||"jpg";
@@ -1184,15 +1197,13 @@ function FotosTab({obra,fotos,puedoCargar,user,toast,reload}){
     }catch{toast.error("Error al descargar");}
   };
 
-  // Agrupar fotos para mostrar
   const seccionesAgrupadas=useMemo(()=>{
     const base=filtroG!=="todas"?filtradas:fotos;
     if(filtroG!=="todas")return [{grupo:filtroG==="sin_grupo"?"Sin clasificar":filtroG,fotos:base}];
     const mapa={};
     base.forEach(f=>{
       const k=(modoAgrup==="etapa"?f.etapa:f.ambiente)||"__sin__";
-      if(!mapa[k])mapa[k]=[];
-      mapa[k].push(f);
+      if(!mapa[k])mapa[k]=[];mapa[k].push(f);
     });
     const secciones=grupos.map(g=>({grupo:g,fotos:mapa[g]||[]})).filter(s=>s.fotos.length>0);
     if(mapa["__sin__"]?.length)secciones.push({grupo:"Sin clasificar",fotos:mapa["__sin__"]});
@@ -1214,13 +1225,11 @@ function FotosTab({obra,fotos,puedoCargar,user,toast,reload}){
 
     {/* Controles */}
     <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
-      {/* Toggle etapa/ambiente */}
       <div style={{display:"flex",background:C.bg3,borderRadius:8,border:`1px solid ${C.bd2}`,padding:3}}>
         {[{v:"etapa",l:"Por etapa"},{v:"ambiente",l:"Por ambiente"}].map(o=><button key={o.v} onClick={()=>{setModoAgrup(o.v);setFiltroG("todas");}} style={{padding:"5px 14px",fontSize:12,border:"none",borderRadius:6,cursor:"pointer",background:modoAgrup===o.v?C.bg2:"transparent",color:modoAgrup===o.v?C.t:C.t3,fontWeight:modoAgrup===o.v?700:400,transition:"all .15s"}}>{o.l}</button>)}
       </div>
-      {/* Filtro de grupo */}
       <select style={{...SEL,width:"auto",fontSize:12}} value={filtroG} onChange={e=>setFiltroG(e.target.value)}>
-        <option value="todas">Todos los {modoAgrup==="etapa"?"etapas":"ambientes"}</option>
+        <option value="todas">Todos</option>
         {grupos.map(g=><option key={g} value={g}>{g}</option>)}
         {fotos.some(f=>!(modoAgrup==="etapa"?f.etapa:f.ambiente))&&<option value="sin_grupo">Sin clasificar</option>}
       </select>
@@ -1229,104 +1238,117 @@ function FotosTab({obra,fotos,puedoCargar,user,toast,reload}){
     {fotos.length===0&&<Card><div style={{textAlign:"center",padding:"48px 0",color:C.t3}}>
       <div style={{fontSize:36,marginBottom:12}}>📷</div>
       <div style={{fontSize:14,fontWeight:600,color:C.t2}}>Sin fotos todavía</div>
-      <div style={{fontSize:12,marginTop:4}}>Subí la primera foto de avance de obra</div>
     </div></Card>}
 
-    {/* Secciones agrupadas */}
+    {/* Secciones */}
     {seccionesAgrupadas.map(({grupo,fotos:fs})=><div key={grupo} style={{marginBottom:28}}>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
-        <div style={{height:1,flex:"none",width:16,background:C.bd2}}/>
+        <div style={{height:1,width:16,background:C.bd2,flexShrink:0}}/>
         <span style={{fontSize:13,fontWeight:700,color:C.t2,whiteSpace:"nowrap"}}>{grupo}</span>
         <div style={{height:1,flex:1,background:C.bd2}}/>
         <span style={{fontSize:11,color:C.t3,flexShrink:0}}>{fs.length} foto{fs.length!==1?"s":""}</span>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10}}>
-        {fs.map((f,i)=>{
+        {fs.map(f=>{
           const globalIdx=filtradas.indexOf(f);
-          return <div key={f.id} onClick={()=>lbOpen(globalIdx)} style={{borderRadius:12,overflow:"hidden",cursor:"pointer",background:C.bg2,border:`1px solid ${C.bd}`,transition:"transform .2s, box-shadow .2s",position:"relative",aspectRatio:"4/3"}}
-            onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow="0 8px 24px rgba(42,80,28,.16)";}}
-            onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="";}}>
-            <img src={f.url} alt={f.titulo} style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
-            {/* Overlay info */}
-            <div style={{position:"absolute",inset:0,background:"linear-gradient(to top, rgba(0,0,0,.7) 0%, transparent 50%)",opacity:0,transition:"opacity .2s",display:"flex",flexDirection:"column",justifyContent:"flex-end",padding:"12px"}}
-              onMouseEnter={e=>e.currentTarget.style.opacity=1}
-              onMouseLeave={e=>e.currentTarget.style.opacity=0}>
-              <div style={{fontSize:12,fontWeight:700,color:"#fff"}}>{f.titulo}</div>
-              <div style={{fontSize:10,color:"rgba(255,255,255,.7)",marginTop:2}}>{f.fecha}{f.ambiente&&` · ${f.ambiente}`}</div>
-              <div style={{display:"flex",gap:6,marginTop:8}} onClick={e=>e.stopPropagation()}>
-                <button onClick={e=>downloadFoto(f,e)} style={{background:"rgba(255,255,255,.2)",border:"1px solid rgba(255,255,255,.3)",borderRadius:5,padding:"3px 8px",cursor:"pointer",color:"#fff",fontSize:10,backdropFilter:"blur(4px)"}}>⬇</button>
-                {puedoCargar&&<button onClick={e=>deleteFoto(f,e)} style={{background:"rgba(200,50,50,.4)",border:"1px solid rgba(255,255,255,.2)",borderRadius:5,padding:"3px 8px",cursor:"pointer",color:"#fff",fontSize:10}}>×</button>}
+          return <div key={f.id} className="foto-card" onClick={()=>setLightboxIdx(globalIdx)}
+            style={{borderRadius:12,overflow:"hidden",cursor:"pointer",background:"#000",border:`1px solid ${C.bd}`,position:"relative",aspectRatio:"4/3",transition:"transform .2s, box-shadow .2s"}}>
+            <img src={f.url} alt={f.titulo} style={{width:"100%",height:"100%",objectFit:"cover",display:"block",transition:"opacity .2s"}}/>
+            {/* Overlay — controlado por CSS .foto-card:hover */}
+            <div className="foto-overlay" style={{position:"absolute",inset:0,background:"linear-gradient(to top, rgba(0,0,0,.82) 0%, rgba(0,0,0,.1) 55%, transparent 100%)",display:"flex",flexDirection:"column",justifyContent:"flex-end",padding:"12px"}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#fff",marginBottom:2}}>{f.titulo}</div>
+              <div style={{fontSize:10,color:"rgba(255,255,255,.65)"}}>{f.fecha}{f.etapa&&` · ${f.etapa}`}{f.ambiente&&` · ${f.ambiente}`}</div>
+              <div style={{display:"flex",gap:5,marginTop:8}} onClick={e=>e.stopPropagation()}>
+                <button onClick={e=>downloadFoto(f,e)} title="Descargar" style={{background:"rgba(255,255,255,.18)",border:"1px solid rgba(255,255,255,.25)",borderRadius:5,padding:"4px 9px",cursor:"pointer",color:"#fff",fontSize:11,backdropFilter:"blur(4px)"}}>⬇</button>
+                {puedoCargar&&<><button onClick={e=>{e.stopPropagation();setEditFoto(f);setEditDraft({etapa:f.etapa||"",ambiente:f.ambiente||"",titulo:f.titulo||""});}} title="Editar" style={{background:"rgba(255,255,255,.18)",border:"1px solid rgba(255,255,255,.25)",borderRadius:5,padding:"4px 9px",cursor:"pointer",color:"#fff",fontSize:11,backdropFilter:"blur(4px)"}}>✎</button>
+                <button onClick={e=>deleteFoto(f.id,f.storage_path,e)} title="Eliminar" style={{background:"rgba(180,40,40,.5)",border:"1px solid rgba(255,255,255,.2)",borderRadius:5,padding:"4px 9px",cursor:"pointer",color:"#fff",fontSize:11}}>×</button></>}
               </div>
             </div>
-            {/* Badge ambiente si está en vista etapa */}
+            {/* Badges */}
+            {!f.etapa&&!f.ambiente&&<div style={{position:"absolute",top:8,left:8,background:"rgba(0,0,0,.5)",borderRadius:20,padding:"2px 8px",fontSize:9,color:"rgba(255,255,255,.7)",backdropFilter:"blur(4px)"}}>Sin clasificar</div>}
             {modoAgrup==="etapa"&&f.ambiente&&<div style={{position:"absolute",top:8,right:8,background:"rgba(0,0,0,.55)",borderRadius:20,padding:"2px 8px",fontSize:9,color:"#fff",fontWeight:600,backdropFilter:"blur(4px)"}}>{f.ambiente}</div>}
+            {modoAgrup==="ambiente"&&f.etapa&&<div style={{position:"absolute",top:8,right:8,background:"rgba(0,0,0,.55)",borderRadius:20,padding:"2px 8px",fontSize:9,color:"#fff",fontWeight:600,backdropFilter:"blur(4px)"}}>{f.etapa}</div>}
           </div>;
         })}
       </div>
     </div>)}
 
-    {/* LIGHTBOX PRO */}
+    {/* LIGHTBOX — full screen */}
     {lbFoto&&<div
-      style={{position:"fixed",inset:0,background:"rgba(8,12,8,.96)",zIndex:500,display:"flex",flexDirection:"column"}}
-      onClick={lbClose}
+      style={{position:"fixed",inset:0,zIndex:500,background:"#0a0f0a",display:"flex",flexDirection:"column",overflow:"hidden"}}
       onTouchStart={e=>{touchStartX.current=e.touches[0].clientX;}}
-      onTouchEnd={e=>{
-        if(touchStartX.current===null)return;
-        const dx=e.changedTouches[0].clientX-touchStartX.current;
-        if(dx>60)lbPrev();else if(dx<-60)lbNext();
-        touchStartX.current=null;
-      }}>
+      onTouchEnd={e=>{if(touchStartX.current===null)return;const dx=e.changedTouches[0].clientX-touchStartX.current;if(dx>60)lbPrev();else if(dx<-60)lbNext();touchStartX.current=null;}}>
 
       {/* Top bar */}
-      <div onClick={e=>e.stopPropagation()} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 20px",flexShrink:0}}>
-        <div style={{color:"rgba(255,255,255,.5)",fontSize:12}}>{(lightboxIdx+1)} / {filtradas.length}</div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 20px",flexShrink:0,background:"rgba(0,0,0,.4)",backdropFilter:"blur(10px)"}}>
+        <div style={{color:"rgba(255,255,255,.45)",fontSize:12,fontWeight:500}}>{lightboxIdx+1} <span style={{color:"rgba(255,255,255,.25)"}}>/ {filtradas.length}</span></div>
+        <div style={{fontSize:13,fontWeight:600,color:"rgba(255,255,255,.85)"}}>{lbFoto.titulo}</div>
         <div style={{display:"flex",gap:8}}>
-          <button onClick={e=>{e.stopPropagation();downloadFoto(lbFoto,e);}} style={{background:"rgba(255,255,255,.1)",border:"1px solid rgba(255,255,255,.15)",borderRadius:7,padding:"6px 14px",cursor:"pointer",color:"rgba(255,255,255,.8)",fontSize:12}}>⬇ Descargar</button>
-          <button onClick={lbClose} style={{background:"rgba(255,255,255,.1)",border:"1px solid rgba(255,255,255,.15)",borderRadius:7,padding:"6px 12px",cursor:"pointer",color:"rgba(255,255,255,.8)",fontSize:18,lineHeight:1}}>×</button>
+          <button onClick={()=>downloadFoto(lbFoto)} style={{background:"rgba(255,255,255,.1)",border:"1px solid rgba(255,255,255,.15)",borderRadius:7,padding:"5px 13px",cursor:"pointer",color:"rgba(255,255,255,.8)",fontSize:12}}>⬇ Descargar</button>
+          <button onClick={lbClose} style={{background:"rgba(255,255,255,.08)",border:"1px solid rgba(255,255,255,.12)",borderRadius:7,width:34,height:32,cursor:"pointer",color:"rgba(255,255,255,.7)",fontSize:19,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
         </div>
       </div>
 
-      {/* Imagen central */}
-      <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:20,padding:"0 16px",minHeight:0}}>
-        {/* Flecha izq */}
-        <button onClick={e=>{e.stopPropagation();lbPrev();}} style={{flexShrink:0,width:44,height:44,borderRadius:"50%",background:"rgba(255,255,255,.1)",border:"1px solid rgba(255,255,255,.2)",cursor:"pointer",color:"#fff",fontSize:20,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(8px)",transition:"background .15s"}}
-          onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,.2)"}
-          onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,.1)"}>‹</button>
-
-        {/* Foto */}
-        <div onClick={e=>e.stopPropagation()} style={{flex:1,display:"flex",justifyContent:"center",maxHeight:"100%"}}>
-          <img src={lbFoto.url} alt={lbFoto.titulo}
-            style={{maxWidth:"100%",maxHeight:"calc(100vh - 200px)",objectFit:"contain",borderRadius:8,boxShadow:"0 20px 60px rgba(0,0,0,.5)"}}/>
-        </div>
-
-        {/* Flecha der */}
-        <button onClick={e=>{e.stopPropagation();lbNext();}} style={{flexShrink:0,width:44,height:44,borderRadius:"50%",background:"rgba(255,255,255,.1)",border:"1px solid rgba(255,255,255,.2)",cursor:"pointer",color:"#fff",fontSize:20,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(8px)",transition:"background .15s"}}
-          onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,.2)"}
-          onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,.1)"}>›</button>
+      {/* Área imagen — ocupa todo el espacio */}
+      <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",position:"relative",minHeight:0}}>
+        {/* Flechas sobre la imagen */}
+        <button onClick={lbPrev} style={{position:"absolute",left:16,zIndex:10,width:46,height:46,borderRadius:"50%",background:"rgba(0,0,0,.5)",border:"1px solid rgba(255,255,255,.15)",cursor:"pointer",color:"#fff",fontSize:24,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(8px)"}}>‹</button>
+        <img src={lbFoto.url} alt={lbFoto.titulo}
+          style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",userSelect:"none"}}
+          onClick={e=>e.stopPropagation()}/>
+        <button onClick={lbNext} style={{position:"absolute",right:16,zIndex:10,width:46,height:46,borderRadius:"50%",background:"rgba(0,0,0,.5)",border:"1px solid rgba(255,255,255,.15)",cursor:"pointer",color:"#fff",fontSize:24,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(8px)"}}>›</button>
       </div>
 
       {/* Bottom bar */}
-      <div onClick={e=>e.stopPropagation()} style={{flexShrink:0,padding:"14px 20px"}}>
-        <div style={{textAlign:"center",marginBottom:12}}>
-          <div style={{fontSize:15,fontWeight:700,color:"#fff"}}>{lbFoto.titulo}</div>
-          <div style={{fontSize:12,color:"rgba(255,255,255,.5)",marginTop:3,display:"flex",gap:12,justifyContent:"center"}}>
-            <span>📅 {lbFoto.fecha}</span>
-            {lbFoto.etapa&&<span>🏗 {lbFoto.etapa}</span>}
-            {lbFoto.ambiente&&<span>🏠 {lbFoto.ambiente}</span>}
-          </div>
+      <div style={{flexShrink:0,background:"rgba(0,0,0,.4)",backdropFilter:"blur(10px)",padding:"10px 20px 14px"}}>
+        <div style={{display:"flex",gap:14,justifyContent:"center",marginBottom:10,fontSize:11,color:"rgba(255,255,255,.4)"}}>
+          <span>📅 {lbFoto.fecha}</span>
+          {lbFoto.etapa&&<span>🏗 {lbFoto.etapa}</span>}
+          {lbFoto.ambiente&&<span>🏠 {lbFoto.ambiente}</span>}
         </div>
-        {/* Thumbnails strip */}
-        <div style={{display:"flex",gap:6,overflowX:"auto",justifyContent:"center",paddingBottom:4}}>
-          {filtradas.slice(Math.max(0,lightboxIdx-4),lightboxIdx+5).map((f,_,arr)=>{
+        {/* Thumbnails */}
+        <div style={{display:"flex",gap:5,overflowX:"auto",justifyContent:"center",paddingBottom:2}}>
+          {filtradas.slice(Math.max(0,lightboxIdx-5),lightboxIdx+6).map(f=>{
             const idx=filtradas.indexOf(f);
-            return <div key={f.id} onClick={()=>setLightboxIdx(idx)} style={{flexShrink:0,width:idx===lightboxIdx?54:40,height:idx===lightboxIdx?54:40,borderRadius:6,overflow:"hidden",border:`2px solid ${idx===lightboxIdx?"#fff":"rgba(255,255,255,.2)"}`,cursor:"pointer",transition:"all .2s",opacity:idx===lightboxIdx?1:.6}}>
+            const active=idx===lightboxIdx;
+            return <div key={f.id} onClick={()=>setLightboxIdx(idx)}
+              style={{flexShrink:0,width:active?56:42,height:active?56:42,borderRadius:7,overflow:"hidden",border:`2px solid ${active?"#fff":"rgba(255,255,255,.15)"}`,cursor:"pointer",transition:"all .18s",opacity:active?1:.5}}>
               <img src={f.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
             </div>;
           })}
         </div>
-        <div style={{textAlign:"center",marginTop:8,fontSize:10,color:"rgba(255,255,255,.25)"}}>← → teclado · swipe en móvil · ESC para cerrar</div>
+        <div style={{textAlign:"center",marginTop:8,fontSize:10,color:"rgba(255,255,255,.2)"}}>← → teclado · swipe en móvil · ESC para cerrar</div>
       </div>
     </div>}
+
+    {/* Modal editar foto */}
+    {editFoto&&<Modal title="Editar foto" onClose={()=>setEditFoto(null)}>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <img src={editFoto.url} alt="" style={{width:"100%",maxHeight:160,objectFit:"cover",borderRadius:8}}/>
+        <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Título</div>
+          <input style={INP} value={editDraft.titulo||""} onChange={e=>setEditDraft(d=>({...d,titulo:e.target.value}))}/>
+        </div>
+        <div>
+          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Etapa</div>
+          <input style={INP} list="etapas-edit-dl" placeholder="Escribí o elegí una etapa" value={editDraft.etapa} onChange={e=>setEditDraft(d=>({...d,etapa:e.target.value}))}/>
+          <datalist id="etapas-edit-dl">
+            {[...new Set([...ETAPAS_DEFAULT,...etapas])].map(e=><option key={e} value={e}/>)}
+          </datalist>
+          <div style={{fontSize:10,color:C.t3,marginTop:4}}>Podés escribir un nombre personalizado o elegir uno de la lista</div>
+        </div>
+        <div>
+          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Ambiente</div>
+          <input style={INP} list="ambientes-edit-dl" placeholder="Escribí o elegí un ambiente" value={editDraft.ambiente} onChange={e=>setEditDraft(d=>({...d,ambiente:e.target.value}))}/>
+          <datalist id="ambientes-edit-dl">
+            {[...new Set([...AMBIENTES_DEFAULT,...ambientes])].map(a=><option key={a} value={a}/>)}
+          </datalist>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <Btn primary onClick={saveEdit} loading={editSaving}>Guardar cambios</Btn>
+          <Btn onClick={()=>setEditFoto(null)}>Cancelar</Btn>
+        </div>
+      </div>
+    </Modal>}
 
     {/* Modal subir foto */}
     {modal&&<Modal title="Subir foto" onClose={()=>setModal(false)}>
@@ -1341,13 +1363,13 @@ function FotosTab({obra,fotos,puedoCargar,user,toast,reload}){
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Fecha</div><input style={INP} type="date" value={draft.fecha} onChange={e=>setDraft(d=>({...d,fecha:e.target.value}))}/></div>
           <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Etapa</div>
-            <input style={INP} list="etapas-dl" placeholder="Ej: Estructura" value={draft.etapa} onChange={e=>setDraft(d=>({...d,etapa:e.target.value}))}/>
-            <datalist id="etapas-dl">{ETAPAS_DEFAULT.map(e=><option key={e} value={e}/>)}</datalist>
+            <input style={INP} list="etapas-new-dl" placeholder="Ej: Estructura" value={draft.etapa} onChange={e=>setDraft(d=>({...d,etapa:e.target.value}))}/>
+            <datalist id="etapas-new-dl">{[...new Set([...ETAPAS_DEFAULT,...etapas])].map(e=><option key={e} value={e}/>)}</datalist>
           </div>
         </div>
         <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Ambiente <span style={{color:C.t3,fontWeight:400}}>(opcional)</span></div>
-          <input style={INP} list="ambientes-dl" placeholder="Ej: Living, Cocina, Fachada..." value={draft.ambiente} onChange={e=>setDraft(d=>({...d,ambiente:e.target.value}))}/>
-          <datalist id="ambientes-dl">{AMBIENTES_DEFAULT.map(a=><option key={a} value={a}/>)}</datalist>
+          <input style={INP} list="ambientes-new-dl" placeholder="Ej: Living, Cocina..." value={draft.ambiente} onChange={e=>setDraft(d=>({...d,ambiente:e.target.value}))}/>
+          <datalist id="ambientes-new-dl">{[...new Set([...AMBIENTES_DEFAULT,...ambientes])].map(a=><option key={a} value={a}/>)}</datalist>
         </div>
         <div style={{display:"flex",gap:8}}>
           <Btn primary onClick={save} disabled={!draft.file||!draft.titulo.trim()} loading={saving}>Subir foto</Btn>
@@ -1357,6 +1379,7 @@ function FotosTab({obra,fotos,puedoCargar,user,toast,reload}){
     </Modal>}
   </div>;
 }
+
 
 // ── COMENTARIOS MODAL ─────────────────────────────────────────────────────────
 function ComentariosModal({gasto,comentarios,obra,user,esAdmin,toast,reload,onClose}){
