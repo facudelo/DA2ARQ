@@ -1121,8 +1121,11 @@ function FotosTab({obra,fotos,puedoCargar,esAdmin,user,toast,reload,obraEtapas})
   const [editFoto,setEditFoto]=useState(null);
   const [editDraft,setEditDraft]=useState({etapa:"",ambiente:"",titulo:""});
   const [editSaving,setEditSaving]=useState(false);
-  const [draft,setDraft]=useState({titulo:"",fecha:todayISO(),etapa:"",ambiente:"",file:null,preview:null,nombre:""});
-  const [modoAgrup,setModoAgrup]=useState("etapa");
+  const [draft,setDraft]=useState({titulo:"",fecha:todayISO(),etapa:"",ambiente:"",files:[],previews:[]});
+  const [modoAgrup,setModoAgrup]=useState("ambiente");
+  const [ordenLocal,setOrdenLocal]=useState({}); // {fotoId: orden}
+  const [dragId,setDragId]=useState(null);
+  const [dragOverId,setDragOverId]=useState(null);
   const [filtroG,setFiltroG]=useState("todas");
   const [saving,setSaving]=useState(false);
   const [lightboxIdx,setLightboxIdx]=useState(null);
@@ -1157,19 +1160,31 @@ function FotosTab({obra,fotos,puedoCargar,esAdmin,user,toast,reload,obraEtapas})
     return()=>{window.removeEventListener("keydown",h);document.body.style.overflow="";};
   },[lightboxIdx,filtradas.length]);
 
-  const handleFile=e=>{const file=e.target.files[0];if(!file)return;setDraft(d=>({...d,file,preview:URL.createObjectURL(file),nombre:file.name}));};
+  const handleFile=e=>{
+    const files=Array.from(e.target.files);
+    if(!files.length)return;
+    const previews=files.map(f=>({file:f,preview:URL.createObjectURL(f),nombre:f.name}));
+    setDraft(d=>({...d,files:previews}));
+  };
 
   const save=async()=>{
-    if(!draft.file||!draft.titulo.trim())return;
+    if(!draft.files.length||!draft.titulo.trim())return;
     setSaving(true);
-    const ext=draft.file.name.split(".").pop();
-    const path=`${user.id}/${obra.id}/${Date.now()}.${ext}`;
-    const{error:upErr}=await supabase.storage.from("obra-fotos").upload(path,draft.file);
-    if(upErr){toast.error("Error al subir: "+upErr.message);setSaving(false);return;}
-    const{data:{publicUrl}}=supabase.storage.from("obra-fotos").getPublicUrl(path);
-    const{error}=await supabase.from("fotos").insert({obra_id:obra.id,titulo:draft.titulo.trim(),fecha:draft.fecha,etapa:draft.etapa||null,ambiente:draft.ambiente||null,storage_path:path,url:publicUrl,user_id:user.id});
-    if(error)toast.error("Error al guardar");else{toast.success("Foto subida");await reload();}
-    setDraft({titulo:"",fecha:todayISO(),etapa:"",ambiente:"",file:null,preview:null,nombre:""});
+    let errCount=0;
+    for(let i=0;i<draft.files.length;i++){
+      const{file,nombre}=draft.files[i];
+      const ext=nombre.split(".").pop();
+      const path=`${user.id}/${obra.id}/${Date.now()}_${i}.${ext}`;
+      const{error:upErr}=await supabase.storage.from("obra-fotos").upload(path,file);
+      if(upErr){errCount++;continue;}
+      const{data:{publicUrl}}=supabase.storage.from("obra-fotos").getPublicUrl(path);
+      const titulo=draft.files.length===1?draft.titulo.trim():`${draft.titulo.trim()} ${i+1}`;
+      await supabase.from("fotos").insert({obra_id:obra.id,titulo,fecha:draft.fecha,etapa:draft.etapa||null,ambiente:draft.ambiente||null,storage_path:path,url:publicUrl,user_id:user.id,orden:i});
+    }
+    if(errCount)toast.error(`${errCount} foto(s) fallaron`);
+    else toast.success(`${draft.files.length} foto${draft.files.length>1?"s":""} subida${draft.files.length>1?"s":""}`);
+    await reload();
+    setDraft({titulo:"",fecha:todayISO(),etapa:"",ambiente:"",files:[],previews:[]});
     setModal(false);setSaving(false);
   };
 
@@ -1193,15 +1208,48 @@ function FotosTab({obra,fotos,puedoCargar,esAdmin,user,toast,reload,obraEtapas})
     catch{toast.error("Error al descargar");}
   };
 
+  // Orden local: override del campo orden de la DB
+  const fotosOrdenadas=useMemo(()=>{
+    return [...fotos].sort((a,b)=>{
+      const oa=ordenLocal[a.id]??a.orden??0;
+      const ob=ordenLocal[b.id]??b.orden??0;
+      return oa-ob;
+    });
+  },[fotos,ordenLocal]);
+
   const seccionesAgrupadas=useMemo(()=>{
-    const base=filtroG!=="todas"?filtradas:fotos;
+    const base=filtroG!=="todas"
+      ?fotosOrdenadas.filter(f=>filtroG==="sin_grupo"?!(modoAgrup==="etapa"?f.etapa:f.ambiente):(modoAgrup==="etapa"?f.etapa:f.ambiente)===filtroG)
+      :fotosOrdenadas;
     if(filtroG!=="todas")return [{grupo:filtroG==="sin_grupo"?"Sin clasificar":filtroG,fotos:base}];
     const mapa={};
     base.forEach(f=>{const k=(modoAgrup==="etapa"?f.etapa:f.ambiente)||"__sin__";if(!mapa[k])mapa[k]=[];mapa[k].push(f);});
     const secciones=grupos.map(g=>({grupo:g,fotos:mapa[g]||[]})).filter(s=>s.fotos.length>0);
     if(mapa["__sin__"]?.length)secciones.push({grupo:"Sin clasificar",fotos:mapa["__sin__"]});
     return secciones;
-  },[fotos,filtradas,filtroG,modoAgrup,grupos]);
+  },[fotosOrdenadas,filtroG,modoAgrup,grupos]);
+
+  // Drag handlers
+  const onDragStart=useCallback((id)=>setDragId(id),[]);
+  const onDragOver=useCallback((e,id)=>{e.preventDefault();setDragOverId(id);},[]);
+  const onDrop=useCallback(async(e,targetId,sectionFotos)=>{
+    e.preventDefault();
+    if(!dragId||dragId===targetId){setDragId(null);setDragOverId(null);return;}
+    const ids=sectionFotos.map(f=>f.id);
+    const fromIdx=ids.indexOf(dragId);
+    const toIdx=ids.indexOf(targetId);
+    if(fromIdx<0||toIdx<0){setDragId(null);setDragOverId(null);return;}
+    const newIds=[...ids];
+    newIds.splice(fromIdx,1);
+    newIds.splice(toIdx,0,dragId);
+    // Actualizar orden local inmediatamente
+    const newOrden={...ordenLocal};
+    newIds.forEach((id,i)=>{newOrden[id]=i;});
+    setOrdenLocal(newOrden);
+    setDragId(null);setDragOverId(null);
+    // Persistir en DB
+    await Promise.all(newIds.map((id,i)=>supabase.from("fotos").update({orden:i}).eq("id",id)));
+  },[dragId,ordenLocal]);
 
   return <div className="fu">
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
@@ -1237,9 +1285,17 @@ function FotosTab({obra,fotos,puedoCargar,esAdmin,user,toast,reload,obraEtapas})
       </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10}}>
         {fs.map(f=>{
-          const globalIdx=filtradas.indexOf(f);
-          return <div key={f.id} className="foto-card" onClick={()=>setLightboxIdx(globalIdx)}
-            style={{borderRadius:12,overflow:"hidden",cursor:"pointer",background:"#000",border:`1px solid ${C.bd}`,position:"relative",aspectRatio:"4/3",transition:"transform .2s, box-shadow .2s"}}>
+          const globalIdx=fotosOrdenadas.indexOf(f);
+          const isDragging=dragId===f.id;
+          const isOver=dragOverId===f.id&&dragId!==f.id;
+          return <div key={f.id} className="foto-card"
+            draggable={puedoCargar}
+            onDragStart={()=>onDragStart(f.id)}
+            onDragOver={e=>onDragOver(e,f.id)}
+            onDrop={e=>onDrop(e,f.id,fs)}
+            onDragEnd={()=>{setDragId(null);setDragOverId(null);}}
+            onClick={()=>setLightboxIdx(globalIdx)}
+            style={{borderRadius:12,overflow:"hidden",cursor:puedoCargar?"grab":"pointer",background:"#000",border:`2px solid ${isOver?C.green:C.bd}`,position:"relative",aspectRatio:"4/3",transition:"transform .15s, box-shadow .15s, opacity .15s, border-color .15s",opacity:isDragging?.35:1,transform:isOver?"scale(1.03)":""}}>
             <img src={f.url} alt={f.titulo} style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
             <div className="foto-overlay" style={{position:"absolute",inset:0,background:"linear-gradient(to top,rgba(0,0,0,.82) 0%,rgba(0,0,0,.1) 55%,transparent 100%)",display:"flex",flexDirection:"column",justifyContent:"flex-end",padding:"12px"}}>
               <div style={{fontSize:12,fontWeight:700,color:"#fff",marginBottom:2}}>{f.titulo}</div>
@@ -1250,6 +1306,7 @@ function FotosTab({obra,fotos,puedoCargar,esAdmin,user,toast,reload,obraEtapas})
                 <button onClick={e=>deleteFoto(f.id,f.storage_path,e)} style={{background:"rgba(180,40,40,.5)",border:"1px solid rgba(255,255,255,.2)",borderRadius:5,padding:"4px 9px",cursor:"pointer",color:"#fff",fontSize:11}}>×</button></>}
               </div>
             </div>
+            {puedoCargar&&<div style={{position:"absolute",top:8,left:8,background:"rgba(0,0,0,.4)",borderRadius:5,padding:"2px 5px",fontSize:10,color:"rgba(255,255,255,.5)",backdropFilter:"blur(4px)"}}>⠿</div>}
             {modoAgrup==="etapa"&&f.ambiente&&<div style={{position:"absolute",top:8,right:8,background:"rgba(0,0,0,.55)",borderRadius:20,padding:"2px 8px",fontSize:9,color:"#fff",fontWeight:600}}>{f.ambiente}</div>}
             {modoAgrup==="ambiente"&&f.etapa&&<div style={{position:"absolute",top:8,right:8,background:"rgba(0,0,0,.55)",borderRadius:20,padding:"2px 8px",fontSize:9,color:"#fff",fontWeight:600}}>{f.etapa}</div>}
           </div>;
@@ -1314,13 +1371,24 @@ function FotosTab({obra,fotos,puedoCargar,esAdmin,user,toast,reload,obraEtapas})
       </div>
     </Modal>}
 
-    {modal&&<Modal title="Subir foto" onClose={()=>setModal(false)}>
+    {modal&&<Modal title="Subir fotos" onClose={()=>setModal(false)}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
-        <div onClick={()=>fileRef.current?.click()} style={{border:`2px dashed ${draft.preview?C.green:C.bd2}`,borderRadius:12,padding:"20px",textAlign:"center",cursor:"pointer",background:draft.preview?C.limaBg:C.bg3,transition:"all .2s"}}>
-          {draft.preview?<><img src={draft.preview} alt="" style={{maxHeight:120,borderRadius:8,marginBottom:8}}/><div style={{fontSize:12,color:C.green,fontWeight:600}}>✓ {draft.nombre}</div></>:<><div style={{fontSize:36,marginBottom:8}}>📷</div><div style={{fontSize:13,fontWeight:600,color:C.t2}}>Seleccionar foto</div><div style={{fontSize:11,color:C.t3}}>JPG, PNG, WEBP</div></>}
+        <div onClick={()=>fileRef.current?.click()} style={{border:`2px dashed ${draft.files.length?C.green:C.bd2}`,borderRadius:12,padding:"16px",textAlign:"center",cursor:"pointer",background:draft.files.length?C.limaBg:C.bg3,transition:"all .2s"}}>
+          {draft.files.length===0&&<><div style={{fontSize:36,marginBottom:8}}>📷</div><div style={{fontSize:13,fontWeight:600,color:C.t2}}>Seleccionar fotos</div><div style={{fontSize:11,color:C.t3}}>Podés seleccionar varias a la vez · JPG, PNG, WEBP</div></>}
+          {draft.files.length>0&&<>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"center",maxHeight:120,overflow:"hidden"}}>
+              {draft.files.slice(0,8).map((p,i)=><img key={i} src={p.preview} alt="" style={{width:60,height:60,objectFit:"cover",borderRadius:6}}/>)}
+              {draft.files.length>8&&<div style={{width:60,height:60,borderRadius:6,background:C.bg3,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:C.t2}}>+{draft.files.length-8}</div>}
+            </div>
+            <div style={{fontSize:12,color:C.green,fontWeight:600,marginTop:8}}>✓ {draft.files.length} foto{draft.files.length>1?"s":""} seleccionada{draft.files.length>1?"s":""}</div>
+          </>}
         </div>
-        <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleFile}/>
-        <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Título *</div><input style={INP} placeholder="Ej: Losa planta baja" value={draft.titulo} onChange={e=>setDraft(d=>({...d,titulo:e.target.value}))}/></div>
+        <input ref={fileRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handleFile}/>
+        <div>
+          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Título base *</div>
+          <input style={INP} placeholder="Ej: Losa planta baja" value={draft.titulo} onChange={e=>setDraft(d=>({...d,titulo:e.target.value}))}/>
+          {draft.files.length>1&&<div style={{fontSize:10,color:C.t3,marginTop:3}}>Se numerarán automáticamente: "{draft.titulo||"Foto"} 1", "{draft.titulo||"Foto"} 2"...</div>}
+        </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Fecha</div><input style={INP} type="date" value={draft.fecha} onChange={e=>setDraft(d=>({...d,fecha:e.target.value}))}/></div>
           <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Etapa</div>
@@ -1336,7 +1404,8 @@ function FotosTab({obra,fotos,puedoCargar,esAdmin,user,toast,reload,obraEtapas})
             {ambientes.map(a=><option key={a} value={a}>{a}</option>)}
           </select>
         </div>
-        <div style={{display:"flex",gap:8}}><Btn primary onClick={save} disabled={!draft.file||!draft.titulo.trim()} loading={saving}>Subir foto</Btn><Btn onClick={()=>setModal(false)}>Cancelar</Btn></div>
+        {saving&&<div style={{background:C.bg3,borderRadius:8,padding:"8px 12px",fontSize:12,color:C.t2}}>Subiendo fotos... por favor esperá.</div>}
+        <div style={{display:"flex",gap:8}}><Btn primary onClick={save} disabled={!draft.files.length||!draft.titulo.trim()} loading={saving}>Subir {draft.files.length>1?`${draft.files.length} fotos`:"foto"}</Btn><Btn onClick={()=>setModal(false)}>Cancelar</Btn></div>
       </div>
     </Modal>}
   </div>;
