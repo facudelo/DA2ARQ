@@ -1,5 +1,6 @@
 "use client";
 import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
@@ -1256,8 +1257,8 @@ function FotosTab({obra,fotos,puedoCargar,esAdmin,user,toast,reload,obraEtapas})
       </div>
     </div>)}
 
-    {lbFoto&&<div
-      style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,background:"#080c08",display:"flex",flexDirection:"column"}}
+    {lbFoto&&createPortal(<div
+      style={{position:"fixed",top:0,left:0,width:"100vw",height:"100vh",zIndex:9999,background:"#080c08",display:"flex",flexDirection:"column"}}
       onTouchStart={e=>{touchStartX.current=e.touches[0].clientX;}}
       onTouchEnd={e=>{if(touchStartX.current===null)return;const dx=e.changedTouches[0].clientX-touchStartX.current;if(dx>60)lbPrev();else if(dx<-60)lbNext();touchStartX.current=null;}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 20px",background:"rgba(0,0,0,.6)",backdropFilter:"blur(12px)",flexShrink:0}}>
@@ -1289,7 +1290,7 @@ function FotosTab({obra,fotos,puedoCargar,esAdmin,user,toast,reload,obraEtapas})
         </div>
         <div style={{textAlign:"center",marginTop:8,fontSize:10,color:"rgba(255,255,255,.2)"}}>← → teclado · swipe · ESC</div>
       </div>
-    </div>}
+    </div>, document.body)}
 
     {gestionModal&&<GestionEtapasModal obra={obra} obraEtapas={obraEtapas||[]} toast={toast} reload={reload} onClose={()=>setGestionModal(false)}/>}
 
