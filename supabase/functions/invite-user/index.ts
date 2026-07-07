@@ -6,6 +6,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const SITE_URL = Deno.env.get("SITE_URL") || "https://da-2-arq.vercel.app";
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -24,6 +26,7 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_ANON_KEY")!,
       { global: { headers: { Authorization: authHeader } } }
     );
+
     const { data: { user }, error: userErr } = await userClient.auth.getUser();
     if (userErr || !user) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: corsHeaders });
 
@@ -33,6 +36,7 @@ serve(async (req) => {
     // Verificar que el caller es admin de esa obra
     const { data: miPartic } = await adminClient
       .from("participantes").select("rol").eq("obra_id", obra_id).eq("user_id", user.id).single();
+
     if (!miPartic || !["arquitecto", "ayudante"].includes(miPartic.rol)) {
       return new Response(JSON.stringify({ error: "Sin permisos para invitar" }), { status: 403, headers: corsHeaders });
     }
@@ -46,18 +50,24 @@ serve(async (req) => {
     if (existingUser) {
       // Ya tiene cuenta — solo re-invitar sin crear usuario nuevo
       targetUserId = existingUser.id;
-      // Reenviar email de recuperación para que pueda setear contraseña si no lo hizo
-      await adminClient.auth.admin.inviteUserByEmail(email.trim(), {
-        redirectTo: `${Deno.env.get("SITE_URL") || "https://da2arq-v2.vercel.app"}/`,
+      const { error: reinviteErr } = await adminClient.auth.admin.inviteUserByEmail(email.trim(), {
+        redirectTo: `${SITE_URL}/`,
         data: { nombre },
-      }).catch(() => {}); // Ignorar error si ya está confirmado
+      });
+      if (reinviteErr) {
+        // Ya no se ignora: se loguea para poder diagnosticar en el dashboard
+        console.error("Error reenviando invite a usuario existente:", reinviteErr.message);
+      }
     } else {
       // Usuario nuevo — invitar
       const { data: invData, error: invErr } = await adminClient.auth.admin.inviteUserByEmail(email.trim(), {
-        redirectTo: `${Deno.env.get("SITE_URL") || "https://da2arq-v2.vercel.app"}/`,
+        redirectTo: `${SITE_URL}/`,
         data: { nombre },
       });
-      if (invErr) return new Response(JSON.stringify({ error: invErr.message }), { status: 400, headers: corsHeaders });
+      if (invErr) {
+        console.error("Error invitando usuario nuevo:", invErr.message, "| SITE_URL usado:", SITE_URL);
+        return new Response(JSON.stringify({ error: invErr.message }), { status: 400, headers: corsHeaders });
+      }
       targetUserId = invData.user.id;
     }
 
@@ -77,8 +87,8 @@ serve(async (req) => {
     return new Response(JSON.stringify({ ok: true, mensaje: `Invitación enviada a ${email}` }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-
   } catch (e) {
+    console.error("Error inesperado en invite-user:", e.message);
     return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: corsHeaders });
   }
 });
