@@ -161,6 +161,31 @@ function AuthScreen({onLogin,toast}){
 }
 
 // ── SET PASSWORD (link de invitación / recuperación) ──────────────────────────
+function ChangePasswordModal({onClose,toast}){
+  const [pass,setPass]=useState("");
+  const [pass2,setPass2]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [err,setErr]=useState("");
+  const handle=async()=>{
+    if(pass.length<6)return setErr("La contraseña debe tener al menos 6 caracteres.");
+    if(pass!==pass2)return setErr("Las contraseñas no coinciden.");
+    setLoading(true);setErr("");
+    const{error}=await supabase.auth.updateUser({password:pass});
+    if(error){setErr(error.message);setLoading(false);return;}
+    toast.success("Contraseña actualizada");
+    setLoading(false);
+    onClose();
+  };
+  return <Modal title="Cambiar contraseña" onClose={onClose}>
+    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+      <div><div style={{fontSize:11,color:C.t2,marginBottom:5,fontWeight:600}}>Nueva contraseña</div><input style={INP} type="password" placeholder="••••••••" value={pass} onChange={e=>setPass(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/></div>
+      <div><div style={{fontSize:11,color:C.t2,marginBottom:5,fontWeight:600}}>Repetir contraseña</div><input style={INP} type="password" placeholder="••••••••" value={pass2} onChange={e=>setPass2(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/></div>
+      {err&&<div style={{background:C.red+"18",border:`1px solid ${C.red}33`,borderRadius:7,padding:"8px 12px",fontSize:12,color:C.red}}>{err}</div>}
+      <div style={{display:"flex",gap:8}}><Btn primary onClick={handle} loading={loading}>Guardar</Btn><Btn onClick={onClose}>Cancelar</Btn></div>
+    </div>
+  </Modal>;
+}
+
 function SetPasswordScreen({user,toast,onDone}){
   const [pass,setPass]=useState("");
   const [pass2,setPass2]=useState("");
@@ -209,6 +234,7 @@ function ObrasScreen({user,onSelect,onLogout,toast}){
   const [obras,setObras]=useState([]);
   const [loading,setLoading]=useState(true);
   const [modal,setModal]=useState(false);
+  const [showPw,setShowPw]=useState(false);
   const [saving,setSaving]=useState(false);
   const [draft,setDraft]=useState({nombre:"",direccion:"",estado:"En ejecución",presupuesto_total:"",moneda_presupuesto:"ARS",presup_tipo:"total"});
   const loadObras=useCallback(async()=>{setLoading(true);const{data,error}=await supabase.from("obras").select("*, participantes!inner(rol,puede_cargar,user_id)").eq("participantes.user_id",user.id).order("created_at",{ascending:false});if(!error)setObras(data||[]);setLoading(false);},[user.id]);
@@ -226,7 +252,7 @@ function ObrasScreen({user,onSelect,onLogout,toast}){
   return <div style={{minHeight:"100vh",background:C.bg}}>
     <div style={{background:C.bg2,borderBottom:`1px solid ${C.bd}`,padding:"0 20px",display:"flex",alignItems:"center",justifyContent:"space-between",height:54}}>
       <div style={{display:"flex",alignItems:"center",gap:10}}><Logo size={40}/><div><div style={{fontWeight:800,fontSize:15,color:C.t}}>DA2ARQ</div><div style={{fontSize:10,color:C.t3}}>Gestión de obra</div></div></div>
-      <div style={{display:"flex",alignItems:"center",gap:10}}><span className="hide-mobile" style={{fontSize:12,color:C.t2}}>{user.email}</span><Btn small onClick={onLogout}>Salir</Btn></div>
+      <div style={{display:"flex",alignItems:"center",gap:10}}><span className="hide-mobile" style={{fontSize:12,color:C.t2}}>{user.email}</span><Btn small onClick={()=>setShowPw(true)}>🔒 Contraseña</Btn><Btn small onClick={onLogout}>Salir</Btn></div>
     </div>
     <div style={{padding:24,maxWidth:960,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:22}}>
@@ -268,6 +294,7 @@ function ObrasScreen({user,onSelect,onLogout,toast}){
         <div style={{display:"flex",gap:8,marginTop:4}}><Btn primary onClick={save} loading={saving}>Crear</Btn><Btn onClick={()=>setModal(false)}>Cancelar</Btn></div>
       </div>
     </Modal>}
+    {showPw&&<ChangePasswordModal onClose={()=>setShowPw(false)} toast={toast}/>}
   </div>;
 }
 
@@ -288,6 +315,7 @@ function ObraApp(props){
   const [monedaVista,setMonedaVista]=useState("ARS");
   const [notifVistas,setNotifVistas]=useState(()=>{try{return JSON.parse(localStorage.getItem("nv_"+obra.id)||"{}")}catch{return {}}});
   const [tabsClienteLocal,setTabsClienteLocal]=useState(obra.tabs_cliente||null);
+  const [showPw,setShowPw]=useState(false);
 
   const loadAll=useCallback(async()=>{
     setLoadingData(true);
@@ -355,6 +383,7 @@ function ObraApp(props){
             {["ARS","USD"].map(m=><button key={m} onClick={()=>setMonedaVista(m)} style={{padding:"4px 12px",fontSize:11,border:"none",borderRadius:16,cursor:"pointer",background:monedaVista===m?C.green:"transparent",color:monedaVista===m?"#fff":C.t2,fontWeight:monedaVista===m?700:400,transition:"all .2s"}}>{m}</button>)}
           </div>
           <Tag label={ROL_LABEL[miRol]} color={ROL_COLOR[miRol]}/>
+          <Btn small onClick={()=>setShowPw(true)}>🔒</Btn>
           <Btn small onClick={onLogout}>Salir</Btn>
         </div>
       </div>
@@ -427,6 +456,7 @@ function ObraApp(props){
         onClose={()=>setShowGastoModal(false)}
       />}
     </>}
+    {showPw&&<ChangePasswordModal onClose={()=>setShowPw(false)} toast={toast}/>}
   </div>;
 }
 
