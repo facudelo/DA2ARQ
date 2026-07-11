@@ -86,6 +86,7 @@ export default function App(){
   ];
   const [cacData,setCacData]=useState(CAC_BASE);
   const toast=useToast();
+  const [needsPassword,setNeedsPassword]=useState(()=>typeof window!=="undefined"&&(window.location.hash.includes("type=invite")||window.location.hash.includes("type=recovery")));
 
   useEffect(()=>{
     supabase.auth.getSession().then(({data:{session}})=>{setUser(session?.user??null);setAuthLoading(false);});
@@ -119,6 +120,7 @@ export default function App(){
   };
 
   if(authLoading)return <><style>{gCSS}</style><Spinner/></>;
+  if(needsPassword)return <><style>{gCSS}</style><SetPasswordScreen user={user} toast={toast} onDone={()=>{window.history.replaceState(null,"",window.location.pathname);setNeedsPassword(false);}}/><ToastContainer toasts={toast.toasts}/></>;
   if(!user)return <><style>{gCSS}</style><AuthScreen onLogin={setUser} toast={toast}/><ToastContainer toasts={toast.toasts}/></>;
   if(!obraActiva)return <><style>{gCSS}</style><ObrasScreen user={user} onSelect={o=>{setObraActiva(o);setTab("dashboard");}} onLogout={async()=>{await supabase.auth.signOut();setUser(null);}} toast={toast}/><ToastContainer toasts={toast.toasts}/></>;
   return <><style>{gCSS}</style><ObraApp user={user} obra={obraActiva} tab={tab} setTab={setTab} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} tcLoading={tcLoading} fetchTCs={fetchTCs} inflData={inflData} fetchIPC={fetchIPC} tcHistData={tcHistData} fetchTCHist={fetchTCHist} cacData={cacData} fetchCAC={fetchCAC} refreshCAC={refreshCAC} toast={toast} onBack={()=>setObraActiva(null)} onLogout={async()=>{await supabase.auth.signOut();setUser(null);setObraActiva(null);}}/><ToastContainer toasts={toast.toasts}/></>;
@@ -152,6 +154,50 @@ function AuthScreen({onLogin,toast}){
           <div><div style={{fontSize:11,color:C.t2,marginBottom:5,fontWeight:600}}>Contraseña</div><input style={INP} type="password" placeholder="••••••••" value={pass} onChange={e=>setPass(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/></div>
           {err&&<div style={{background:C.red+"18",border:`1px solid ${C.red}33`,borderRadius:7,padding:"8px 12px",fontSize:12,color:C.red}}>{err}</div>}
           <Btn primary full onClick={handle} loading={loading}>{mode==="login"?"Ingresar":"Crear cuenta"}</Btn>
+        </div>
+      </Card>
+    </div>
+  </div>;
+}
+
+// ── SET PASSWORD (link de invitación / recuperación) ──────────────────────────
+function SetPasswordScreen({user,toast,onDone}){
+  const [pass,setPass]=useState("");
+  const [pass2,setPass2]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [err,setErr]=useState("");
+
+  const handle=async()=>{
+    if(pass.length<6)return setErr("La contraseña debe tener al menos 6 caracteres.");
+    if(pass!==pass2)return setErr("Las contraseñas no coinciden.");
+    setLoading(true);setErr("");
+    const{error}=await supabase.auth.updateUser({password:pass});
+    if(error){setErr(error.message);setLoading(false);return;}
+    toast.success("Contraseña creada. ¡Bienvenido!");
+    setLoading(false);
+    onDone();
+  };
+
+  if(!user)return <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+    <div style={{width:"100%",maxWidth:380}}><Card><div style={{textAlign:"center",padding:10}}>
+      <div style={{fontSize:14,color:C.t,marginBottom:14,fontWeight:600}}>El link de invitación es inválido o ya expiró.</div>
+      <Btn primary onClick={()=>{window.history.replaceState(null,"",window.location.pathname);window.location.reload();}}>Ir al login</Btn>
+    </div></Card></div>
+  </div>;
+
+  return <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+    <div style={{width:"100%",maxWidth:380}}>
+      <div style={{textAlign:"center",marginBottom:28}}>
+        <div style={{display:"flex",justifyContent:"center",marginBottom:14}}><Logo size={90}/></div>
+        <div style={{fontWeight:800,fontSize:24,letterSpacing:"-.04em",color:C.t}}>DA2ARQ</div>
+        <div style={{color:C.t3,fontSize:13,marginTop:3}}>Creá tu contraseña para {user.email}</div>
+      </div>
+      <Card>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div><div style={{fontSize:11,color:C.t2,marginBottom:5,fontWeight:600}}>Nueva contraseña</div><input style={INP} type="password" placeholder="••••••••" value={pass} onChange={e=>setPass(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/></div>
+          <div><div style={{fontSize:11,color:C.t2,marginBottom:5,fontWeight:600}}>Repetir contraseña</div><input style={INP} type="password" placeholder="••••••••" value={pass2} onChange={e=>setPass2(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/></div>
+          {err&&<div style={{background:C.red+"18",border:`1px solid ${C.red}33`,borderRadius:7,padding:"8px 12px",fontSize:12,color:C.red}}>{err}</div>}
+          <Btn primary full onClick={handle} loading={loading}>Crear contraseña e ingresar</Btn>
         </div>
       </Card>
     </div>
