@@ -314,7 +314,6 @@ function ObraApp(props){
   const [showGastoModal,setShowGastoModal]=useState(false);
   const [monedaVista,setMonedaVista]=useState("ARS");
   const [notifVistas,setNotifVistas]=useState(()=>{try{return JSON.parse(localStorage.getItem("nv_"+obra.id)||"{}")}catch{return {}}});
-  const [tabsClienteLocal,setTabsClienteLocal]=useState(obra.tabs_cliente||null);
   const [showPw,setShowPw]=useState(false);
 
   const loadAll=useCallback(async()=>{
@@ -342,6 +341,9 @@ function ObraApp(props){
   const miRol=miP?.rol||"cliente";
   const puedoCargar=miP?.puede_cargar||false;
   const esAdmin=miRol==="arquitecto"||miRol==="ayudante";
+  const TABS_CLIENTE_DEFAULT=["dashboard","gastos","fotos","objetivos","reportes","resumen","ipc","usd","cac"];
+  const tabsCliente=miP?.tabs_permitidas||TABS_CLIENTE_DEFAULT;
+  const puedeVerEjecutado=miP?.ve_ejecutado!==false;
   const tcRef=tcOficial||tcManual;
   const gastosVis=esAdmin?gastos:miRol==="ayudante"?gastos.filter(g=>g.visibilidad!=="privado"):gastos.filter(g=>g.visibilidad==="publico");
 
@@ -349,14 +351,11 @@ function ObraApp(props){
   const totalNotifs=gastosNuevos;
   const marcarTodosVistos=()=>{const nv={...notifVistas};gastosVis.forEach(g=>{nv[g.id]=1;});comentarios.forEach(c=>{nv["c_"+c.id]=1;});setNotifVistas(nv);try{localStorage.setItem("nv_"+obra.id,JSON.stringify(nv));}catch{}};
 
-  // Tabs permitidas para clientes (guardadas en obra.tabs_cliente)
-  const TABS_CLIENTE_DEFAULT=["dashboard","gastos","fotos","objetivos","reportes","resumen","ipc","usd","cac"];
-  const tabsCliente=tabsClienteLocal||TABS_CLIENTE_DEFAULT;
-
+  // Tabs permitidas para clientes (guardadas por participante en participantes.tabs_permitidas)
   const TABS=[
-    {id:"dashboard",label:"Dashboard",icon:"📊"},
-    {id:"gastos",label:"Gastos",icon:"💸",badge:totalNotifs},
-    ...(esAdmin?[{id:"presupuesto",label:"Presupuesto",icon:"📐"}]:[]),
+    ...(esAdmin||tabsCliente.includes("dashboard")?[{id:"dashboard",label:"Dashboard",icon:"📊"}]:[]),
+    ...(esAdmin||tabsCliente.includes("gastos")?[{id:"gastos",label:"Gastos",icon:"💸",badge:totalNotifs}]:[]),
+    ...(esAdmin||tabsCliente.includes("presupuesto")?[{id:"presupuesto",label:"Presupuesto",icon:"📐"}]:[]),
     ...(esAdmin||tabsCliente.includes("fotos")?[{id:"fotos",label:"Fotos",icon:"📷"}]:[]),
     ...(esAdmin||tabsCliente.includes("objetivos")?[{id:"objetivos",label:"Objetivos",icon:"🏁"}]:[]),
     ...(esAdmin||tabsCliente.includes("reportes")?[{id:"reportes",label:"Reportes",icon:"📈"}]:[]),
@@ -368,6 +367,8 @@ function ObraApp(props){
     ...(esAdmin||tabsCliente.includes("usd")?[{id:"usd",label:"USD",icon:"💵"}]:[]),
     ...(esAdmin||tabsCliente.includes("cac")?[{id:"cac",label:"CAC",icon:"🏗️"}]:[]),
   ];
+  const tabsIds=TABS.map(t=>t.id).join(",");
+  useEffect(()=>{const ids=tabsIds.split(",").filter(Boolean);if(ids.length&&!ids.includes(tab))setTab(ids[0]);},[tabsIds,tab,setTab]);
   const goTab=id=>{setTab(id);setMobileMenu(false);if(id==="ipc")fetchIPC();if(id==="usd"){fetchIPC();fetchTCHist();}if(id==="cac")fetchCAC();if(id==="gastos")marcarTodosVistos();};
 
   return <div style={{minHeight:"100vh",background:C.bg}}>
@@ -429,14 +430,14 @@ function ObraApp(props){
       {loadingData?<Spinner/>:<>
         {tab==="dashboard"&&<DashboardTab obra={obra} gastos={gastosVis} esAdmin={esAdmin} presup={presup} tcRef={tcRef} partic={partic} cats={cats} fotos={fotos} hitos={hitos} monedaVista={monedaVista}/>}
         {tab==="gastos"&&<GastosTab user={user} obra={obra} gastos={gastos} esAdmin={esAdmin} miRol={miRol} puedoCargar={puedoCargar} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} externalOpen={showGastoModal} onExternalClose={()=>setShowGastoModal(false)} comentarios={comentarios} miUserId={user.id}/>}
-        {tab==="presupuesto"&&esAdmin&&<PresupuestoTab obra={obra} gastos={gastos} presup={presup} tcRef={tcRef} tcOficial={tcOficial} tcBlue={tcBlue} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} inflData={inflData} fetchIPC={fetchIPC} cacData={cacData} fetchCAC={fetchCAC}/>}
+        {tab==="presupuesto"&&(esAdmin||tabsCliente.includes("presupuesto"))&&<PresupuestoTab obra={obra} gastos={gastos} presup={presup} tcRef={tcRef} tcOficial={tcOficial} tcBlue={tcBlue} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} inflData={inflData} fetchIPC={fetchIPC} cacData={cacData} fetchCAC={fetchCAC} esAdmin={esAdmin} puedeVerEjecutado={esAdmin||puedeVerEjecutado}/>}
         {tab==="fotos"&&<FotosTab obra={obra} fotos={fotos} puedoCargar={puedoCargar||esAdmin} esAdmin={esAdmin} user={user} toast={toast} reload={loadAll} obraEtapas={obraEtapas}/>}
         {tab==="objetivos"&&<HitosTab obra={obra} hitos={hitos} esAdmin={esAdmin} toast={toast} reload={loadAll}/>}
         {tab==="reportes"&&<ReportesTab obra={obra} gastos={gastosVis} presup={presup} tcRef={tcRef} cats={cats} esAdmin={esAdmin} monedaVista={monedaVista}/>}
         {tab==="resumen"&&!esAdmin&&<ResumenClienteTab obra={obra} gastos={gastosVis} presup={presup} tcRef={tcRef} cats={cats} fotos={fotos} hitos={hitos} monedaVista={monedaVista}/>}
         {tab==="categorias"&&esAdmin&&<CategoriasTab cats={cats} obra={obra} toast={toast} reload={loadAll}/>}
         {tab==="participantes"&&esAdmin&&<ParticipantesTab obra={obra} partic={partic} toast={toast} reload={loadAll}/>}
-        {tab==="accesos"&&esAdmin&&<AccesosTab obra={obra} tabsClienteLocal={tabsClienteLocal} setTabsClienteLocal={setTabsClienteLocal} toast={toast}/>}
+        {tab==="accesos"&&esAdmin&&<AccesosTab obra={obra} partic={partic} toast={toast} reload={loadAll}/>}
         {tab==="ipc"&&<IPCTab inflData={inflData}/>}
         {tab==="usd"&&<USDTab tcHistData={tcHistData} inflData={inflData} tcOficial={tcOficial} tcBlue={tcBlue}/>}
         {tab==="cac"&&<CACTab cacData={cacData} fetchCAC={fetchCAC} esAdmin={esAdmin} toast={toast} refreshCAC={refreshCAC}/>}
@@ -605,7 +606,7 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
   const vis=gastos.filter(g=>esAdmin||(miRol==="ayudante"&&g.visibilidad!=="privado")||g.visibilidad==="publico");
   const [showForm,setShowForm]=useState(false);
   const [filtro,setFiltro]=useState({cat:"todas",moneda:"todas",vis:"todas",q:""});
-  const [tcTipo,setTcTipo]=useState("oficial");
+  const [tcTipo,setTcTipo]=useState("blue");
   const [editM,setEditM]=useState(null);
   const [saving,setSaving]=useState(false);
   const [gastoComent,setGastoComent]=useState(null);
@@ -616,6 +617,7 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
   const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
 
   useEffect(()=>{if(externalOpen)setShowForm(true);},[externalOpen]);
+  const closeForm=()=>{setShowForm(false);onExternalClose&&onExternalClose();};
 
   const filtered=vis.filter(g=>{
     if(filtro.cat!=="todas"&&g.cat_id!==filtro.cat)return false;
@@ -654,6 +656,7 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
         <option value="todas">Toda visibilidad</option><option value="publico">Públicos</option><option value="solo_admin">Equipo</option><option value="privado">Privados</option>
       </select>}
       <input style={{...INP,flex:1,minWidth:120,fontSize:11}} placeholder="Buscar descripción..." value={filtro.q} onChange={e=>setFiltro(f=>({...f,q:e.target.value}))}/>
+      {(puedoCargar||esAdmin)&&<Btn primary onClick={()=>setShowForm(true)}>+ Cargar gasto</Btn>}
       <div style={{marginLeft:"auto",fontSize:12,fontWeight:700,color:C.green}}>{fmt(totalFilt)}</div>
     </div>
 
@@ -718,15 +721,16 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
       </div>
     </Modal>}
     {gastoComent&&<ComentariosModal gasto={gastoComent} comentarios={comentarios.filter(c=>c.gasto_id===gastoComent.id)} obra={obra} user={user} esAdmin={esAdmin} toast={toast} reload={reload} onClose={()=>setGastoComent(null)}/>}
+    {showForm&&<GastoRapidoModal user={user} obra={obra} cats={cats} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} esAdmin={esAdmin} toast={toast} reload={reload} onClose={closeForm}/>}
   </div>;
 }
 
 // ── GASTO RÁPIDO MODAL (FAB) ──────────────────────────────────────────────────
 function GastoRapidoModal({user,obra,cats,tcOficial,tcBlue,tcManual,setTcManual,esAdmin,toast,reload,onClose}){
-  const [tcTipo,setTcTipo]=useState("oficial");
+  const [tcTipo,setTcTipo]=useState("blue");
   const tcRef=tcOficial||tcManual;
   const tcVal=tcTipo==="oficial"?(tcOficial||tcManual):tcTipo==="blue"?(tcBlue||tcManual):tcManual;
-  const initD=()=>({fecha:todayISO(),cat_id:cats[0]?.id||"",sub_id:cats[0]?.subs?.[0]?.id||"",monto:"",moneda:"ARS",descripcion:"",visibilidad:"publico"});
+  const initD=()=>({fecha:todayISO(),cat_id:cats[0]?.id||"",sub_id:cats[0]?.subs?.[0]?.id||"",monto:"",monto_cliente:"",moneda:"ARS",descripcion:"",visibilidad:esAdmin?"solo_admin":"publico"});
   const [draft,setDraft]=useState(initD);
   const [saving,setSaving]=useState(false);
   const montoNum=parseFloat(draft.monto)||0;
@@ -738,6 +742,7 @@ function GastoRapidoModal({user,obra,cats,tcOficial,tcBlue,tcManual,setTcManual,
       obra_id:obra.id,user_id:user.id,
       fecha:draft.fecha,cat_id:draft.cat_id,sub_id:draft.sub_id||null,
       monto:montoNum,moneda:draft.moneda,
+      monto_cliente:esAdmin&&draft.monto_cliente?parseFloat(draft.monto_cliente):null,
       tc_valor:draft.moneda==="USD"?tcVal:null,
       descripcion:draft.descripcion.trim()||null,
       visibilidad:esAdmin?draft.visibilidad:"publico",
@@ -750,7 +755,7 @@ function GastoRapidoModal({user,obra,cats,tcOficial,tcBlue,tcManual,setTcManual,
     <div style={{display:"flex",flexDirection:"column",gap:12}}>
       <div style={{display:"grid",gridTemplateColumns:"1fr 80px",gap:8}}>
         <div>
-          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Monto</div>
+          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>{esAdmin?"🔒 Monto real":"Monto"}</div>
           <input style={{...INP,fontSize:20,fontWeight:700}} type="number" placeholder="0" autoFocus value={draft.monto} onChange={e=>setDraft(d=>({...d,monto:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&save()}/>
         </div>
         <div>
@@ -758,6 +763,11 @@ function GastoRapidoModal({user,obra,cats,tcOficial,tcBlue,tcManual,setTcManual,
           <select style={SEL} value={draft.moneda} onChange={e=>setDraft(d=>({...d,moneda:e.target.value}))}><option>ARS</option><option>USD</option></select>
         </div>
       </div>
+
+      {esAdmin&&<div>
+        <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>🌐 Monto cliente <span style={{color:C.t3,fontWeight:400}}>(opcional, si es distinto al real)</span></div>
+        <input style={{...INP,borderColor:C.lima+"66"}} type="number" placeholder="igual al real" value={draft.monto_cliente} onChange={e=>setDraft(d=>({...d,monto_cliente:e.target.value}))}/>
+      </div>}
 
       {draft.moneda==="USD"&&<div style={{background:C.bg3,borderRadius:8,padding:"8px 12px"}}>
         <div style={{fontSize:11,color:C.t2,marginBottom:6,fontWeight:600}}>Tipo de cambio a usar</div>
@@ -911,9 +921,9 @@ function PanelAjuste({indiceAjuste,inflData,cacData,tcOficial,obra,presupBaseARS
 }
 
 // ── PRESUPUESTO ───────────────────────────────────────────────────────────────
-function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,reload,monedaVista,inflData,fetchIPC,cacData,fetchCAC}){
+function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,reload,monedaVista,inflData,fetchIPC,cacData,fetchCAC,esAdmin=true,puedeVerEjecutado=true}){
   const [modal,setModal]=useState(false);
-  const [draft,setDraft]=useState({cat_id:cats[0]?.id||"",monto:"",moneda:"ARS",fecha:todayISO(),descripcion:""});
+  const [draft,setDraft]=useState({cat_id:cats[0]?.id||"",sub_id:"",monto:"",moneda:"ARS",fecha:todayISO(),descripcion:""});
   const [saving,setSaving]=useState(false);
   const [showInfl,setShowInfl]=useState(false);
   const [expandedCat,setExpandedCat]=useState({});
@@ -968,12 +978,12 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
     if(!draft.monto||parseFloat(draft.monto)<=0)return;
     setSaving(true);
     const{error}=await supabase.from("presupuestos").insert({
-      obra_id:obra.id,cat_id:draft.cat_id,monto:parseFloat(draft.monto),
+      obra_id:obra.id,cat_id:draft.cat_id,sub_id:draft.sub_id||null,monto:parseFloat(draft.monto),
       moneda:draft.moneda,fecha:draft.fecha,descripcion:draft.descripcion.trim(),
     });
     if(error){toast.error("Error: "+error.message);setSaving(false);return;}
     toast.success("Presupuesto agregado");
-    setDraft({cat_id:cats[0]?.id||"",monto:"",moneda:"ARS",fecha:todayISO(),descripcion:""});
+    setDraft({cat_id:cats[0]?.id||"",sub_id:"",monto:"",moneda:"ARS",fecha:todayISO(),descripcion:""});
     setModal(false);await reload();setSaving(false);
   };
 
@@ -989,7 +999,10 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
       ps.forEach(p=>{
         const ej=ejCat(c.id);
         const pARS=p.moneda==="USD"?p.monto*tcRef:p.monto;
-        rows.push({Categoria:c.label,Fecha:p.fecha||"",Descripcion:p.descripcion||"",Monto:p.monto,Moneda:p.moneda,Monto_ARS:Math.round(pARS),Ejecutado_ARS:Math.round(ej)});
+        const subL=c.subs?.find(s=>s.id===p.sub_id)?.label||"";
+        const row={Categoria:c.label,Subcategoria:subL,Fecha:p.fecha||"",Descripcion:p.descripcion||"",Monto:p.monto,Moneda:p.moneda,Monto_ARS:Math.round(pARS)};
+        if(puedeVerEjecutado)row.Ejecutado_ARS=Math.round(ej);
+        rows.push(row);
       });
     });
     if(rows.length)exportCSV(rows,`presupuesto_${obra.nombre.replace(/\s+/g,"_")}.csv`);
@@ -1042,7 +1055,7 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
       <div>
         <div style={{fontSize:16,fontWeight:700,color:C.t}}>Presupuesto por categoría</div>
-        <div style={{fontSize:12,color:C.t3}}>Total presup: {fmt(totalPMV)} · Ejecutado: {fmt(totalEMV)}</div>
+        <div style={{fontSize:12,color:C.t3}}>Total presup: {fmt(totalPMV)}{puedeVerEjecutado?` · Ejecutado: ${fmt(totalEMV)}`:""}</div>
       </div>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
         {/* Selector índice de ajuste */}
@@ -1050,15 +1063,15 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
           {INDICES.map(idx=><button key={idx.v} onClick={()=>{setIndiceAjuste(idx.v);if(idx.v==="ipc"&&!inflData)fetchIPC();if(idx.v==="cac"&&!cacData)fetchCAC();}} style={{padding:"4px 10px",fontSize:11,border:"none",borderRadius:6,cursor:"pointer",background:indiceAjuste===idx.v?idx.color:"transparent",color:indiceAjuste===idx.v?"#fff":C.t2,fontWeight:indiceAjuste===idx.v?700:400,transition:"all .2s"}}>{idx.label}</button>)}
         </div>
         <Btn small onClick={doExport}>⬇ CSV</Btn>
-        <Btn primary onClick={()=>{setDraft({cat_id:cats[0]?.id||"",monto:"",moneda:"ARS",fecha:todayISO(),descripcion:""});setModal(true);}}>+ Agregar presupuesto</Btn>
+        {esAdmin&&<Btn primary onClick={()=>{setDraft({cat_id:cats[0]?.id||"",sub_id:"",monto:"",moneda:"ARS",fecha:todayISO(),descripcion:""});setModal(true);}}>+ Agregar presupuesto</Btn>}
       </div>
     </div>
 
     {/* Resumen total */}
     <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
       <StatCard label={`Presupuesto total (${monedaVista})`} value={fmt(totalPMV)} color={C.blue} icon="📐"/>
-      <StatCard label={`Ejecutado (${monedaVista})`} value={fmt(totalEMV)} color={C.green} icon="💸"/>
-      <StatCard label={`Disponible (${monedaVista})`} value={fmt(Math.max(0,totalPMV-totalEMV))} color={totalPMV-totalEMV<0?C.red:C.lima} icon="✅"/>
+      {puedeVerEjecutado&&<StatCard label={`Ejecutado (${monedaVista})`} value={fmt(totalEMV)} color={C.green} icon="💸"/>}
+      {puedeVerEjecutado&&<StatCard label={`Disponible (${monedaVista})`} value={fmt(Math.max(0,totalPMV-totalEMV))} color={totalPMV-totalEMV<0?C.red:C.lima} icon="✅"/>}
       {presupAjustado&&<StatCard label={`Presup. ajustado (${INDICES.find(i=>i.v===indiceAjuste)?.label||indiceAjuste.toUpperCase()})`} value={fmt(enUSD?(presupAjustado/tcRef):presupAjustado)} color={INDICES.find(i=>i.v===indiceAjuste)?.color||C.amber} icon="📊" sub={totalPMV>0?`+${fmt(enUSD?((presupAjustado-totalPMV*tcRef)/tcRef):(presupAjustado-totalPMV))} vs original`:undefined}/>}
     </div>
 
@@ -1068,9 +1081,9 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
         <thead><tr style={{borderBottom:`2px solid ${C.bd2}`}}>
           <th style={{padding:"8px 10px",textAlign:"left",color:C.t3,fontWeight:600,fontSize:11}}>Categoría</th>
           <th style={{padding:"8px 10px",textAlign:"right",color:C.t3,fontWeight:600,fontSize:11}}>Presupuestado</th>
-          <th style={{padding:"8px 10px",textAlign:"right",color:C.t3,fontWeight:600,fontSize:11}}>Ejecutado</th>
-          <th style={{padding:"8px 10px",textAlign:"right",color:C.t3,fontWeight:600,fontSize:11}}>Diferencia</th>
-          <th style={{padding:"8px 10px",minWidth:120,color:C.t3,fontWeight:600,fontSize:11}}>Avance</th>
+          {puedeVerEjecutado&&<th style={{padding:"8px 10px",textAlign:"right",color:C.t3,fontWeight:600,fontSize:11}}>Ejecutado</th>}
+          {puedeVerEjecutado&&<th style={{padding:"8px 10px",textAlign:"right",color:C.t3,fontWeight:600,fontSize:11}}>Diferencia</th>}
+          {puedeVerEjecutado&&<th style={{padding:"8px 10px",minWidth:120,color:C.t3,fontWeight:600,fontSize:11}}>Avance</th>}
           <th style={{padding:"8px 10px",width:36}}/>
         </tr></thead>
         <tbody>
@@ -1092,34 +1105,36 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
                   </div>
                 </td>
                 <td style={{padding:"10px",textAlign:"right",fontWeight:600,color:C.blue}}>{pMV>0?fmt(pMV):"—"}</td>
-                <td style={{padding:"10px",textAlign:"right",fontWeight:600,color:C.green}}>{fmt(eMV)}</td>
-                <td style={{padding:"10px",textAlign:"right",fontWeight:600,color:pMV>0?(diff>=0?C.green:C.red):C.t3,whiteSpace:"nowrap"}}>{pMV>0?fmt(diff):"—"}</td>
-                <td style={{padding:"10px",minWidth:120}}>
+                {puedeVerEjecutado&&<td style={{padding:"10px",textAlign:"right",fontWeight:600,color:C.green}}>{fmt(eMV)}</td>}
+                {puedeVerEjecutado&&<td style={{padding:"10px",textAlign:"right",fontWeight:600,color:pMV>0?(diff>=0?C.green:C.red):C.t3,whiteSpace:"nowrap"}}>{pMV>0?fmt(diff):"—"}</td>}
+                {puedeVerEjecutado&&<td style={{padding:"10px",minWidth:120}}>
                   {pct!==null?<><div style={{height:6,borderRadius:3,background:C.bg3,marginBottom:3}}><div style={{height:"100%",borderRadius:3,background:col,width:`${Math.min(pct,100)}%`,transition:"width .5s"}}/></div><span style={{fontSize:10,color:col,fontWeight:700}}>{pct}%</span></>:<span style={{fontSize:11,color:C.t3}}>Sin presup.</span>}
-                </td>
+                </td>}
                 <td style={{padding:"10px",textAlign:"right"}}/>
               </tr>
               {isExp&&registros.map((p,i)=>{
                 const pMVr=presupToMV(p);
                 const infl=ajusteDesde(p.fecha);
                 const ajustado=infl!=null?pMVr*(1+infl):null;
+                const subL=c.subs?.find(s=>s.id===p.sub_id)?.label;
                 return <tr key={p.id} style={{background:C.bg3,borderBottom:`1px solid ${C.bd}`}}>
                   <td style={{padding:"6px 10px 6px 44px",color:C.t3,fontSize:12}}>
                     <span style={{marginRight:6}}>└</span>
                     <span style={{color:C.t2,fontWeight:600}}>#{i+1}</span>
+                    {subL&&<span style={{marginLeft:8,background:C.blue+"18",color:C.blue,borderRadius:5,padding:"1px 7px",fontSize:10,fontWeight:600}}>{subL}</span>}
                     {p.fecha&&<span style={{marginLeft:8,color:C.t3}}>📅 {p.fecha}</span>}
                     {p.descripcion&&<span style={{marginLeft:8,color:C.t2,fontStyle:"italic"}}>· {p.descripcion}</span>}
                   </td>
                   <td style={{padding:"6px 10px",textAlign:"right",color:C.blue,fontSize:12,fontWeight:600}}>{fmt(pMVr)}</td>
-                  <td style={{padding:"6px 10px",textAlign:"right",color:C.t3,fontSize:11}} colSpan={2}>
+                  <td style={{padding:"6px 10px",textAlign:"right",color:C.t3,fontSize:11}} colSpan={puedeVerEjecutado?2:1}>
                     {ajustado!=null&&<span style={{background:C.amber+"18",color:C.amber,borderRadius:5,padding:"1px 7px",fontSize:10,fontWeight:600}}>Ajustado: {fmt(ajustado)} (+{(infl*100).toFixed(1)}%)</span>}
                     {ajustado===null&&inflData&&<span style={{background:C.green+"18",color:C.green,borderRadius:5,padding:"1px 7px",fontSize:10,fontWeight:600}}>✓ Al día</span>}
                   </td>
-                  <td style={{padding:"6px 10px"}} colSpan={2}>
+                  {esAdmin&&<td style={{padding:"6px 10px"}} colSpan={puedeVerEjecutado?2:1}>
                     <div style={{display:"flex",justifyContent:"flex-end"}}>
                       <button onClick={()=>deleteP(p.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.t3,fontSize:14,padding:"2px 6px"}}>×</button>
                     </div>
-                  </td>
+                  </td>}
                 </tr>;
               })}
             </React.Fragment>;
@@ -1128,9 +1143,9 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
         <tfoot><tr style={{borderTop:`2px solid ${C.bd2}`,background:C.bg3}}>
           <td style={{padding:"10px",fontWeight:700,color:C.t}}>TOTAL</td>
           <td style={{padding:"10px",textAlign:"right",fontWeight:700,color:C.t}}>{fmt(totalPMV)}</td>
-          <td style={{padding:"10px",textAlign:"right",fontWeight:700,color:C.green}}>{fmt(totalEMV)}</td>
-          <td style={{padding:"10px",textAlign:"right",fontWeight:700,color:totalPMV-totalEMV>=0?C.green:C.red}}>{fmt(totalPMV-totalEMV)}</td>
-          <td colSpan={2}/>
+          {puedeVerEjecutado&&<td style={{padding:"10px",textAlign:"right",fontWeight:700,color:C.green}}>{fmt(totalEMV)}</td>}
+          {puedeVerEjecutado&&<td style={{padding:"10px",textAlign:"right",fontWeight:700,color:totalPMV-totalEMV>=0?C.green:C.red}}>{fmt(totalPMV-totalEMV)}</td>}
+          <td colSpan={puedeVerEjecutado?2:1}/>
         </tr></tfoot>
       </table>
     </Card>
@@ -1155,11 +1170,20 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
 
     {modal&&<Modal title="Agregar presupuesto" onClose={()=>setModal(false)}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
-        <div>
-          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Categoría</div>
-          <select style={SEL} value={draft.cat_id} onChange={e=>setDraft(d=>({...d,cat_id:e.target.value}))}>
-            {cats.map(c=><option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
-          </select>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <div>
+            <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Categoría</div>
+            <select style={SEL} value={draft.cat_id} onChange={e=>setDraft(d=>({...d,cat_id:e.target.value,sub_id:""}))}>
+              {cats.map(c=><option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Subcategoría <span style={{color:C.t3,fontWeight:400}}>(opcional)</span></div>
+            <select style={SEL} value={draft.sub_id} onChange={e=>setDraft(d=>({...d,sub_id:e.target.value}))}>
+              <option value="">General (toda la categoría)</option>
+              {(cats.find(c=>c.id===draft.cat_id)?.subs||[]).map(s=><option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+          </div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 90px",gap:8}}>
           <div>
@@ -1364,25 +1388,26 @@ function FotosTab({obra,fotos,puedoCargar,esAdmin,user,toast,reload,obraEtapas})
           const globalIdx=fotosOrdenadas.indexOf(f);
           const isDragging=dragId===f.id;
           const isOver=dragOverId===f.id&&dragId!==f.id;
+          const puedoEditarEsta=esAdmin||(puedoCargar&&f.user_id===user.id);
           return <div key={f.id} className="foto-card"
-            draggable={puedoCargar}
+            draggable={puedoEditarEsta}
             onDragStart={()=>onDragStart(f.id)}
             onDragOver={e=>onDragOver(e,f.id)}
             onDrop={e=>onDrop(e,f.id,fs)}
             onDragEnd={()=>{setDragId(null);setDragOverId(null);}}
             onClick={()=>setLightboxIdx(globalIdx)}
-            style={{borderRadius:12,overflow:"hidden",cursor:puedoCargar?"grab":"pointer",background:"#000",border:`2px solid ${isOver?C.green:C.bd}`,position:"relative",aspectRatio:"4/3",transition:"transform .15s, box-shadow .15s, opacity .15s, border-color .15s",opacity:isDragging?.35:1,transform:isOver?"scale(1.03)":""}}>
+            style={{borderRadius:12,overflow:"hidden",cursor:puedoEditarEsta?"grab":"pointer",background:"#000",border:`2px solid ${isOver?C.green:C.bd}`,position:"relative",aspectRatio:"4/3",transition:"transform .15s, box-shadow .15s, opacity .15s, border-color .15s",opacity:isDragging?.35:1,transform:isOver?"scale(1.03)":""}}>
             <img src={f.url} alt={f.titulo} style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
             <div className="foto-overlay" style={{position:"absolute",inset:0,background:"linear-gradient(to top,rgba(0,0,0,.82) 0%,rgba(0,0,0,.1) 55%,transparent 100%)",display:"flex",flexDirection:"column",justifyContent:"flex-end",padding:"12px"}}>
               <div style={{fontSize:12,fontWeight:700,color:"#fff",marginBottom:2}}>{f.titulo}</div>
               <div style={{fontSize:10,color:"rgba(255,255,255,.65)"}}>{f.fecha}{f.etapa&&` · ${f.etapa}`}{f.ambiente&&` · ${f.ambiente}`}</div>
               <div style={{display:"flex",gap:5,marginTop:8}} onClick={e=>e.stopPropagation()}>
                 <button onClick={e=>downloadFoto(f,e)} style={{background:"rgba(255,255,255,.18)",border:"1px solid rgba(255,255,255,.25)",borderRadius:5,padding:"4px 9px",cursor:"pointer",color:"#fff",fontSize:11}}>⬇</button>
-                {puedoCargar&&<><button onClick={e=>{e.stopPropagation();setEditFoto(f);setEditDraft({etapa:f.etapa||"",ambiente:f.ambiente||"",titulo:f.titulo||""});}} style={{background:"rgba(255,255,255,.18)",border:"1px solid rgba(255,255,255,.25)",borderRadius:5,padding:"4px 9px",cursor:"pointer",color:"#fff",fontSize:11}}>✎</button>
+                {puedoEditarEsta&&<><button onClick={e=>{e.stopPropagation();setEditFoto(f);setEditDraft({etapa:f.etapa||"",ambiente:f.ambiente||"",titulo:f.titulo||""});}} style={{background:"rgba(255,255,255,.18)",border:"1px solid rgba(255,255,255,.25)",borderRadius:5,padding:"4px 9px",cursor:"pointer",color:"#fff",fontSize:11}}>✎</button>
                 <button onClick={e=>deleteFoto(f.id,f.storage_path,e)} style={{background:"rgba(180,40,40,.5)",border:"1px solid rgba(255,255,255,.2)",borderRadius:5,padding:"4px 9px",cursor:"pointer",color:"#fff",fontSize:11}}>×</button></>}
               </div>
             </div>
-            {puedoCargar&&<div style={{position:"absolute",top:8,left:8,background:"rgba(0,0,0,.4)",borderRadius:5,padding:"2px 5px",fontSize:10,color:"rgba(255,255,255,.5)",backdropFilter:"blur(4px)"}}>⠿</div>}
+            {puedoEditarEsta&&<div style={{position:"absolute",top:8,left:8,background:"rgba(0,0,0,.4)",borderRadius:5,padding:"2px 5px",fontSize:10,color:"rgba(255,255,255,.5)",backdropFilter:"blur(4px)"}}>⠿</div>}
             {modoAgrup==="etapa"&&f.ambiente&&<div style={{position:"absolute",top:8,right:8,background:"rgba(0,0,0,.55)",borderRadius:20,padding:"2px 8px",fontSize:9,color:"#fff",fontWeight:600}}>{f.ambiente}</div>}
             {modoAgrup==="ambiente"&&f.etapa&&<div style={{position:"absolute",top:8,right:8,background:"rgba(0,0,0,.55)",borderRadius:20,padding:"2px 8px",fontSize:9,color:"#fff",fontWeight:600}}>{f.etapa}</div>}
           </div>;
@@ -1990,10 +2015,11 @@ function CategoriasTab({cats,obra,toast,reload}){
 }
 
 // ── ACCESOS TAB ───────────────────────────────────────────────────────────────
-function AccesosTab({obra,tabsClienteLocal,setTabsClienteLocal,toast}){
+function AccesosTab({obra,partic,toast,reload}){
   const TABS_DISPONIBLES=[
     {id:"dashboard",label:"Dashboard",icon:"📊",desc:"Resumen general de la obra"},
     {id:"gastos",label:"Gastos",icon:"💸",desc:"Lista de gastos (solo los marcados como públicos)"},
+    {id:"presupuesto",label:"Presupuesto",icon:"📐",desc:"Presupuesto por categoría y ajustes por índice"},
     {id:"fotos",label:"Fotos",icon:"📷",desc:"Galería de fotos de avance"},
     {id:"objetivos",label:"Objetivos",icon:"🏁",desc:"Hitos y avance de obra"},
     {id:"reportes",label:"Reportes",icon:"📈",desc:"Gráficos y reportes de gastos"},
@@ -2002,68 +2028,84 @@ function AccesosTab({obra,tabsClienteLocal,setTabsClienteLocal,toast}){
     {id:"usd",label:"USD / Dólar",icon:"💵",desc:"Cotizaciones y evolución del dólar"},
     {id:"cac",label:"CAC",icon:"🏗️",desc:"Índice costo de construcción"},
   ];
-
   const DEFAULT=["dashboard","gastos","fotos","objetivos","reportes","resumen","ipc","usd","cac"];
-  const [tabs,setTabs]=useState(()=>tabsClienteLocal||DEFAULT);
+  const clientes=partic.filter(p=>p.rol==="cliente");
+  const [selId,setSelId]=useState(()=>clientes[0]?.id||null);
+  useEffect(()=>{if(!clientes.find(c=>c.id===selId))setSelId(clientes[0]?.id||null);},[clientes.map(c=>c.id).join(",")]);
+  const sel=clientes.find(c=>c.id===selId);
+  const [tabs,setTabs]=useState(()=>sel?.tabs_permitidas||DEFAULT);
+  const [verEj,setVerEj]=useState(()=>sel?.ve_ejecutado!==false);
   const [saving,setSaving]=useState(false);
 
-  const toggle=id=>{
-    if(id==="dashboard"||id==="gastos")return; // siempre visibles
-    setTabs(prev=>prev.includes(id)?prev.filter(t=>t!==id):[...prev,id]);
-  };
+  useEffect(()=>{if(sel){setTabs(sel.tabs_permitidas||DEFAULT);setVerEj(sel.ve_ejecutado!==false);}},[selId]);
+
+  const toggle=id=>setTabs(prev=>prev.includes(id)?prev.filter(t=>t!==id):[...prev,id]);
 
   const save=async()=>{
-    setSaving(true);
-    const{error}=await supabase.from("obras").update({tabs_cliente:tabs}).eq("id",obra.id);
-    if(error){toast.error("Error: "+error.message);}
-    else{
-      setTabsClienteLocal(tabs); // actualiza inmediatamente sin recargar
-      toast.success("✓ Accesos guardados");
-    }
+    if(!sel)return;setSaving(true);
+    const{error}=await supabase.from("participantes").update({tabs_permitidas:tabs,ve_ejecutado:verEj}).eq("id",sel.id);
+    if(error)toast.error("Error: "+error.message);
+    else{toast.success(`✓ Accesos de ${sel.nombre} guardados`);await reload();}
     setSaving(false);
   };
 
   const resetAll=()=>setTabs(DEFAULT);
 
+  if(!clientes.length)return <div className="fu"><Card><div style={{textAlign:"center",padding:"30px 0",color:C.t3}}>No hay clientes en esta obra todavía. Invitá uno desde <b style={{color:C.t}}>Participantes</b>.</div></Card></div>;
+
   return <div className="fu">
     <div style={{marginBottom:18}}>
-      <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:4}}>🔐 Control de accesos — Cliente</div>
-      <div style={{fontSize:12,color:C.t3}}>Elegí qué solapas pueden ver los <b style={{color:C.lima}}>clientes</b> de esta obra. Los cambios aplican a todos los clientes del proyecto.</div>
+      <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:4}}>🔐 Control de accesos</div>
+      <div style={{fontSize:12,color:C.t3}}>Configurá qué puede ver <b style={{color:C.lima}}>cada cliente</b> — cada uno tiene su propia configuración, no es global para la obra.</div>
     </div>
 
-    <Card style={{marginBottom:14}}>
-      <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:14,fontWeight:600}}>Solapas visibles para el cliente</div>
-      <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        {TABS_DISPONIBLES.map(t=>{
-          const activo=tabs.includes(t.id);
-          const fija=t.id==="dashboard"||t.id==="gastos";
-          return <div key={t.id} onClick={()=>toggle(t.id)} style={{display:"flex",alignItems:"center",gap:14,padding:"12px 16px",borderRadius:10,border:`2px solid ${activo?C.green:C.bd}`,background:activo?C.green+"08":"transparent",cursor:fija?"default":"pointer",transition:"all .2s"}}>
-            <div style={{width:36,height:36,borderRadius:9,background:activo?C.green+"18":C.bg3,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{t.icon}</div>
-            <div style={{flex:1}}>
-              <div style={{fontSize:13,fontWeight:600,color:activo?C.t:C.t2}}>{t.label}</div>
-              <div style={{fontSize:11,color:C.t3,marginTop:2}}>{t.desc}{fija&&<span style={{marginLeft:6,color:C.amber,fontWeight:600}}>(siempre visible)</span>}</div>
-            </div>
-            <div style={{flexShrink:0}}>
-              {fija
-                ?<span style={{fontSize:11,color:C.amber,fontWeight:600}}>🔒 Fijo</span>
-                :<div style={{width:44,height:24,borderRadius:12,background:activo?C.green:C.bd2,position:"relative",transition:"background .2s"}}>
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16}}>
+      {clientes.map(c=><button key={c.id} onClick={()=>setSelId(c.id)} style={{padding:"8px 14px",borderRadius:20,border:`2px solid ${selId===c.id?C.green:C.bd2}`,background:selId===c.id?C.green+"14":"transparent",cursor:"pointer",fontSize:12,fontWeight:600,color:selId===c.id?C.green:C.t2}}>{c.nombre}</button>)}
+    </div>
+
+    {sel&&<>
+      <Card style={{marginBottom:14}}>
+        <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:14,fontWeight:600}}>Solapas visibles para {sel.nombre}</div>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {TABS_DISPONIBLES.map(t=>{
+            const activo=tabs.includes(t.id);
+            return <div key={t.id} onClick={()=>toggle(t.id)} style={{display:"flex",alignItems:"center",gap:14,padding:"12px 16px",borderRadius:10,border:`2px solid ${activo?C.green:C.bd}`,background:activo?C.green+"08":"transparent",cursor:"pointer",transition:"all .2s"}}>
+              <div style={{width:36,height:36,borderRadius:9,background:activo?C.green+"18":C.bg3,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{t.icon}</div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:600,color:activo?C.t:C.t2}}>{t.label}</div>
+                <div style={{fontSize:11,color:C.t3,marginTop:2}}>{t.desc}</div>
+              </div>
+              <div style={{flexShrink:0}}>
+                <div style={{width:44,height:24,borderRadius:12,background:activo?C.green:C.bd2,position:"relative",transition:"background .2s"}}>
                   <div style={{position:"absolute",top:3,left:activo?22:3,width:18,height:18,borderRadius:"50%",background:"#fff",transition:"left .2s",boxShadow:"0 1px 4px rgba(0,0,0,.2)"}}/>
                 </div>
-              }
-            </div>
-          </div>;
-        })}
-      </div>
-    </Card>
+              </div>
+            </div>;
+          })}
+        </div>
+      </Card>
 
-    <div style={{display:"flex",gap:10,alignItems:"center"}}>
-      <Btn primary onClick={save} loading={saving}>💾 Guardar accesos</Btn>
-      <Btn onClick={resetAll}>Restablecer todo</Btn>
-      <span style={{fontSize:11,color:C.t3,marginLeft:4}}>{tabs.length} de {TABS_DISPONIBLES.length} solapas activas</span>
-    </div>
+      {tabs.includes("presupuesto")&&<Card style={{marginBottom:14,borderColor:C.blue+"44"}}>
+        <div onClick={()=>setVerEj(v=>!v)} style={{display:"flex",alignItems:"center",gap:14,cursor:"pointer"}}>
+          <div style={{flex:1}}>
+            <div style={{fontSize:13,fontWeight:600,color:C.t}}>📐 Ver montos ejecutados en Presupuesto</div>
+            <div style={{fontSize:11,color:C.t3,marginTop:2}}>Si está apagado, {sel.nombre} ve el presupuesto y los ajustes por índice, pero no cuánto se gastó realmente.</div>
+          </div>
+          <div style={{width:44,height:24,borderRadius:12,background:verEj?C.green:C.bd2,position:"relative",transition:"background .2s",flexShrink:0}}>
+            <div style={{position:"absolute",top:3,left:verEj?22:3,width:18,height:18,borderRadius:"50%",background:"#fff",transition:"left .2s",boxShadow:"0 1px 4px rgba(0,0,0,.2)"}}/>
+          </div>
+        </div>
+      </Card>}
+
+      <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+        <Btn primary onClick={save} loading={saving}>💾 Guardar accesos de {sel.nombre}</Btn>
+        <Btn onClick={resetAll}>Restablecer</Btn>
+        <span style={{fontSize:11,color:C.t3,marginLeft:4}}>{tabs.length} de {TABS_DISPONIBLES.length} solapas activas</span>
+      </div>
+    </>}
 
     <div style={{marginTop:16,background:C.bg3,border:`1px solid ${C.bd}`,borderRadius:10,padding:"12px 16px",fontSize:12,color:C.t3}}>
-      ℹ️ <b style={{color:C.t}}>Dashboard</b> y <b style={{color:C.t}}>Gastos</b> son siempre visibles para el cliente. Las solapas de administración (Presupuesto, Categorías, Participantes, Accesos) nunca son visibles para clientes.
+      ℹ️ Cada cliente tiene su propia configuración de accesos. Las solapas de administración (Categorías, Participantes, Accesos) nunca son visibles para clientes.
     </div>
   </div>;
 }
