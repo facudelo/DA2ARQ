@@ -983,7 +983,7 @@ function PanelAjuste({indiceAjuste,inflData,cacData,tcOficial,obra,presupBaseARS
 // ── PRESUPUESTO ───────────────────────────────────────────────────────────────
 function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,reload,monedaVista,inflData,fetchIPC,cacData,fetchCAC,esAdmin=true,puedeVerEjecutado=true}){
   const [modal,setModal]=useState(false);
-  const [draft,setDraft]=useState({cat_id:cats[0]?.id||"",sub_id:"",monto:"",moneda:"ARS",fecha:todayISO(),descripcion:""});
+  const [draft,setDraft]=useState({cat_id:cats[0]?.id||"",sub_id:"",monto:"",monto_cliente:"",moneda:"ARS",fecha:todayISO(),descripcion:""});
   const [saving,setSaving]=useState(false);
   const [showInfl,setShowInfl]=useState(false);
   const [expandedCat,setExpandedCat]=useState({});
@@ -991,9 +991,16 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
   const enUSD=monedaVista==="USD";
   const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
 
-  // Convertir registro de presupuesto a moneda vista
+  // Convertir registro de presupuesto a moneda vista — el cliente ve automáticamente SU monto, el admin ve el real
   const presupToMV=p=>{
-    const ars=p.moneda==="USD"?p.monto*tcRef:p.monto;
+    const montoUsar=esAdmin?p.monto:(p.monto_cliente??p.monto);
+    const ars=p.moneda==="USD"?montoUsar*tcRef:montoUsar;
+    return enUSD?(tcRef>0?ars/tcRef:0):ars;
+  };
+  // Monto "cliente" explícito — solo para que el admin lo vea al lado del real
+  const presupToMVCliente=p=>{
+    const montoUsar=p.monto_cliente??p.monto;
+    const ars=p.moneda==="USD"?montoUsar*tcRef:montoUsar;
     return enUSD?(tcRef>0?ars/tcRef:0):ars;
   };
 
@@ -1005,8 +1012,10 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
 
   // Presupuesto total por categoría (suma TODOS los registros — no pisa)
   const presupCat=cat_id=>presup.filter(p=>p.cat_id===cat_id).reduce((s,p)=>s+presupToMV(p),0);
+  const presupCatCliente=cat_id=>presup.filter(p=>p.cat_id===cat_id).reduce((s,p)=>s+presupToMVCliente(p),0);
 
   const totalPMV=cats.reduce((s,c)=>s+presupCat(c.id),0);
+  const totalPMVCliente=esAdmin?cats.reduce((s,c)=>s+presupCatCliente(c.id),0):null;
   const totalEMV=cats.reduce((s,c)=>s+ejCat(c.id),0);
 
   // Calcular ajuste acumulado COMPUESTO desde una fecha según índice seleccionado
@@ -1039,11 +1048,12 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
     setSaving(true);
     const{error}=await supabase.from("presupuestos").insert({
       obra_id:obra.id,cat_id:draft.cat_id,sub_id:draft.sub_id||null,monto:parseFloat(draft.monto),
+      monto_cliente:draft.monto_cliente?parseFloat(draft.monto_cliente):null,
       moneda:draft.moneda,fecha:draft.fecha,descripcion:draft.descripcion.trim(),
     });
     if(error){toast.error("Error: "+error.message);setSaving(false);return;}
     toast.success("Presupuesto agregado");
-    setDraft({cat_id:cats[0]?.id||"",sub_id:"",monto:"",moneda:"ARS",fecha:todayISO(),descripcion:""});
+    setDraft({cat_id:cats[0]?.id||"",sub_id:"",monto:"",monto_cliente:"",moneda:"ARS",fecha:todayISO(),descripcion:""});
     setModal(false);await reload();setSaving(false);
   };
 
@@ -1058,9 +1068,11 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
       const ps=presup.filter(p=>p.cat_id===c.id);
       ps.forEach(p=>{
         const ej=ejCat(c.id);
-        const pARS=p.moneda==="USD"?p.monto*tcRef:p.monto;
+        const montoUsar=esAdmin?p.monto:(p.monto_cliente??p.monto);
+        const pARS=p.moneda==="USD"?montoUsar*tcRef:montoUsar;
         const subL=c.subs?.find(s=>s.id===p.sub_id)?.label||"";
-        const row={Categoria:c.label,Subcategoria:subL,Fecha:p.fecha||"",Descripcion:p.descripcion||"",Monto:p.monto,Moneda:p.moneda,Monto_ARS:Math.round(pARS)};
+        const row={Categoria:c.label,Subcategoria:subL,Fecha:p.fecha||"",Descripcion:p.descripcion||"",Monto:montoUsar,Moneda:p.moneda,Monto_ARS:Math.round(pARS)};
+        if(esAdmin&&p.monto_cliente!=null&&p.monto_cliente!==p.monto)row.Monto_Cliente=p.monto_cliente;
         if(puedeVerEjecutado)row.Ejecutado_ARS=Math.round(ej);
         rows.push(row);
       });
@@ -1085,16 +1097,17 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
     return serie.length>0?serie.reduce((f,x)=>f*(1+x.valor/100),1):1;
   };
 
-  // Presupuesto ajustado: cada ítem × factor desde su fecha, sumados
+  // Presupuesto ajustado: cada ítem × factor desde su fecha, sumados — respeta el monto que le corresponde ver al usuario
   const presupAjustado=useMemo(()=>{
     if(indiceAjuste==="usd")return null;
     const data=indiceAjuste==="cac"?cacData:inflData;
     if(!data||!presup.length)return null;
     return Math.round(presup.reduce((sum,p)=>{
-      const montoARS=p.moneda==="USD"?p.monto*tcRef:p.monto;
+      const montoUsar=esAdmin?p.monto:(p.monto_cliente??p.monto);
+      const montoARS=p.moneda==="USD"?montoUsar*tcRef:montoUsar;
       return sum+montoARS*calcFactor(p.fecha,data);
     },0));
-  },[presup,indiceAjuste,cacData,inflData,tcRef]);
+  },[presup,indiceAjuste,cacData,inflData,tcRef,esAdmin]);
 
   // Historial global: presupuesto inicial de obra (si existe y es distinto del total actual) + ítems
   const presupInicialObra=obra.presupuesto_total>0?{
@@ -1115,7 +1128,7 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
       <div>
         <div style={{fontSize:16,fontWeight:700,color:C.t}}>Presupuesto por categoría</div>
-        <div style={{fontSize:12,color:C.t3}}>Total presup: {fmt(totalPMV)}{puedeVerEjecutado?` · Ejecutado: ${fmt(totalEMV)}`:""}</div>
+        <div style={{fontSize:12,color:C.t3}}>Total presup: {fmt(totalPMV)}{esAdmin?" 🔒":""}{esAdmin&&totalPMVCliente!==null&&totalPMVCliente!==totalPMV?` · 🌐 Cliente: ${fmt(totalPMVCliente)}`:""}{puedeVerEjecutado?` · Ejecutado: ${fmt(totalEMV)}`:""}</div>
       </div>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
         {/* Selector índice de ajuste */}
@@ -1123,13 +1136,14 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
           {INDICES.map(idx=><button key={idx.v} onClick={()=>{setIndiceAjuste(idx.v);if(idx.v==="ipc"&&!inflData)fetchIPC();if(idx.v==="cac"&&!cacData)fetchCAC();}} style={{padding:"4px 10px",fontSize:11,border:"none",borderRadius:6,cursor:"pointer",background:indiceAjuste===idx.v?idx.color:"transparent",color:indiceAjuste===idx.v?"#fff":C.t2,fontWeight:indiceAjuste===idx.v?700:400,transition:"all .2s"}}>{idx.label}</button>)}
         </div>
         <Btn small onClick={doExport}>⬇ CSV</Btn>
-        {esAdmin&&<Btn primary onClick={()=>{setDraft({cat_id:cats[0]?.id||"",sub_id:"",monto:"",moneda:"ARS",fecha:todayISO(),descripcion:""});setModal(true);}}>+ Agregar presupuesto</Btn>}
+        {esAdmin&&<Btn primary onClick={()=>{setDraft({cat_id:cats[0]?.id||"",sub_id:"",monto:"",monto_cliente:"",moneda:"ARS",fecha:todayISO(),descripcion:""});setModal(true);}}>+ Agregar presupuesto</Btn>}
       </div>
     </div>
 
     {/* Resumen total */}
     <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
-      <StatCard label={`Presupuesto total (${monedaVista})`} value={fmt(totalPMV)} color={C.blue} icon="📐"/>
+      <StatCard label={`Presupuesto ${esAdmin?"real":""} (${monedaVista})`} value={fmt(totalPMV)} color={C.blue} icon="📐"/>
+      {esAdmin&&totalPMVCliente!==null&&<StatCard label={`Presupuesto cliente (${monedaVista})`} value={fmt(totalPMVCliente)} color={C.lima} icon="🌐"/>}
       {puedeVerEjecutado&&<StatCard label={`Ejecutado (${monedaVista})`} value={fmt(totalEMV)} color={C.green} icon="💸"/>}
       {puedeVerEjecutado&&<StatCard label={`Disponible (${monedaVista})`} value={fmt(Math.max(0,totalPMV-totalEMV))} color={totalPMV-totalEMV<0?C.red:C.lima} icon="✅"/>}
       {presupAjustado&&<StatCard label={`Presup. ajustado (${INDICES.find(i=>i.v===indiceAjuste)?.label||indiceAjuste.toUpperCase()})`} value={fmt(enUSD?(presupAjustado/tcRef):presupAjustado)} color={INDICES.find(i=>i.v===indiceAjuste)?.color||C.amber} icon="📊" sub={totalPMV>0?`+${fmt(enUSD?((presupAjustado-totalPMV*tcRef)/tcRef):(presupAjustado-totalPMV))} vs original`:undefined}/>}
@@ -1141,6 +1155,7 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
         <thead><tr style={{borderBottom:`2px solid ${C.bd2}`}}>
           <th style={{padding:"8px 10px",textAlign:"left",color:C.t3,fontWeight:600,fontSize:11}}>Categoría</th>
           <th style={{padding:"8px 10px",textAlign:"right",color:C.t3,fontWeight:600,fontSize:11}}>Presupuestado</th>
+          {esAdmin&&<th style={{padding:"8px 10px",textAlign:"right",color:C.t3,fontWeight:600,fontSize:11}}>🌐 Cliente</th>}
           {puedeVerEjecutado&&<th style={{padding:"8px 10px",textAlign:"right",color:C.t3,fontWeight:600,fontSize:11}}>Ejecutado</th>}
           {puedeVerEjecutado&&<th style={{padding:"8px 10px",textAlign:"right",color:C.t3,fontWeight:600,fontSize:11}}>Diferencia</th>}
           {puedeVerEjecutado&&<th style={{padding:"8px 10px",minWidth:120,color:C.t3,fontWeight:600,fontSize:11}}>Avance</th>}
@@ -1149,6 +1164,7 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
         <tbody>
           {cats.map(c=>{
             const pMV=presupCat(c.id);
+            const pMVCliente=esAdmin?presupCatCliente(c.id):null;
             const eMV=ejCat(c.id);
             const diff=pMV-eMV;
             const pct=pMV>0?Math.round((eMV/pMV)*100):null;
@@ -1165,6 +1181,7 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
                   </div>
                 </td>
                 <td style={{padding:"10px",textAlign:"right",fontWeight:600,color:C.blue}}>{pMV>0?fmt(pMV):"—"}</td>
+                {esAdmin&&<td style={{padding:"10px",textAlign:"right",fontWeight:600,color:C.lima}}>{pMVCliente>0?fmt(pMVCliente):"—"}</td>}
                 {puedeVerEjecutado&&<td style={{padding:"10px",textAlign:"right",fontWeight:600,color:C.green}}>{fmt(eMV)}</td>}
                 {puedeVerEjecutado&&<td style={{padding:"10px",textAlign:"right",fontWeight:600,color:pMV>0?(diff>=0?C.green:C.red):C.t3,whiteSpace:"nowrap"}}>{pMV>0?fmt(diff):"—"}</td>}
                 {puedeVerEjecutado&&<td style={{padding:"10px",minWidth:120}}>
@@ -1174,6 +1191,7 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
               </tr>
               {isExp&&registros.map((p,i)=>{
                 const pMVr=presupToMV(p);
+                const pMVrCliente=esAdmin?presupToMVCliente(p):null;
                 const infl=ajusteDesde(p.fecha);
                 const ajustado=infl!=null?pMVr*(1+infl):null;
                 const subL=c.subs?.find(s=>s.id===p.sub_id)?.label;
@@ -1186,6 +1204,7 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
                     {p.descripcion&&<span style={{marginLeft:8,color:C.t2,fontStyle:"italic"}}>· {p.descripcion}</span>}
                   </td>
                   <td style={{padding:"6px 10px",textAlign:"right",color:C.blue,fontSize:12,fontWeight:600}}>{fmt(pMVr)}</td>
+                  {esAdmin&&<td style={{padding:"6px 10px",textAlign:"right",color:C.lima,fontSize:12,fontWeight:600}}>{pMVrCliente!==pMVr?fmt(pMVrCliente):"="}</td>}
                   <td style={{padding:"6px 10px",textAlign:"right",color:C.t3,fontSize:11}} colSpan={puedeVerEjecutado?2:1}>
                     {ajustado!=null&&<span style={{background:C.amber+"18",color:C.amber,borderRadius:5,padding:"1px 7px",fontSize:10,fontWeight:600}}>Ajustado: {fmt(ajustado)} (+{(infl*100).toFixed(1)}%)</span>}
                     {ajustado===null&&inflData&&<span style={{background:C.green+"18",color:C.green,borderRadius:5,padding:"1px 7px",fontSize:10,fontWeight:600}}>✓ Al día</span>}
@@ -1203,6 +1222,7 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
         <tfoot><tr style={{borderTop:`2px solid ${C.bd2}`,background:C.bg3}}>
           <td style={{padding:"10px",fontWeight:700,color:C.t}}>TOTAL</td>
           <td style={{padding:"10px",textAlign:"right",fontWeight:700,color:C.t}}>{fmt(totalPMV)}</td>
+          {esAdmin&&<td style={{padding:"10px",textAlign:"right",fontWeight:700,color:C.lima}}>{fmt(totalPMVCliente)}</td>}
           {puedeVerEjecutado&&<td style={{padding:"10px",textAlign:"right",fontWeight:700,color:C.green}}>{fmt(totalEMV)}</td>}
           {puedeVerEjecutado&&<td style={{padding:"10px",textAlign:"right",fontWeight:700,color:totalPMV-totalEMV>=0?C.green:C.red}}>{fmt(totalPMV-totalEMV)}</td>}
           <td colSpan={puedeVerEjecutado?2:1}/>
@@ -1247,13 +1267,17 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 90px",gap:8}}>
           <div>
-            <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Monto</div>
-            <input style={INP} type="number" placeholder="0" autoFocus value={draft.monto} onChange={e=>setDraft(d=>({...d,monto:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&save()}/>
+            <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>🔒 Monto real</div>
+            <input style={{...INP,borderColor:C.blue+"66"}} type="number" placeholder="0" autoFocus value={draft.monto} onChange={e=>setDraft(d=>({...d,monto:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&save()}/>
           </div>
           <div>
             <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Moneda</div>
             <select style={SEL} value={draft.moneda} onChange={e=>setDraft(d=>({...d,moneda:e.target.value}))}><option>ARS</option><option>USD</option></select>
           </div>
+        </div>
+        <div>
+          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>🌐 Monto cliente <span style={{color:C.t3,fontWeight:400}}>(opcional, si es distinto al real)</span></div>
+          <input style={{...INP,borderColor:C.lima+"66"}} type="number" placeholder="igual al real" value={draft.monto_cliente} onChange={e=>setDraft(d=>({...d,monto_cliente:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&save()}/>
         </div>
         <div>
           <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Fecha del presupuesto</div>
