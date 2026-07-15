@@ -984,7 +984,6 @@ function PanelAjuste({indiceAjuste,inflData,cacData,tcOficial,obra,presupBaseARS
 function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,reload,monedaVista,inflData,fetchIPC,cacData,fetchCAC,esAdmin=true,puedeVerEjecutado=true}){
   const [modal,setModal]=useState(false);
   const [draft,setDraft]=useState({cat_id:cats[0]?.id||"",sub_id:"",monto:"",monto_cliente:"",moneda:"ARS",fecha:todayISO(),descripcion:""});
-  const clienteTouched=useRef(false);
   const [saving,setSaving]=useState(false);
   const [showInfl,setShowInfl]=useState(false);
   const [expandedCat,setExpandedCat]=useState({});
@@ -1137,7 +1136,7 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
           {INDICES.map(idx=><button key={idx.v} onClick={()=>{setIndiceAjuste(idx.v);if(idx.v==="ipc"&&!inflData)fetchIPC();if(idx.v==="cac"&&!cacData)fetchCAC();}} style={{padding:"4px 10px",fontSize:11,border:"none",borderRadius:6,cursor:"pointer",background:indiceAjuste===idx.v?idx.color:"transparent",color:indiceAjuste===idx.v?"#fff":C.t2,fontWeight:indiceAjuste===idx.v?700:400,transition:"all .2s"}}>{idx.label}</button>)}
         </div>
         <Btn small onClick={doExport}>⬇ CSV</Btn>
-        {esAdmin&&<Btn primary onClick={()=>{clienteTouched.current=false;setDraft({cat_id:cats[0]?.id||"",sub_id:"",monto:"",monto_cliente:"",moneda:"ARS",fecha:todayISO(),descripcion:""});setModal(true);}}>+ Agregar presupuesto</Btn>}
+        {esAdmin&&<Btn primary onClick={()=>{setDraft({cat_id:cats[0]?.id||"",sub_id:"",monto:"",monto_cliente:"",moneda:"ARS",fecha:todayISO(),descripcion:""});setModal(true);}}>+ Agregar presupuesto</Btn>}
       </div>
     </div>
 
@@ -1170,7 +1169,7 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
             const diff=pMV-eMV;
             const pct=pMV>0?Math.round((eMV/pMV)*100):null;
             const col=pct===null?C.t3:pct>100?C.red:pct>80?C.amber:C.green;
-            const registros=presup.filter(p=>p.cat_id===c.id).sort((a,b)=>a.fecha>b.fecha?1:-1);
+            const registros=presup.filter(p=>p.cat_id===c.id).filter(p=>esAdmin||(p.monto_cliente!=null&&p.monto_cliente>0)).sort((a,b)=>a.fecha>b.fecha?1:-1);
             const isExp=expandedCat[c.id];
             return <React.Fragment key={c.id}>
               <tr style={{borderBottom:`1px solid ${C.bd}`,background:"transparent"}}>
@@ -1269,7 +1268,7 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
         <div style={{display:"grid",gridTemplateColumns:"1fr 90px",gap:8}}>
           <div>
             <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>🔒 Monto real</div>
-            <input style={{...INP,borderColor:C.blue+"66"}} type="number" placeholder="0" autoFocus value={draft.monto} onChange={e=>setDraft(d=>({...d,monto:e.target.value,monto_cliente:clienteTouched.current?d.monto_cliente:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&save()}/>
+            <input style={{...INP,borderColor:C.blue+"66"}} type="number" placeholder="0" autoFocus value={draft.monto} onChange={e=>setDraft(d=>({...d,monto:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&save()}/>
           </div>
           <div>
             <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Moneda</div>
@@ -1278,10 +1277,10 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
         </div>
         <div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-            <div style={{fontSize:11,color:C.t2,fontWeight:600}}>🌐 Monto cliente <span style={{color:C.t3,fontWeight:400}}>(se copia solo mientras no lo edites)</span></div>
-            <button type="button" onClick={()=>{clienteTouched.current=true;setDraft(d=>({...d,monto_cliente:""}));}} style={{background:"none",border:"none",color:C.t3,fontSize:10,cursor:"pointer",textDecoration:"underline"}}>🚫 Solo interno (sin monto cliente)</button>
+            <div style={{fontSize:11,color:C.t2,fontWeight:600}}>🌐 Monto cliente <span style={{color:C.t3,fontWeight:400}}>(vacío = el cliente no ve esta fila)</span></div>
+            {draft.monto&&<button type="button" onClick={()=>setDraft(d=>({...d,monto_cliente:d.monto}))} style={{background:"none",border:"none",color:C.blue,fontSize:10,cursor:"pointer",textDecoration:"underline"}}>= copiar monto real</button>}
           </div>
-          <input style={{...INP,borderColor:C.lima+"66"}} type="number" placeholder="0" value={draft.monto_cliente} onChange={e=>{clienteTouched.current=true;setDraft(d=>({...d,monto_cliente:e.target.value}));}} onKeyDown={e=>e.key==="Enter"&&save()}/>
+          <input style={{...INP,borderColor:C.lima+"66"}} type="number" placeholder="Sin cargar = no visible para el cliente" value={draft.monto_cliente} onChange={e=>setDraft(d=>({...d,monto_cliente:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&save()}/>
         </div>
         <div>
           <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Fecha del presupuesto</div>
