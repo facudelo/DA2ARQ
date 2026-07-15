@@ -43,7 +43,19 @@ function ToastContainer({toasts}){
 }
 
 // ── COMPONENTS ────────────────────────────────────────────────────────────────
-function Logo({size=44}){return <img src={LOGO_IMG} alt="DA2ARQ" style={{width:size,height:size,borderRadius:size*.22,objectFit:"cover",flexShrink:0}}/>;}
+function Logo({size=44,src}){return <img src={src||LOGO_IMG} alt="DA2ARQ" style={{width:size,height:size,borderRadius:size*.22,objectFit:"cover",flexShrink:0}}/>;}
+function EditableLogo({size=44,src,editable,onUpload,uploading}){
+  const fileRef=useRef();
+  const handle=e=>{const f=e.target.files?.[0];if(f)onUpload(f);e.target.value="";};
+  if(!editable)return <Logo size={size} src={src}/>;
+  return <div onClick={()=>fileRef.current?.click()} style={{position:"relative",cursor:"pointer",width:size,height:size,flexShrink:0}} title="Cambiar logo">
+    <Logo size={size} src={src}/>
+    <div style={{position:"absolute",inset:0,borderRadius:size*.22,background:"rgba(0,0,0,.45)",display:"flex",alignItems:"center",justifyContent:"center",opacity:0,transition:"opacity .15s"}} onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0}>
+      <span style={{fontSize:size*.4,color:"#fff"}}>{uploading?"⏳":"✎"}</span>
+    </div>
+    <input ref={fileRef} type="file" accept="image/*" onChange={handle} style={{display:"none"}}/>
+  </div>;
+}
 function Btn({children,onClick,primary,small,full,danger,loading,disabled}){return <button onClick={onClick} disabled={disabled||loading} style={{background:primary?C.green:danger?C.red+"18":"transparent",color:primary?"#fff":danger?C.red:C.t2,border:`1px solid ${primary?"transparent":danger?C.red+"55":C.bd2}`,borderRadius:7,padding:small?"5px 12px":"8px 18px",cursor:(disabled||loading)?"not-allowed":"pointer",fontSize:small?11:13,fontWeight:primary?600:500,opacity:(disabled||loading)?.6:1,width:full?"100%":"auto",whiteSpace:"nowrap",display:"inline-flex",alignItems:"center",gap:6,justifyContent:"center"}}>{loading&&<span className="spin" style={{width:12,height:12,border:"2px solid currentColor",borderTopColor:"transparent",borderRadius:"50%",display:"inline-block"}}/>}{children}</button>;}
 function Tag({label,color}){return <span style={{background:color+"20",color,fontSize:10,padding:"2px 9px",borderRadius:20,fontWeight:600,whiteSpace:"nowrap",border:`1px solid ${color}33`}}>{label}</span>;}
 function Card({children,style={}}){return <div style={{background:C.bg2,border:`1px solid ${C.bd}`,borderRadius:14,padding:"18px 20px",boxShadow:"0 1px 6px rgba(42,80,28,.07)",...style}}>{children}</div>;}
@@ -59,7 +71,8 @@ function Modal({title,onClose,children,wide}){
     const t=setTimeout(reset,50);
     return()=>{cancelAnimationFrame(raf);clearTimeout(t);};
   },[]);
-  return <div onClick={e=>{if(e.target===e.currentTarget)onClose();}} style={{position:"fixed",inset:0,background:"rgba(10,30,5,.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:16}}><div ref={boxRef} style={{background:C.bg2,border:`1px solid ${C.bd2}`,borderRadius:16,padding:24,width:"100%",maxWidth:wide?720:480,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 8px 32px rgba(0,0,0,.18)"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}><span style={{fontWeight:700,fontSize:15,color:C.t}}>{title}</span><button onClick={onClose} style={{background:"none",border:"none",color:C.t3,cursor:"pointer",fontSize:24,lineHeight:1}}>×</button></div>{children}</div></div>;
+  if(typeof document==="undefined")return null;
+  return createPortal(<div onClick={e=>{if(e.target===e.currentTarget)onClose();}} style={{position:"fixed",inset:0,background:"rgba(10,30,5,.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:16}}><div ref={boxRef} style={{background:C.bg2,border:`1px solid ${C.bd2}`,borderRadius:16,padding:24,width:"100%",maxWidth:wide?720:480,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 8px 32px rgba(0,0,0,.18)"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}><span style={{fontWeight:700,fontSize:15,color:C.t}}>{title}</span><button onClick={onClose} style={{background:"none",border:"none",color:C.t3,cursor:"pointer",fontSize:24,lineHeight:1}}>×</button></div>{children}</div></div>,document.body);
 }
 function Donut({data,size=120}){const total=data.reduce((s,x)=>s+x.val,0);if(!total)return <div style={{width:size,height:size,borderRadius:"50%",background:C.bg3,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:C.t3}}>Sin datos</div>;let ang=-Math.PI/2;const r=size/2,ir=r*.58,cx=r,cy=r;return <svg width={size} height={size}>{data.map((d,i)=>{const a=(d.val/total)*2*Math.PI;const x1=cx+r*Math.cos(ang),y1=cy+r*Math.sin(ang);ang+=a;const x2=cx+r*Math.cos(ang),y2=cy+r*Math.sin(ang);const ix1=cx+ir*Math.cos(ang-a),iy1=cy+ir*Math.sin(ang-a);const ix2=cx+ir*Math.cos(ang),iy2=cy+ir*Math.sin(ang);return <path key={i} d={`M${x1},${y1} A${r},${r},0,${a>Math.PI?1:0},1,${x2},${y2} L${ix2},${iy2} A${ir},${ir},0,${a>Math.PI?1:0},0,${ix1},${iy1} Z`} fill={d.color} opacity={.88}/>;})}<circle cx={cx} cy={cy} r={ir-2} fill={C.bg2}/></svg>;}
 
@@ -247,9 +260,23 @@ function ObrasScreen({user,onSelect,onLogout,toast}){
   const [modal,setModal]=useState(false);
   const [showPw,setShowPw]=useState(false);
   const [saving,setSaving]=useState(false);
+  const [miLogo,setMiLogo]=useState(null);
+  const [uploadingLogo,setUploadingLogo]=useState(false);
   const [draft,setDraft]=useState({nombre:"",direccion:"",estado:"En ejecución",presupuesto_total:"",moneda_presupuesto:"ARS",presup_tipo:"total"});
-  const loadObras=useCallback(async()=>{setLoading(true);const{data,error}=await supabase.from("obras").select("*, participantes!inner(rol,puede_cargar,user_id)").eq("participantes.user_id",user.id).order("created_at",{ascending:false});if(!error)setObras(data||[]);setLoading(false);},[user.id]);
+  const loadObras=useCallback(async()=>{setLoading(true);const{data,error}=await supabase.from("obras").select("*, participantes!inner(rol,puede_cargar,user_id), creador:profiles!obras_created_by_fkey(logo_url)").eq("participantes.user_id",user.id).order("created_at",{ascending:false});if(!error)setObras(data||[]);setLoading(false);},[user.id]);
   useEffect(()=>{loadObras();},[loadObras]);
+  useEffect(()=>{supabase.from("profiles").select("logo_url").eq("id",user.id).single().then(({data})=>setMiLogo(data?.logo_url||null));},[user.id]);
+  const uploadMiLogo=async file=>{
+    setUploadingLogo(true);
+    const ext=file.name.split(".").pop();
+    const path=`logos/perfil/${user.id}_${Date.now()}.${ext}`;
+    const{error:upErr}=await supabase.storage.from("obra-fotos").upload(path,file);
+    if(upErr){toast.error("Error al subir: "+upErr.message);setUploadingLogo(false);return;}
+    const{data:{publicUrl}}=supabase.storage.from("obra-fotos").getPublicUrl(path);
+    const{error}=await supabase.from("profiles").update({logo_url:publicUrl}).eq("id",user.id);
+    if(error){toast.error("Error: "+error.message);setUploadingLogo(false);return;}
+    setMiLogo(publicUrl);toast.success("Logo actualizado");setUploadingLogo(false);
+  };
   const save=async()=>{
     if(!draft.nombre.trim())return;setSaving(true);
     const{data:obra,error:obraErr}=await supabase.from("obras").insert({nombre:draft.nombre.trim(),direccion:draft.direccion,estado:draft.estado,presupuesto_total:parseFloat(draft.presupuesto_total)||0,moneda_presupuesto:draft.moneda_presupuesto,created_by:user.id}).select().single();
@@ -262,7 +289,7 @@ function ObrasScreen({user,onSelect,onLogout,toast}){
   const miRol=obra=>obra.participantes?.find(p=>p.user_id===user.id)?.rol||"cliente";
   return <div style={{minHeight:"100vh",background:C.bg}}>
     <div style={{background:C.bg2,borderBottom:`1px solid ${C.bd}`,padding:"0 20px",display:"flex",alignItems:"center",justifyContent:"space-between",height:54}}>
-      <div style={{display:"flex",alignItems:"center",gap:10}}><Logo size={40}/><div><div style={{fontWeight:800,fontSize:15,color:C.t}}>DA2ARQ</div><div style={{fontSize:10,color:C.t3}}>Gestión de obra</div></div></div>
+      <div style={{display:"flex",alignItems:"center",gap:10}}><EditableLogo size={40} src={miLogo} editable onUpload={uploadMiLogo} uploading={uploadingLogo}/><div><div style={{fontWeight:800,fontSize:15,color:C.t}}>DA2ARQ</div><div style={{fontSize:10,color:C.t3}}>Gestión de obra</div></div></div>
       <div style={{display:"flex",alignItems:"center",gap:10}}><span className="hide-mobile" style={{fontSize:12,color:C.t2}}>{user.email}</span><Btn small onClick={()=>setShowPw(true)}>🔒 Contraseña</Btn><Btn small onClick={onLogout}>Salir</Btn></div>
     </div>
     <div style={{padding:24,maxWidth:960,margin:"0 auto"}}>
@@ -326,6 +353,19 @@ function ObraApp(props){
   const [monedaVista,setMonedaVista]=useState("ARS");
   const [notifVistas,setNotifVistas]=useState(()=>{try{return JSON.parse(localStorage.getItem("nv_"+obra.id)||"{}")}catch{return {}}});
   const [showPw,setShowPw]=useState(false);
+  const [logoObra,setLogoObra]=useState(obra.logo_url||null);
+  const [uploadingLogo,setUploadingLogo]=useState(false);
+  const uploadLogoObra=async file=>{
+    setUploadingLogo(true);
+    const ext=file.name.split(".").pop();
+    const path=`logos/obra/${obra.id}_${Date.now()}.${ext}`;
+    const{error:upErr}=await supabase.storage.from("obra-fotos").upload(path,file);
+    if(upErr){toast.error("Error al subir: "+upErr.message);setUploadingLogo(false);return;}
+    const{data:{publicUrl}}=supabase.storage.from("obra-fotos").getPublicUrl(path);
+    const{error}=await supabase.from("obras").update({logo_url:publicUrl}).eq("id",obra.id);
+    if(error){toast.error("Error: "+error.message);setUploadingLogo(false);return;}
+    setLogoObra(publicUrl);toast.success("Logo de la obra actualizado");setUploadingLogo(false);
+  };
 
   const loadAll=useCallback(async()=>{
     setLoadingData(true);
@@ -387,7 +427,7 @@ function ObraApp(props){
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",height:50}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           <button onClick={onBack} style={{background:C.bg3,border:`1px solid ${C.bd2}`,borderRadius:7,padding:"5px 10px",cursor:"pointer",color:C.t2,fontSize:11,fontWeight:600}}>← Obras</button>
-          <Logo size={34}/>
+          <EditableLogo size={34} src={logoObra||obra.creador?.logo_url} editable={esAdmin} onUpload={uploadLogoObra} uploading={uploadingLogo}/>
           <div><div style={{fontWeight:700,fontSize:13,color:C.t}}>{obra.nombre}</div><div className="hide-mobile" style={{fontSize:10,color:C.t3}}>{obra.direccion}</div></div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
