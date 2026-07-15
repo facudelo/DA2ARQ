@@ -49,7 +49,18 @@ function Tag({label,color}){return <span style={{background:color+"20",color,fon
 function Card({children,style={}}){return <div style={{background:C.bg2,border:`1px solid ${C.bd}`,borderRadius:14,padding:"18px 20px",boxShadow:"0 1px 6px rgba(42,80,28,.07)",...style}}>{children}</div>;}
 function StatCard({label,value,sub,color,icon}){return <div style={{background:C.bg2,borderTop:`3px solid ${color}`,border:`1px solid ${C.bd}`,borderRadius:12,padding:"14px 18px",flex:"1 1 140px",minWidth:130}}><div style={{fontSize:10,color:C.t3,textTransform:"uppercase",letterSpacing:".08em",marginBottom:7,display:"flex",alignItems:"center",gap:5}}><span>{icon}</span>{label}</div><div style={{fontSize:19,fontWeight:700,color}}>{value}</div>{sub&&<div style={{fontSize:11,color:C.t3,marginTop:4}}>{sub}</div>}</div>;}
 function Spinner(){return <div style={{display:"flex",justifyContent:"center",padding:"48px 0"}}><div className="spin" style={{width:32,height:32,border:`3px solid ${C.bd2}`,borderTopColor:C.green,borderRadius:"50%"}}/></div>;}
-function Modal({title,onClose,children,wide}){useEffect(()=>{const h=e=>{if(e.key==="Escape")onClose();};window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h);},[onClose]);return <div onClick={e=>{if(e.target===e.currentTarget)onClose();}} style={{position:"fixed",inset:0,background:"rgba(10,30,5,.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:16}}><div style={{background:C.bg2,border:`1px solid ${C.bd2}`,borderRadius:16,padding:24,width:"100%",maxWidth:wide?720:480,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 8px 32px rgba(0,0,0,.18)"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}><span style={{fontWeight:700,fontSize:15,color:C.t}}>{title}</span><button onClick={onClose} style={{background:"none",border:"none",color:C.t3,cursor:"pointer",fontSize:24,lineHeight:1}}>×</button></div>{children}</div></div>;}
+function Modal({title,onClose,children,wide}){
+  const boxRef=useRef(null);
+  useEffect(()=>{const h=e=>{if(e.key==="Escape")onClose();};window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h);},[onClose]);
+  useEffect(()=>{
+    const reset=()=>{if(boxRef.current)boxRef.current.scrollTop=0;};
+    reset();
+    const raf=requestAnimationFrame(reset);
+    const t=setTimeout(reset,50);
+    return()=>{cancelAnimationFrame(raf);clearTimeout(t);};
+  },[]);
+  return <div onClick={e=>{if(e.target===e.currentTarget)onClose();}} style={{position:"fixed",inset:0,background:"rgba(10,30,5,.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:16}}><div ref={boxRef} style={{background:C.bg2,border:`1px solid ${C.bd2}`,borderRadius:16,padding:24,width:"100%",maxWidth:wide?720:480,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 8px 32px rgba(0,0,0,.18)"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}><span style={{fontWeight:700,fontSize:15,color:C.t}}>{title}</span><button onClick={onClose} style={{background:"none",border:"none",color:C.t3,cursor:"pointer",fontSize:24,lineHeight:1}}>×</button></div>{children}</div></div>;
+}
 function Donut({data,size=120}){const total=data.reduce((s,x)=>s+x.val,0);if(!total)return <div style={{width:size,height:size,borderRadius:"50%",background:C.bg3,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:C.t3}}>Sin datos</div>;let ang=-Math.PI/2;const r=size/2,ir=r*.58,cx=r,cy=r;return <svg width={size} height={size}>{data.map((d,i)=>{const a=(d.val/total)*2*Math.PI;const x1=cx+r*Math.cos(ang),y1=cy+r*Math.sin(ang);ang+=a;const x2=cx+r*Math.cos(ang),y2=cy+r*Math.sin(ang);const ix1=cx+ir*Math.cos(ang-a),iy1=cy+ir*Math.sin(ang-a);const ix2=cx+ir*Math.cos(ang),iy2=cy+ir*Math.sin(ang);return <path key={i} d={`M${x1},${y1} A${r},${r},0,${a>Math.PI?1:0},1,${x2},${y2} L${ix2},${iy2} A${ir},${ir},0,${a>Math.PI?1:0},0,${ix1},${iy1} Z`} fill={d.color} opacity={.88}/>;})}<circle cx={cx} cy={cy} r={ir-2} fill={C.bg2}/></svg>;}
 
 // ── ROOT ──────────────────────────────────────────────────────────────────────
@@ -345,7 +356,7 @@ function ObraApp(props){
   const tabsCliente=miP?.tabs_permitidas||TABS_CLIENTE_DEFAULT;
   const puedeVerEjecutado=miP?.ve_ejecutado!==false;
   const tcRef=tcOficial||tcManual;
-  const gastosVis=esAdmin?gastos:miRol==="ayudante"?gastos.filter(g=>g.visibilidad!=="privado"):gastos.filter(g=>g.visibilidad==="publico");
+  const gastosVis=esAdmin?gastos:miRol==="ayudante"?gastos.filter(g=>g.visibilidad!=="privado"):gastos.filter(g=>g.visibilidad==="publico").map(g=>({...g,monto:g.monto_cliente??g.monto}));
 
   const gastosNuevos=gastosVis.filter(g=>!notifVistas[g.id]).length;
   const totalNotifs=gastosNuevos;
@@ -431,7 +442,7 @@ function ObraApp(props){
         {tab==="dashboard"&&<DashboardTab obra={obra} gastos={gastosVis} esAdmin={esAdmin} presup={presup} tcRef={tcRef} partic={partic} cats={cats} fotos={fotos} hitos={hitos} monedaVista={monedaVista}/>}
         {tab==="gastos"&&<GastosTab user={user} obra={obra} gastos={gastos} esAdmin={esAdmin} miRol={miRol} puedoCargar={puedoCargar} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} externalOpen={showGastoModal} onExternalClose={()=>setShowGastoModal(false)} comentarios={comentarios} miUserId={user.id}/>}
         {tab==="presupuesto"&&(esAdmin||tabsCliente.includes("presupuesto"))&&<PresupuestoTab obra={obra} gastos={gastos} presup={presup} tcRef={tcRef} tcOficial={tcOficial} tcBlue={tcBlue} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} inflData={inflData} fetchIPC={fetchIPC} cacData={cacData} fetchCAC={fetchCAC} esAdmin={esAdmin} puedeVerEjecutado={esAdmin||puedeVerEjecutado}/>}
-        {tab==="fotos"&&<FotosTab obra={obra} fotos={fotos} puedoCargar={puedoCargar||esAdmin} esAdmin={esAdmin} user={user} toast={toast} reload={loadAll} obraEtapas={obraEtapas}/>}
+        {tab==="fotos"&&<FotosTab obra={obra} fotos={fotos} puedoCargar={true} esAdmin={esAdmin} user={user} toast={toast} reload={loadAll} obraEtapas={obraEtapas}/>}
         {tab==="objetivos"&&<HitosTab obra={obra} hitos={hitos} esAdmin={esAdmin} toast={toast} reload={loadAll}/>}
         {tab==="reportes"&&<ReportesTab obra={obra} gastos={gastosVis} presup={presup} tcRef={tcRef} cats={cats} esAdmin={esAdmin} monedaVista={monedaVista}/>}
         {tab==="resumen"&&!esAdmin&&<ResumenClienteTab obra={obra} gastos={gastosVis} presup={presup} tcRef={tcRef} cats={cats} fotos={fotos} hitos={hitos} monedaVista={monedaVista}/>}
@@ -603,7 +614,9 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=
 
 // ── GASTOS ────────────────────────────────────────────────────────────────────
 function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,tcManual,setTcManual,cats,toast,reload,monedaVista,externalOpen,onExternalClose,comentarios=[],miUserId}){
-  const vis=gastos.filter(g=>esAdmin||(miRol==="ayudante"&&g.visibilidad!=="privado")||g.visibilidad==="publico");
+  const vis=gastos
+    .filter(g=>esAdmin||(miRol==="ayudante"&&g.visibilidad!=="privado")||g.visibilidad==="publico")
+    .map(g=>(esAdmin||miRol==="ayudante")?g:{...g,monto:g.monto_cliente??g.monto});
   const [showForm,setShowForm]=useState(false);
   const [filtro,setFiltro]=useState({cat:"todas",moneda:"todas",vis:"todas",q:""});
   const [tcTipo,setTcTipo]=useState("blue");
@@ -614,6 +627,7 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
   const tcVal=tcTipo==="oficial"?(tcOficial||tcManual):tcTipo==="blue"?(tcBlue||tcManual):tcManual;
   const enUSD=monedaVista==="USD";
   const conv=g=>enUSD?toUSD(g,tcRef):toARS(g,tcRef);
+  const convCliente=g=>{const gc={...g,monto:g.monto_cliente??g.monto};return enUSD?toUSD(gc,tcRef):toARS(gc,tcRef);};
   const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
 
   useEffect(()=>{if(externalOpen)setShowForm(true);},[externalOpen]);
@@ -627,6 +641,7 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
     return true;
   });
   const totalFilt=filtered.reduce((s,g)=>s+conv(g),0);
+  const totalFiltCliente=esAdmin?filtered.reduce((s,g)=>s+convCliente(g),0):null;
 
   const catE=cats.find(c=>c.id===editM?.cat_id);
   const saveEdit=async()=>{
@@ -657,7 +672,10 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
       </select>}
       <input style={{...INP,flex:1,minWidth:120,fontSize:11}} placeholder="Buscar descripción..." value={filtro.q} onChange={e=>setFiltro(f=>({...f,q:e.target.value}))}/>
       {(puedoCargar||esAdmin)&&<Btn primary onClick={()=>setShowForm(true)}>+ Cargar gasto</Btn>}
-      <div style={{marginLeft:"auto",fontSize:12,fontWeight:700,color:C.green}}>{fmt(totalFilt)}</div>
+      <div style={{marginLeft:"auto",textAlign:"right"}}>
+        <div style={{fontSize:12,fontWeight:700,color:C.green}}>{fmt(totalFilt)}{esAdmin?" 🔒":""}</div>
+        {esAdmin&&totalFiltCliente!==null&&totalFiltCliente!==totalFilt&&<div style={{fontSize:10,color:C.lima,fontWeight:600}}>🌐 Cliente ve: {fmt(totalFiltCliente)}</div>}
+      </div>
     </div>
 
     <Card style={{padding:0,overflow:"hidden"}}>
@@ -665,6 +683,7 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
         const cat=cats.find(c=>c.id===g.cat_id);
         const sub=cat?.subs?.find(s=>s.id===g.sub_id);
         const cCount=comentarios.filter(c=>c.gasto_id===g.id).length;
+        const difiereCliente=esAdmin&&g.monto_cliente!=null&&g.monto_cliente!==g.monto;
         return <div key={g.id} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderBottom:`1px solid ${C.bd}`,transition:"background .15s"}} onMouseEnter={e=>e.currentTarget.style.background=C.bg3} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
           <div style={{width:34,height:34,borderRadius:9,background:(cat?.color||C.green)+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{cat?.icon||"📦"}</div>
           <div style={{flex:1,minWidth:0}}>
@@ -674,6 +693,7 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
           <div style={{textAlign:"right",flexShrink:0}}>
             <div style={{fontSize:14,fontWeight:700,color:cat?.color||C.green}}>{fmt(conv(g))}</div>
             <div style={{fontSize:10,color:C.t3}}>{g.moneda==="USD"?`USD ${g.monto.toLocaleString("es-AR",{maximumFractionDigits:2})}`:`$${g.monto.toLocaleString("es-AR",{maximumFractionDigits:0})}`}</div>
+            {difiereCliente&&<div style={{fontSize:10,color:C.lima,fontWeight:600,marginTop:1}}>🌐 {fmt(convCliente(g))}</div>}
           </div>
           <div style={{display:"flex",gap:4,flexShrink:0,alignItems:"center"}}>
             <button onClick={()=>setGastoComent(g)} style={{background:cCount>0?C.blue+"18":"none",border:cCount>0?`1px solid ${C.blue}33`:"none",cursor:"pointer",color:C.blue,fontSize:13,borderRadius:6,padding:"3px 7px",display:"flex",alignItems:"center",gap:3}}>
