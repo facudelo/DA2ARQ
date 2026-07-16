@@ -28,6 +28,7 @@ const fmtUSD=n=>new Intl.NumberFormat("es-AR",{style:"currency",currency:"USD",m
 const fmtM=(n,m)=>m==="USD"?fmtUSD(n):fmtARS(n);
 const toARS=(g,tcRef)=>g.moneda==="USD"?g.monto*(g.tc_valor||tcRef):g.monto;
 const toUSD=(g,tcRef)=>g.moneda==="ARS"?g.monto/(g.tc_valor||tcRef):g.monto;
+const calcFactorIndice=(fechaDesde,data)=>{if(!fechaDesde||!data||!data.length)return 1;const desde=fechaDesde.slice(0,7);const serie=data.filter(x=>x.fecha.slice(0,7)>=desde).sort((a,b)=>a.fecha<b.fecha?-1:1);return serie.length>0?serie.reduce((f,x)=>f*(1+x.valor/100),1):1;};
 const exportCSV=(rows,fn)=>{if(!rows.length)return;const h=Object.keys(rows[0]);const csv="\uFEFF"+[h.join(","),...rows.map(r=>h.map(k=>'"'+(r[k]??'').toString().replace(/"/g,'""')+'"').join(","))].join("\n");const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));a.download=fn;a.click();};
 
 // ── HOOKS ─────────────────────────────────────────────────────────────────────
@@ -347,6 +348,7 @@ function ObraApp(props){
   const [hitos,setHitos]=useState([]);
   const [comentarios,setComentarios]=useState([]);
   const [obraEtapas,setObraEtapas]=useState([]);
+  const [pagosCliente,setPagosCliente]=useState([]);
   const [loadingData,setLoadingData]=useState(true);
   const [mobileMenu,setMobileMenu]=useState(false);
   const [showGastoModal,setShowGastoModal]=useState(false);
@@ -369,7 +371,7 @@ function ObraApp(props){
 
   const loadAll=useCallback(async()=>{
     setLoadingData(true);
-    const[gRes,prRes,cRes,fRes,partRes,hRes,cRes2,etRes]=await Promise.all([
+    const[gRes,prRes,cRes,fRes,partRes,hRes,cRes2,etRes,pgRes]=await Promise.all([
       supabase.from("gastos").select("*").eq("obra_id",obra.id).order("fecha",{ascending:false}),
       supabase.from("presupuestos").select("*").eq("obra_id",obra.id).order("fecha",{ascending:true}),
       supabase.from("categorias").select("*, subcategorias(*)").eq("obra_id",obra.id).order("orden"),
@@ -378,12 +380,14 @@ function ObraApp(props){
       supabase.from("hitos").select("*").eq("obra_id",obra.id).order("fecha_estimada"),
       supabase.from("comentarios_gasto").select("*").eq("obra_id",obra.id).order("created_at"),
       supabase.from("obra_etapas").select("*").eq("obra_id",obra.id).order("orden"),
+      supabase.from("pagos_cliente").select("*").eq("obra_id",obra.id).order("fecha",{ascending:true}),
     ]);
     setGastos(gRes.data||[]);setPresup(prRes.data||[]);
     setCats((cRes.data||[]).map(c=>({...c,subs:c.subcategorias||[]})));
     setFotos(fRes.data||[]);setPartic(partRes.data||[]);
     setHitos(hRes.data||[]);setComentarios(cRes2.data||[]);
     setObraEtapas(etRes.data||[]);
+    setPagosCliente(pgRes.data||[]);
     setLoadingData(false);
   },[obra.id]);
   useEffect(()=>{loadAll();},[loadAll]);
@@ -481,7 +485,7 @@ function ObraApp(props){
       {loadingData?<Spinner/>:<>
         {tab==="dashboard"&&<DashboardTab obra={obra} gastos={gastosVis} esAdmin={esAdmin} presup={presup} tcRef={tcRef} partic={partic} cats={cats} fotos={fotos} hitos={hitos} monedaVista={monedaVista}/>}
         {tab==="gastos"&&<GastosTab user={user} obra={obra} gastos={gastos} esAdmin={esAdmin} miRol={miRol} puedoCargar={puedoCargar} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} externalOpen={showGastoModal} onExternalClose={()=>setShowGastoModal(false)} comentarios={comentarios} miUserId={user.id}/>}
-        {tab==="presupuesto"&&(esAdmin||tabsCliente.includes("presupuesto"))&&<PresupuestoTab obra={obra} gastos={gastos} presup={presup} tcRef={tcRef} tcOficial={tcOficial} tcBlue={tcBlue} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} inflData={inflData} fetchIPC={fetchIPC} cacData={cacData} fetchCAC={fetchCAC} esAdmin={esAdmin} puedeVerEjecutado={esAdmin||puedeVerEjecutado}/>}
+        {tab==="presupuesto"&&(esAdmin||tabsCliente.includes("presupuesto"))&&<PresupuestoTab obra={obra} gastos={gastos} presup={presup} pagosCliente={pagosCliente} tcRef={tcRef} tcOficial={tcOficial} tcBlue={tcBlue} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} inflData={inflData} fetchIPC={fetchIPC} cacData={cacData} fetchCAC={fetchCAC} esAdmin={esAdmin} puedeVerEjecutado={esAdmin||puedeVerEjecutado}/>}
         {tab==="fotos"&&<FotosTab obra={obra} fotos={fotos} puedoCargar={true} esAdmin={esAdmin} user={user} toast={toast} reload={loadAll} obraEtapas={obraEtapas}/>}
         {tab==="objetivos"&&<HitosTab obra={obra} hitos={hitos} esAdmin={esAdmin} toast={toast} reload={loadAll}/>}
         {tab==="reportes"&&<ReportesTab obra={obra} gastos={gastosVis} presup={presup} tcRef={tcRef} cats={cats} esAdmin={esAdmin} monedaVista={monedaVista}/>}
@@ -980,8 +984,164 @@ function PanelAjuste({indiceAjuste,inflData,cacData,tcOficial,obra,presupBaseARS
   </Card>;
 }
 
+// ── DEUDA DEL CLIENTE (pactado vs pagado, ajustado por CAC) ───────────────────
+// Método: cada renglón "pactado" (presupuestos.monto_cliente) y cada "pago" (pagos_cliente)
+// se lleva a valor de HOY aplicando el factor compuesto de CAC desde su propia fecha.
+// Saldo ajustado = Σ pactado_ajustado − Σ pagado_ajustado.
+// Esto es matemáticamente equivalente a ajustar el saldo mes a mes y descontar cada pago
+// en su fecha (factores compuestos multiplicativos ⇒ F(a,c) = F(a,b)·F(b,c)), pero sin el
+// riesgo de un bug de orden/doble ajuste: cada línea se calcula de forma independiente.
+function DeudaClienteCard({obra,presup,pagosCliente,cats,cacData,fetchCAC,tcRef,monedaVista,esAdmin,toast,reload}){
+  const enUSD=monedaVista==="USD";
+  const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
+  const toMV=ars=>enUSD?(tcRef>0?ars/tcRef:0):ars;
+
+  const [modal,setModal]=useState(false);
+  const [draft,setDraft]=useState({fecha:todayISO(),monto:"",moneda:"ARS",descripcion:""});
+  const [saving,setSaving]=useState(false);
+
+  const cargos=presup.filter(p=>p.monto_cliente!=null&&p.monto_cliente>0).map(p=>{
+    const catL=cats.find(c=>c.id===p.cat_id)?.label;
+    return{
+      id:"c_"+p.id,fecha:p.fecha,tipo:"cargo",
+      descripcion:[catL,p.descripcion].filter(Boolean).join(" · ")||"Presupuesto pactado",
+      montoARS:p.moneda==="USD"?p.monto_cliente*tcRef:p.monto_cliente,
+    };
+  });
+
+  const pagos=pagosCliente.map(pg=>({
+    id:"p_"+pg.id,fecha:pg.fecha,tipo:"pago",
+    descripcion:pg.descripcion||"Pago del cliente",
+    montoARS:-toARS(pg,tcRef),
+    original:pg,
+  }));
+
+  const movimientos=[...cargos,...pagos].sort((a,b)=>a.fecha>b.fecha?1:a.fecha<b.fecha?-1:0);
+
+  const totalPactadoARS=cargos.reduce((s,c)=>s+c.montoARS,0);
+  const totalPagadoARS=pagos.reduce((s,p)=>s-p.montoARS,0);
+  const saldoNominalARS=totalPactadoARS-totalPagadoARS;
+
+  const hayCAC=!!(cacData&&cacData.length);
+  const totalPactadoAjustadoARS=hayCAC?cargos.reduce((s,c)=>s+c.montoARS*calcFactorIndice(c.fecha,cacData),0):null;
+  const totalPagadoAjustadoARS=hayCAC?pagos.reduce((s,p)=>s-p.montoARS*calcFactorIndice(p.fecha,cacData),0):null;
+  const saldoAjustadoARS=(totalPactadoAjustadoARS!=null&&totalPagadoAjustadoARS!=null)?totalPactadoAjustadoARS-totalPagadoAjustadoARS:null;
+
+  const pctPagadoNominal=totalPactadoARS>0?Math.min(100,Math.round((totalPagadoARS/totalPactadoARS)*100)):null;
+  const pctPagadoAjustado=(totalPactadoAjustadoARS>0)?Math.min(100,Math.round((totalPagadoAjustadoARS/totalPactadoAjustadoARS)*100)):null;
+
+  const montoNum=parseFloat(draft.monto)||0;
+
+  const save=async()=>{
+    if(montoNum<=0)return;setSaving(true);
+    const{error}=await supabase.from("pagos_cliente").insert({
+      obra_id:obra.id,fecha:draft.fecha,monto:montoNum,moneda:draft.moneda,
+      tc_valor:draft.moneda==="USD"?tcRef:null,
+      descripcion:draft.descripcion.trim()||null,
+    });
+    if(error){toast.error("Error: "+error.message);setSaving(false);return;}
+    toast.success("Pago registrado");
+    setDraft({fecha:todayISO(),monto:"",moneda:"ARS",descripcion:""});
+    setModal(false);await reload();setSaving(false);
+  };
+
+  const deletePago=async(id)=>{
+    const{error}=await supabase.from("pagos_cliente").delete().eq("id",id);
+    if(error)toast.error("Error: "+error.message);else{toast.success("Pago eliminado");await reload();}
+  };
+
+  if(cargos.length===0&&pagos.length===0&&!esAdmin)return null;
+
+  let runningNom=0,runningAdj=0;
+
+  return <Card style={{marginTop:14,border:`1px solid ${C.blue}33`}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:14}}>
+      <div>
+        <div style={{fontSize:14,fontWeight:700,color:C.t}}>💰 Deuda del cliente</div>
+        <div style={{fontSize:11,color:C.t3,marginTop:2}}>Presupuesto pactado con el cliente vs. pagos recibidos{hayCAC?" · ajustado por índice CAC":""}</div>
+      </div>
+      {esAdmin&&<div style={{display:"flex",gap:8}}>
+        {!hayCAC&&<Btn small onClick={fetchCAC}>Cargar CAC</Btn>}
+        <Btn primary small onClick={()=>setModal(true)}>+ Registrar pago</Btn>
+      </div>}
+    </div>
+
+    <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
+      <StatCard label={`Pactado con cliente (${monedaVista})`} value={fmt(toMV(totalPactadoARS))} color={C.blue} icon="📐"/>
+      <StatCard label={`Pagado (${monedaVista})`} value={fmt(toMV(totalPagadoARS))} color={C.green} icon="✅" sub={pctPagadoNominal!=null?`${pctPagadoNominal}% del pactado (nominal)`:undefined}/>
+      <StatCard label={`Saldo pendiente nominal (${monedaVista})`} value={fmt(toMV(saldoNominalARS))} color={saldoNominalARS>0?C.amber:C.green} icon="🧾"/>
+      {saldoAjustadoARS!=null&&<StatCard label={`Saldo pendiente ajustado CAC (${monedaVista})`} value={fmt(toMV(saldoAjustadoARS))} color={saldoAjustadoARS>0?C.red:C.green} icon="📊" sub={pctPagadoAjustado!=null?`${pctPagadoAjustado}% del compromiso actualizado ya cubierto`:undefined}/>}
+    </div>
+
+    {!hayCAC&&<div style={{fontSize:11,color:C.t3,background:C.bg3,borderRadius:8,padding:"8px 12px",marginBottom:14}}>ℹ️ Sin datos de CAC cargados: se muestra solo el saldo nominal (sin ajuste por índice).{esAdmin?" Presioná \"Cargar CAC\" para ver el saldo ajustado.":""}</div>}
+
+    {movimientos.length===0&&<div style={{textAlign:"center",padding:"20px 0",color:C.t3,fontSize:12}}>Todavía no hay presupuesto pactado con el cliente ni pagos registrados.</div>}
+
+    {movimientos.length>0&&<div style={{overflowX:"auto"}}>
+    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+      <thead><tr style={{borderBottom:`2px solid ${C.bd2}`}}>
+        <th style={{padding:"6px 8px",textAlign:"left",color:C.t3,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Fecha</th>
+        <th style={{padding:"6px 8px",textAlign:"left",color:C.t3,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Movimiento</th>
+        <th style={{padding:"6px 8px",textAlign:"right",color:C.t3,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Monto</th>
+        <th style={{padding:"6px 8px",textAlign:"right",color:C.t3,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Saldo nominal</th>
+        {hayCAC&&<th style={{padding:"6px 8px",textAlign:"right",color:C.t3,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>Saldo ajustado CAC</th>}
+        {esAdmin&&<th style={{padding:"6px 8px",width:28}}/>}
+      </tr></thead>
+      <tbody>
+        {movimientos.map(m=>{
+          runningNom+=m.montoARS;
+          const adj=hayCAC?m.montoARS*calcFactorIndice(m.fecha,cacData):null;
+          if(adj!=null)runningAdj+=adj;
+          const esCargo=m.tipo==="cargo";
+          return <tr key={m.id} style={{borderBottom:`1px solid ${C.bd}`}}>
+            <td style={{padding:"7px 8px",color:C.t3,whiteSpace:"nowrap"}}>{m.fecha}</td>
+            <td style={{padding:"7px 8px"}}>
+              <span style={{background:(esCargo?C.blue:C.green)+"18",color:esCargo?C.blue:C.green,borderRadius:5,padding:"2px 8px",fontSize:10,fontWeight:700,marginRight:6,whiteSpace:"nowrap"}}>{esCargo?"📐 Pactado":"✅ Pago"}</span>
+              <span style={{color:C.t2}}>{m.descripcion}</span>
+            </td>
+            <td style={{padding:"7px 8px",textAlign:"right",fontWeight:600,color:esCargo?C.blue:C.green,whiteSpace:"nowrap"}}>{esCargo?"+":"−"}{fmt(toMV(Math.abs(m.montoARS)))}</td>
+            <td style={{padding:"7px 8px",textAlign:"right",fontWeight:700,color:C.t,whiteSpace:"nowrap"}}>{fmt(toMV(runningNom))}</td>
+            {hayCAC&&<td style={{padding:"7px 8px",textAlign:"right",fontWeight:700,color:C.amber,whiteSpace:"nowrap"}}>{fmt(toMV(runningAdj))}</td>}
+            {esAdmin&&<td style={{padding:"7px 8px",textAlign:"right"}}>{m.original&&<button onClick={()=>deletePago(m.original.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.t3,fontSize:14,padding:"0 4px"}}>×</button>}</td>}
+          </tr>;
+        })}
+      </tbody>
+    </table>
+    </div>}
+
+    <div style={{fontSize:10,color:C.t3,marginTop:10,lineHeight:1.5}}>
+      ℹ️ Cómo se calcula: cada renglón "Pactado" y cada "Pago" se actualiza a valor de hoy aplicando la variación acumulada del índice CAC desde su propia fecha. El saldo ajustado es la diferencia entre lo pactado actualizado y lo pagado actualizado.
+    </div>
+
+    {modal&&<Modal title="Registrar pago del cliente" onClose={()=>setModal(false)}>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 90px",gap:8}}>
+          <div>
+            <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Monto</div>
+            <input style={{...INP,fontSize:18,fontWeight:700}} type="number" placeholder="0" autoFocus value={draft.monto} onChange={e=>setDraft(d=>({...d,monto:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&save()}/>
+          </div>
+          <div>
+            <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Moneda</div>
+            <select style={SEL} value={draft.moneda} onChange={e=>setDraft(d=>({...d,moneda:e.target.value}))}><option>ARS</option><option>USD</option></select>
+          </div>
+        </div>
+        <div>
+          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Fecha del pago</div>
+          <input style={INP} type="date" value={draft.fecha} onChange={e=>setDraft(d=>({...d,fecha:e.target.value}))}/>
+        </div>
+        <div>
+          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Descripción (opcional)</div>
+          <input style={INP} placeholder="Ej: Transferencia, cuota 3..." value={draft.descripcion} onChange={e=>setDraft(d=>({...d,descripcion:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&save()}/>
+        </div>
+        {draft.moneda==="USD"&&<div style={{fontSize:11,color:C.t3,background:C.bg3,borderRadius:8,padding:"8px 12px"}}>Se guarda con el TC actual (${tcRef?.toLocaleString("es-AR")}) para poder convertirlo a pesos de forma consistente.</div>}
+        <Btn primary full onClick={save} loading={saving} disabled={montoNum<=0}>Guardar pago</Btn>
+      </div>
+    </Modal>}
+  </Card>;
+}
+
 // ── PRESUPUESTO ───────────────────────────────────────────────────────────────
-function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,reload,monedaVista,inflData,fetchIPC,cacData,fetchCAC,esAdmin=true,puedeVerEjecutado=true}){
+function PresupuestoTab({obra,gastos,presup,pagosCliente=[],tcRef,tcOficial,tcBlue,cats,toast,reload,monedaVista,inflData,fetchIPC,cacData,fetchCAC,esAdmin=true,puedeVerEjecutado=true}){
   const [modal,setModal]=useState(false);
   const [draft,setDraft]=useState({cat_id:cats[0]?.id||"",sub_id:"",monto:"",monto_cliente:"",moneda:"ARS",fecha:todayISO(),descripcion:""});
   const [saving,setSaving]=useState(false);
@@ -1246,6 +1406,13 @@ function PresupuestoTab({obra,gastos,presup,tcRef,tcOficial,tcBlue,cats,toast,re
       calcAjusteGeneral={calcAjusteGeneral} showInfl={showInfl}
       handleShowInfl={handleShowInfl} fetchIPC={fetchIPC} fetchCAC={fetchCAC}
       setShowInfl={setShowInfl} INDICES={INDICES}
+    />
+
+    {/* Deuda del cliente: pactado vs pagado, con ajuste por CAC */}
+    <DeudaClienteCard
+      obra={obra} presup={presup} pagosCliente={pagosCliente} cats={cats}
+      cacData={cacData} fetchCAC={fetchCAC} tcRef={tcRef}
+      monedaVista={monedaVista} esAdmin={esAdmin} toast={toast} reload={reload}
     />
 
     {modal&&<Modal title="Agregar presupuesto" onClose={()=>setModal(false)}>
