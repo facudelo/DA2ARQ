@@ -2,6 +2,7 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
+import * as XLSX from "xlsx";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -33,6 +34,123 @@ const addMonths=(fechaISO,n)=>{const[y,m,d]=fechaISO.split("-").map(Number);cons
 // Reparte `total` en `n` cuotas cuya suma da EXACTO total (evita errores de redondeo): la diferencia en centavos se distribuye entre las primeras cuotas.
 const splitEnCuotas=(total,n)=>{const centavos=Math.round(total*100);const base=Math.floor(centavos/n);const resto=centavos-base*n;return Array.from({length:n},(_,i)=>(base+(i<resto?1:0))/100);};
 const exportCSV=(rows,fn)=>{if(!rows.length)return;const h=Object.keys(rows[0]);const csv="\uFEFF"+[h.join(","),...rows.map(r=>h.map(k=>'"'+(r[k]??'').toString().replace(/"/g,'""')+'"').join(","))].join("\n");const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));a.download=fn;a.click();};
+
+// ── IMPORTACIÓN MASIVA DE GASTOS (Excel) ───────────────────────────────────────
+const CAT_MARCA_EJEMPLO="❌ EJEMPLO - borrar esta fila";
+const VIS_LABEL_A_CODIGO={"público":"publico","publico":"publico","solo equipo":"solo_admin","privado":"privado"};
+const VIS_CODIGO_A_LABEL={publico:"Público",solo_admin:"Solo equipo",privado:"Privado"};
+
+function generarPlantillaGastos(obraNombre,cats,tcHistData){
+  const wb=XLSX.utils.book_new();
+  const headers=["Fecha","Categoria","Subcategoria","Moneda","Monto real","Monto cliente","Tipo de cambio dia pago","Cuotas","Visibilidad","Descripcion"];
+  const ej1=["2026-01-15",CAT_MARCA_EJEMPLO,"","ARS",150000,150000,"",1,"Público","Ej: 20 bolsas de cemento — BORRAR esta fila"];
+  const ej2=["2026-01-20",CAT_MARCA_EJEMPLO,"","USD",500,"","",3,"Solo equipo","Ej: pago en 3 cuotas — BORRAR esta fila"];
+  const FILAS=300;
+  const aoa=[headers,ej1,ej2];
+  for(let i=aoa.length;i<=FILAS;i++)aoa.push([]);
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  for(let r=2;r<=FILAS+1;r++)ws["G"+r]={t:"n",v:0,f:`IFERROR(VLOOKUP(A${r},'TC Historico'!A:C,3,FALSE),0)`};
+  ws["!ref"]=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:FILAS,c:9}});
+  ws["!cols"]=[{wch:12},{wch:18},{wch:18},{wch:8},{wch:13},{wch:13},{wch:16},{wch:8},{wch:12},{wch:32}];
+  XLSX.utils.book_append_sheet(wb,ws,"Gastos");
+
+  const catRows=[["Categoria","Subcategoria"]];
+  cats.forEach(c=>{if(!c.subs||c.subs.length===0)catRows.push([c.label,"(sin subcategorías)"]);else c.subs.forEach(s=>catRows.push([c.label,s.label]));});
+  const wsCat=XLSX.utils.aoa_to_sheet(catRows);
+  wsCat["!cols"]=[{wch:20},{wch:20}];
+  XLSX.utils.book_append_sheet(wb,wsCat,"Categorias");
+
+  const tcRows=[["Fecha","Oficial","Blue"]];
+  const oficial=tcHistData?.oficial||[],blue=tcHistData?.blue||[];
+  const mapBlue=new Map(blue.map(x=>[x.fecha,x.venta]));
+  const fechas=[...new Set([...oficial.map(x=>x.fecha),...blue.map(x=>x.fecha)])].sort();
+  const mapOf=new Map(oficial.map(x=>[x.fecha,x.venta]));
+  fechas.forEach(f=>tcRows.push([f,mapOf.get(f)||"",mapBlue.get(f)||""]));
+  const wsTc=XLSX.utils.aoa_to_sheet(tcRows.length>1?tcRows:[["Fecha","Oficial","Blue"],["(sin datos históricos cargados todavía)","",""]]);
+  wsTc["!cols"]=[{wch:12},{wch:10},{wch:10}];
+  XLSX.utils.book_append_sheet(wb,wsTc,"TC Historico");
+
+  XLSX.writeFile(wb,`plantilla_gastos_${obraNombre.replace(/\s+/g,"_")}.xlsx`);
+}
+
+const normFechaExcel=v=>{
+  if(v==null||v==="")return null;
+  if(v instanceof Date)return v.toISOString().slice(0,10);
+  if(typeof v==="number"){const d=XLSX.SSF.parse_date_code(v);if(!d)return null;return`${d.y}-${String(d.m).padStart(2,"0")}-${String(d.d).padStart(2,"0")}`;}
+  const s=String(v).trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(s)?s:null;
+};
+
+// Valida TODAS las filas de la hoja "Gastos" contra las categorías reales de la obra.
+// Devuelve {errores:[{fila,mensaje}], rows:[...]} — rows solo trae datos si errores.length===0
+// no se recomienda usarlas si hay errores (política "todo o nada": corregir y resubir).
+function parseGastosExcel(wb,cats){
+  const ws=wb.Sheets["Gastos"];
+  if(!ws)return{errores:[{fila:"-",mensaje:'No se encontró la hoja "Gastos" en el archivo. ¿Es la plantilla correcta?'}],rows:[]};
+  const aoa=XLSX.utils.sheet_to_json(ws,{header:1,defval:"",raw:true});
+  const errores=[],rows=[];
+  for(let i=1;i<aoa.length;i++){
+    const r=aoa[i],filaExcel=i+1;
+    const[fechaRaw,catRaw,subRaw,monedaRaw,montoRealRaw,montoClienteRaw,tcRaw,cuotasRaw,visRaw,descRaw]=r;
+    const vacia=[fechaRaw,catRaw,subRaw,monedaRaw,montoRealRaw].every(v=>v===""||v==null);
+    if(vacia)continue;
+    const catLabel=String(catRaw||"").trim();
+    if(catLabel===CAT_MARCA_EJEMPLO){errores.push({fila:filaExcel,mensaje:"Es la fila de ejemplo de la plantilla — borrala antes de subir el archivo."});continue;}
+    const fecha=normFechaExcel(fechaRaw);
+    if(!fecha){errores.push({fila:filaExcel,mensaje:"Fecha vacía o con formato inválido (usar AAAA-MM-DD, o completarlo como fecha en Excel)."});continue;}
+    const cat=cats.find(c=>c.label.trim().toLowerCase()===catLabel.toLowerCase());
+    if(!cat){errores.push({fila:filaExcel,mensaje:`Categoría "${catLabel}" no existe en esta obra. Revisá la hoja "Categorias" de la plantilla.`});continue;}
+    const subLabel=String(subRaw||"").trim();
+    let sub=null;
+    if(subLabel&&subLabel!=="(sin subcategorías)"){
+      sub=(cat.subs||[]).find(s=>s.label.trim().toLowerCase()===subLabel.toLowerCase());
+      if(!sub){errores.push({fila:filaExcel,mensaje:`Subcategoría "${subLabel}" no pertenece a la categoría "${catLabel}".`});continue;}
+    }
+    const moneda=String(monedaRaw||"").trim().toUpperCase();
+    if(moneda!=="ARS"&&moneda!=="USD"){errores.push({fila:filaExcel,mensaje:`Moneda "${monedaRaw}" inválida (debe ser ARS o USD).`});continue;}
+    const montoReal=parseFloat(montoRealRaw);
+    if(!(montoReal>0)){errores.push({fila:filaExcel,mensaje:"Monto real vacío, cero o negativo."});continue;}
+    let montoCliente=null;
+    if(montoClienteRaw!==""&&montoClienteRaw!=null){
+      montoCliente=parseFloat(montoClienteRaw);
+      if(!(montoCliente>=0)){errores.push({fila:filaExcel,mensaje:"Monto cliente inválido (debe ser 0 o positivo, o dejarse vacío)."});continue;}
+    }
+    let tc=null;
+    if(moneda==="USD"){
+      tc=parseFloat(tcRaw);
+      if(!(tc>0)){errores.push({fila:filaExcel,mensaje:"Falta el tipo de cambio del día de pago (obligatorio en USD). Abrí el archivo en Excel/Sheets para que se autocalcule, o completalo a mano."});continue;}
+    }
+    let cuotas=1;
+    if(cuotasRaw!==""&&cuotasRaw!=null){
+      cuotas=parseInt(cuotasRaw);
+      if(!(cuotas>=1&&cuotas<=24)){errores.push({fila:filaExcel,mensaje:"Cuotas debe ser un número entero entre 1 y 24."});continue;}
+    }
+    const visKey=String(visRaw||"").trim().toLowerCase();
+    const visibilidad=VIS_LABEL_A_CODIGO[visKey];
+    if(!visibilidad){errores.push({fila:filaExcel,mensaje:`Visibilidad "${visRaw}" inválida (debe ser Público, Solo equipo o Privado).`});continue;}
+    rows.push({fila:filaExcel,fecha,cat_id:cat.id,cat_label:cat.label,sub_id:sub?.id||null,sub_label:sub?.label||null,moneda,montoReal,montoCliente,tc,cuotas,visibilidad,descripcion:String(descRaw||"").trim()||null});
+  }
+  return{errores,rows};
+}
+
+// Expande una fila validada del Excel en 1 o N gastos (si tiene cuotas), listos para insertar en Supabase.
+function expandirFilaExcel(row,obraId,userId){
+  if(row.cuotas<=1)return[{
+    obra_id:obraId,user_id:userId,fecha:row.fecha,cat_id:row.cat_id,sub_id:row.sub_id,
+    monto:row.montoReal,moneda:row.moneda,monto_cliente:row.montoCliente,
+    tc_valor:row.moneda==="USD"?row.tc:null,descripcion:row.descripcion,visibilidad:row.visibilidad,
+  }];
+  const grupo=(crypto.randomUUID?crypto.randomUUID():`${Date.now()}_${Math.random().toString(36).slice(2)}`);
+  const montos=splitEnCuotas(row.montoReal,row.cuotas);
+  const montosCliente=row.montoCliente!=null?splitEnCuotas(row.montoCliente,row.cuotas):null;
+  return Array.from({length:row.cuotas},(_,i)=>({
+    obra_id:obraId,user_id:userId,fecha:addMonths(row.fecha,i),cat_id:row.cat_id,sub_id:row.sub_id,
+    monto:montos[i],moneda:row.moneda,monto_cliente:montosCliente?montosCliente[i]:null,
+    tc_valor:row.moneda==="USD"?row.tc:null,
+    descripcion:(row.descripcion?row.descripcion+" · ":"")+`Cuota ${i+1}/${row.cuotas}`,
+    visibilidad:row.visibilidad,grupo_cuota:grupo,cuota_num:i+1,cuota_total:row.cuotas,
+  }));
+}
 
 // ── HOOKS ─────────────────────────────────────────────────────────────────────
 function useToast(){
@@ -487,7 +605,7 @@ function ObraApp(props){
     <div style={{padding:20,paddingBottom:100,maxWidth:1040,margin:"0 auto"}}>
       {loadingData?<Spinner/>:<>
         {tab==="dashboard"&&<DashboardTab obra={obra} gastos={gastosVis} esAdmin={esAdmin} presup={presup} tcRef={tcRef} partic={partic} cats={cats} fotos={fotos} hitos={hitos} monedaVista={monedaVista}/>}
-        {tab==="gastos"&&<GastosTab user={user} obra={obra} gastos={gastos} esAdmin={esAdmin} miRol={miRol} puedoCargar={puedoCargar} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} externalOpen={showGastoModal} onExternalClose={()=>setShowGastoModal(false)} comentarios={comentarios} miUserId={user.id}/>}
+        {tab==="gastos"&&<GastosTab user={user} obra={obra} gastos={gastos} esAdmin={esAdmin} miRol={miRol} puedoCargar={puedoCargar} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} tcHistData={tcHistData} fetchTCHist={fetchTCHist} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} externalOpen={showGastoModal} onExternalClose={()=>setShowGastoModal(false)} comentarios={comentarios} miUserId={user.id}/>}
         {tab==="presupuesto"&&(esAdmin||tabsCliente.includes("presupuesto"))&&<PresupuestoTab obra={obra} gastos={gastos} presup={presup} pagosCliente={pagosCliente} tcRef={tcRef} tcOficial={tcOficial} tcBlue={tcBlue} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} inflData={inflData} fetchIPC={fetchIPC} cacData={cacData} fetchCAC={fetchCAC} esAdmin={esAdmin} puedeVerEjecutado={esAdmin||puedeVerEjecutado}/>}
         {tab==="fotos"&&<FotosTab obra={obra} fotos={fotos} puedoCargar={true} esAdmin={esAdmin} user={user} toast={toast} reload={loadAll} obraEtapas={obraEtapas}/>}
         {tab==="objetivos"&&<HitosTab obra={obra} hitos={hitos} esAdmin={esAdmin} toast={toast} reload={loadAll}/>}
@@ -511,6 +629,7 @@ function ObraApp(props){
       {showGastoModal&&<GastoRapidoModal
         user={user} obra={obra} cats={cats}
         tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual}
+        tcHistData={tcHistData} fetchTCHist={fetchTCHist}
         esAdmin={esAdmin} toast={toast} reload={loadAll}
         onClose={()=>setShowGastoModal(false)}
       />}
@@ -660,7 +779,7 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=
 }
 
 // ── GASTOS ────────────────────────────────────────────────────────────────────
-function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,tcManual,setTcManual,cats,toast,reload,monedaVista,externalOpen,onExternalClose,comentarios=[],miUserId}){
+function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,tcManual,setTcManual,tcHistData,fetchTCHist,cats,toast,reload,monedaVista,externalOpen,onExternalClose,comentarios=[],miUserId}){
   const vis=gastos
     .filter(g=>esAdmin||(miRol==="ayudante"&&g.visibilidad!=="privado")||g.visibilidad==="publico")
     .map(g=>(esAdmin||miRol==="ayudante")?g:{...g,monto:g.monto_cliente??g.monto});
@@ -798,12 +917,13 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
       </div>
     </Modal>}
     {gastoComent&&<ComentariosModal gasto={gastoComent} comentarios={comentarios.filter(c=>c.gasto_id===gastoComent.id)} obra={obra} user={user} esAdmin={esAdmin} toast={toast} reload={reload} onClose={()=>setGastoComent(null)}/>}
-    {showForm&&<GastoRapidoModal user={user} obra={obra} cats={cats} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} esAdmin={esAdmin} toast={toast} reload={reload} onClose={closeForm}/>}
+    {showForm&&<GastoRapidoModal user={user} obra={obra} cats={cats} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} tcHistData={tcHistData} fetchTCHist={fetchTCHist} esAdmin={esAdmin} toast={toast} reload={reload} onClose={closeForm}/>}
   </div>;
 }
 
 // ── GASTO RÁPIDO MODAL (FAB) ──────────────────────────────────────────────────
-function GastoRapidoModal({user,obra,cats,tcOficial,tcBlue,tcManual,setTcManual,esAdmin,toast,reload,onClose}){
+function GastoRapidoModal({user,obra,cats,tcOficial,tcBlue,tcManual,setTcManual,tcHistData,fetchTCHist,esAdmin,toast,reload,onClose}){
+  const [modo,setModo]=useState("uno"); // "uno" | "excel"
   const [tcTipo,setTcTipo]=useState("blue");
   const tcRef=tcOficial||tcManual;
   const tcVal=tcTipo==="oficial"?(tcOficial||tcManual):tcTipo==="blue"?(tcBlue||tcManual):tcManual;
@@ -814,6 +934,49 @@ function GastoRapidoModal({user,obra,cats,tcOficial,tcBlue,tcManual,setTcManual,
   const catD=cats.find(c=>c.id===draft.cat_id);
   const nCuotas=Math.max(1,Math.min(24,parseInt(draft.cuotas)||1));
   const montoPorCuota=nCuotas>1&&montoNum>0?splitEnCuotas(montoNum,nCuotas)[0]:null;
+
+  // ── Modo Excel ──
+  const [xlsFileName,setXlsFileName]=useState(null);
+  const [xlsResult,setXlsResult]=useState(null); // {errores,rows}
+  const [xlsImporting,setXlsImporting]=useState(false);
+  const fileInputRef=useRef(null);
+
+  const irAModoExcel=()=>{setModo("excel");if(!tcHistData)fetchTCHist();};
+
+  const descargarPlantilla=()=>{
+    if(!cats.length){toast.error("Primero creá al menos una categoría en esta obra.");return;}
+    generarPlantillaGastos(obra.nombre,cats,tcHistData);
+  };
+
+  const onFileSelected=async(e)=>{
+    const file=e.target.files?.[0];
+    if(!file)return;
+    setXlsFileName(file.name);setXlsResult(null);
+    try{
+      const buf=await file.arrayBuffer();
+      const wb=XLSX.read(buf,{type:"array"});
+      const res=parseGastosExcel(wb,cats);
+      setXlsResult(res);
+    }catch(err){
+      setXlsResult({errores:[{fila:"-",mensaje:"No se pudo leer el archivo. ¿Es un .xlsx válido?"}],rows:[]});
+    }
+    if(fileInputRef.current)fileInputRef.current.value="";
+  };
+
+  const confirmarImportacion=async()=>{
+    if(!xlsResult||xlsResult.errores.length>0||xlsResult.rows.length===0)return;
+    setXlsImporting(true);
+    const todasLasFilas=xlsResult.rows.flatMap(r=>expandirFilaExcel(r,obra.id,user.id));
+    const LOTE=300;
+    for(let i=0;i<todasLasFilas.length;i+=LOTE){
+      const lote=todasLasFilas.slice(i,i+LOTE);
+      const{error}=await supabase.from("gastos").insert(lote);
+      if(error){toast.error(`Error al importar (lote ${Math.floor(i/LOTE)+1}): ${error.message}. Se cargó lo anterior, revisá los gastos antes de reintentar.`);setXlsImporting(false);return;}
+    }
+    toast.success(`${xlsResult.rows.length} gastos importados (${todasLasFilas.length} filas cargadas contando cuotas)`);
+    setXlsFileName(null);setXlsResult(null);setXlsImporting(false);
+    await reload();onClose();
+  };
 
   const save=async()=>{
     if(montoNum<=0)return;setSaving(true);
@@ -851,8 +1014,13 @@ function GastoRapidoModal({user,obra,cats,tcOficial,tcBlue,tcManual,setTcManual,
     await reload();setDraft(initD());setSaving(false);
   };
 
-  return <Modal title="Cargar gasto" onClose={onClose}>
-    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+  return <Modal title="Cargar gasto" onClose={onClose} wide={modo==="excel"}>
+    {esAdmin&&<div style={{display:"flex",gap:8,marginBottom:16,background:C.bg3,borderRadius:8,padding:4}}>
+      <button onClick={()=>setModo("uno")} style={{flex:1,padding:"7px",fontSize:12,border:"none",borderRadius:6,cursor:"pointer",background:modo==="uno"?C.bg2:"transparent",color:modo==="uno"?C.t:C.t3,fontWeight:modo==="uno"?700:400}}>Un gasto</button>
+      <button onClick={irAModoExcel} style={{flex:1,padding:"7px",fontSize:12,border:"none",borderRadius:6,cursor:"pointer",background:modo==="excel"?C.bg2:"transparent",color:modo==="excel"?C.t:C.t3,fontWeight:modo==="excel"?700:400}}>📥 Importar Excel (varios)</button>
+    </div>}
+
+    {modo==="uno"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
       <div style={{display:"grid",gridTemplateColumns:"1fr 80px",gap:8}}>
         <div>
           <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>{esAdmin?(nCuotas>1?"🔒 Monto total de la compra":"🔒 Monto real"):(nCuotas>1?"Monto total de la compra":"Monto")}</div>
@@ -927,7 +1095,44 @@ function GastoRapidoModal({user,obra,cats,tcOficial,tcBlue,tcManual,setTcManual,
         {saving?"Guardando...":nCuotas>1?`Guardar ${nCuotas} cuotas`:"Guardar gasto"}
       </Btn>
       <div style={{textAlign:"center",fontSize:11,color:C.t3,marginTop:4}}>TC al guardar: ${tcVal?.toLocaleString("es-AR")} · Enter para guardar</div>
-    </div>
+    </div>}
+
+    {modo==="excel"&&<div style={{display:"flex",flexDirection:"column",gap:14}}>
+      <div style={{background:C.bg3,borderRadius:10,padding:"12px 14px",fontSize:12,color:C.t2,lineHeight:1.6}}>
+        <b>1)</b> Descargá la plantilla de esta obra (ya trae tus categorías/subcategorías y el tipo de cambio histórico para autocompletar).<br/>
+        <b>2)</b> Completala en Excel o Google Sheets — <u>abrila normalmente</u> para que la columna de tipo de cambio se autocalcule, y <u>borrá las 2 filas de ejemplo</u>.<br/>
+        <b>3)</b> Subila acá abajo. Se valida todo antes de cargar nada: si hay un error, no se importa ninguna fila hasta que lo corrijas.
+      </div>
+
+      <Btn onClick={descargarPlantilla}>⬇ Descargar plantilla ({obra.nombre})</Btn>
+
+      <div>
+        <div style={{fontSize:11,color:C.t2,marginBottom:6,fontWeight:600}}>Subir plantilla completa (.xlsx)</div>
+        <input ref={fileInputRef} type="file" accept=".xlsx" onChange={onFileSelected} style={{fontSize:12}}/>
+        {xlsFileName&&<div style={{fontSize:11,color:C.t3,marginTop:4}}>Archivo: {xlsFileName}</div>}
+      </div>
+
+      {xlsResult&&xlsResult.errores.length>0&&<div style={{background:C.red+"12",border:`1px solid ${C.red}33`,borderRadius:10,padding:"12px 14px"}}>
+        <div style={{fontSize:12,fontWeight:700,color:C.red,marginBottom:8}}>⚠️ {xlsResult.errores.length} error{xlsResult.errores.length!==1?"es":""} — no se importó nada todavía</div>
+        <div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:220,overflowY:"auto"}}>
+          {xlsResult.errores.map((e,i)=><div key={i} style={{fontSize:11,color:C.t2}}><b style={{color:C.red}}>Fila {e.fila}:</b> {e.mensaje}</div>)}
+        </div>
+        <div style={{fontSize:11,color:C.t3,marginTop:8}}>Corregí estas filas en el mismo Excel y volvé a subirlo (no hace falta bajar la plantilla de nuevo).</div>
+      </div>}
+
+      {xlsResult&&xlsResult.errores.length===0&&xlsResult.rows.length===0&&<div style={{background:C.bg3,borderRadius:10,padding:"12px 14px",fontSize:12,color:C.t3,textAlign:"center"}}>El archivo no tiene ninguna fila cargada.</div>}
+
+      {xlsResult&&xlsResult.errores.length===0&&xlsResult.rows.length>0&&<div style={{background:C.green+"12",border:`1px solid ${C.green}33`,borderRadius:10,padding:"12px 14px"}}>
+        <div style={{fontSize:12,fontWeight:700,color:C.green,marginBottom:8}}>✅ {xlsResult.rows.length} fila{xlsResult.rows.length!==1?"s":""} válida{xlsResult.rows.length!==1?"s":""}, lista{xlsResult.rows.length!==1?"s":""} para importar</div>
+        <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:220,overflowY:"auto",marginBottom:10}}>
+          {xlsResult.rows.map((r,i)=><div key={i} style={{fontSize:11,color:C.t2,display:"flex",justifyContent:"space-between",gap:8}}>
+            <span>Fila {r.fila} · {r.fecha} · {r.cat_label}{r.sub_label?` › ${r.sub_label}`:""}{r.cuotas>1?` · 💳${r.cuotas} cuotas`:""}</span>
+            <span style={{fontWeight:600,color:C.t}}>{r.moneda==="USD"?`USD ${r.montoReal.toLocaleString("es-AR")}`:`$${r.montoReal.toLocaleString("es-AR")}`}</span>
+          </div>)}
+        </div>
+        <Btn primary full onClick={confirmarImportacion} loading={xlsImporting}>{xlsImporting?"Importando...":`Confirmar importación (${xlsResult.rows.length} filas)`}</Btn>
+      </div>}
+    </div>}
   </Modal>;
 }
 
