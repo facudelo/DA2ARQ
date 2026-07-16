@@ -29,6 +29,9 @@ const fmtM=(n,m)=>m==="USD"?fmtUSD(n):fmtARS(n);
 const toARS=(g,tcRef)=>g.moneda==="USD"?g.monto*(g.tc_valor||tcRef):g.monto;
 const toUSD=(g,tcRef)=>g.moneda==="ARS"?g.monto/(g.tc_valor||tcRef):g.monto;
 const calcFactorIndice=(fechaDesde,data)=>{if(!fechaDesde||!data||!data.length)return 1;const desde=fechaDesde.slice(0,7);const serie=data.filter(x=>x.fecha.slice(0,7)>=desde).sort((a,b)=>a.fecha<b.fecha?-1:1);return serie.length>0?serie.reduce((f,x)=>f*(1+x.valor/100),1):1;};
+const addMonths=(fechaISO,n)=>{const[y,m,d]=fechaISO.split("-").map(Number);const total=(m-1)+n;const ny=y+Math.floor(total/12);const nm=((total%12)+12)%12;const lastDay=new Date(ny,nm+1,0).getDate();const nd=Math.min(d,lastDay);return`${ny}-${String(nm+1).padStart(2,"0")}-${String(nd).padStart(2,"0")}`;};
+// Reparte `total` en `n` cuotas cuya suma da EXACTO total (evita errores de redondeo): la diferencia en centavos se distribuye entre las primeras cuotas.
+const splitEnCuotas=(total,n)=>{const centavos=Math.round(total*100);const base=Math.floor(centavos/n);const resto=centavos-base*n;return Array.from({length:n},(_,i)=>(base+(i<resto?1:0))/100);};
 const exportCSV=(rows,fn)=>{if(!rows.length)return;const h=Object.keys(rows[0]);const csv="\uFEFF"+[h.join(","),...rows.map(r=>h.map(k=>'"'+(r[k]??'').toString().replace(/"/g,'""')+'"').join(","))].join("\n");const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));a.download=fn;a.click();};
 
 // ── HOOKS ─────────────────────────────────────────────────────────────────────
@@ -527,7 +530,7 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=
   const presupMV=enUSD?(tcRef>0?presupBaseARS/tcRef:0):presupBaseARS;
   const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
   const pct=presupMV>0?Math.min(Math.round((totalMV/presupMV)*100),999):null;
-  const ultGastos=gastos.slice(0,8);
+  const ultGastos=gastos.filter(g=>g.fecha<=todayISO()).slice(0,8);
   const ultFotos=fotos.slice(0,4);
   const autorG=g=>partic.find(p=>p.user_id===g.user_id)?.nombre||g.user_email||"—";
 
@@ -605,7 +608,7 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=
             <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
               <div style={{width:26,height:26,borderRadius:6,background:(cat?.color||C.green)+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0}}>{cat?.icon||"📦"}</div>
               <div style={{minWidth:0}}>
-                <div style={{fontSize:12,fontWeight:600,color:C.t,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:130}}>{g.descripcion||sub?.label||cat?.label||"—"}</div>
+                <div style={{fontSize:12,fontWeight:600,color:C.t,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:130}}>{g.descripcion||sub?.label||cat?.label||"—"}{g.cuota_total>1?` · 💳${g.cuota_num}/${g.cuota_total}`:""}</div>
                 <div style={{fontSize:10,color:C.t3}}>{g.fecha} · <span style={{color:C.t2}}>{autorG(g)}</span></div>
               </div>
             </div>
@@ -700,7 +703,10 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
     else{toast.success("Gasto actualizado");await reload();}
     setEditM(null);setSaving(false);
   };
-  const deleteG=async(id)=>{const{error}=await supabase.from("gastos").delete().eq("id",id);if(error)toast.error("Error");else{toast.success("Eliminado");await reload();}};
+  const deleteG=async(g)=>{
+    if(g.cuota_total>1&&!confirm(`Esto borra solo la cuota ${g.cuota_num}/${g.cuota_total}. Las demás cuotas del plan quedan intactas. ¿Continuar?`))return;
+    const{error}=await supabase.from("gastos").delete().eq("id",g.id);if(error)toast.error("Error");else{toast.success("Eliminado");await reload();}
+  };
 
   return <div className="fu">
     <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
@@ -728,10 +734,16 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
         const sub=cat?.subs?.find(s=>s.id===g.sub_id);
         const cCount=comentarios.filter(c=>c.gasto_id===g.id).length;
         const difiereCliente=esAdmin&&g.monto_cliente!=null&&g.monto_cliente!==g.monto;
+        const esCuota=g.cuota_total>1;
+        const esFutura=g.fecha>todayISO();
         return <div key={g.id} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderBottom:`1px solid ${C.bd}`,transition:"background .15s"}} onMouseEnter={e=>e.currentTarget.style.background=C.bg3} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
           <div style={{width:34,height:34,borderRadius:9,background:(cat?.color||C.green)+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{cat?.icon||"📦"}</div>
           <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:13,fontWeight:600,color:C.t,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.descripcion||sub?.label||cat?.label||"—"}</div>
+            <div style={{fontSize:13,fontWeight:600,color:C.t,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}>
+              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.descripcion||sub?.label||cat?.label||"—"}</span>
+              {esCuota&&<Tag label={`💳 ${g.cuota_num}/${g.cuota_total}`} color={C.blue}/>}
+              {esFutura&&<Tag label="🕓 Programada" color={C.amber}/>}
+            </div>
             <div style={{fontSize:11,color:C.t3,marginTop:1}}>{g.fecha} · {cat?.label}{sub?` › ${sub.label}`:""}</div>
           </div>
           <div style={{textAlign:"right",flexShrink:0}}>
@@ -743,7 +755,7 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
             <button onClick={()=>setGastoComent(g)} style={{background:cCount>0?C.blue+"18":"none",border:cCount>0?`1px solid ${C.blue}33`:"none",cursor:"pointer",color:C.blue,fontSize:13,borderRadius:6,padding:"3px 7px",display:"flex",alignItems:"center",gap:3}}>
               💬{cCount>0&&<span style={{fontSize:10,fontWeight:700}}>{cCount}</span>}
             </button>
-            {esAdmin&&<><button onClick={()=>setEditM({...g,monto:g.monto.toString(),monto_cliente:(g.monto_cliente||"").toString()})} style={{background:"none",border:`1px solid ${C.bd2}`,cursor:"pointer",color:C.t2,fontSize:11,borderRadius:5,padding:"3px 8px"}}>✎</button><button onClick={()=>deleteG(g.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.t3,fontSize:20,padding:"0 4px"}}>×</button></>}
+            {esAdmin&&<><button onClick={()=>setEditM({...g,monto:g.monto.toString(),monto_cliente:(g.monto_cliente||"").toString()})} style={{background:"none",border:`1px solid ${C.bd2}`,cursor:"pointer",color:C.t2,fontSize:11,borderRadius:5,padding:"3px 8px"}}>✎</button><button onClick={()=>deleteG(g)} style={{background:"none",border:"none",cursor:"pointer",color:C.t3,fontSize:20,padding:"0 4px"}}>×</button></>}
           </div>
         </div>;
       })}
@@ -752,6 +764,7 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
 
     {editM&&<Modal title="Editar gasto" onClose={()=>setEditM(null)}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        {editM.cuota_total>1&&<div style={{background:C.blue+"12",border:`1px solid ${C.blue}33`,borderRadius:8,padding:"8px 12px",fontSize:11,color:C.t2}}>💳 Cuota {editM.cuota_num}/{editM.cuota_total} de un plan. Este cambio solo afecta a esta cuota puntual, no a las demás.</div>}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Fecha</div><input style={INP} type="date" value={editM.fecha} onChange={e=>setEditM(m=>({...m,fecha:e.target.value}))}/></div>
           <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Moneda</div><select style={SEL} value={editM.moneda} onChange={e=>setEditM(m=>({...m,moneda:e.target.value}))}><option>ARS</option><option>USD</option></select></div>
@@ -794,32 +807,55 @@ function GastoRapidoModal({user,obra,cats,tcOficial,tcBlue,tcManual,setTcManual,
   const [tcTipo,setTcTipo]=useState("blue");
   const tcRef=tcOficial||tcManual;
   const tcVal=tcTipo==="oficial"?(tcOficial||tcManual):tcTipo==="blue"?(tcBlue||tcManual):tcManual;
-  const initD=()=>({fecha:todayISO(),cat_id:cats[0]?.id||"",sub_id:cats[0]?.subs?.[0]?.id||"",monto:"",monto_cliente:"",moneda:"ARS",descripcion:"",visibilidad:esAdmin?"solo_admin":"publico"});
+  const initD=()=>({fecha:todayISO(),cat_id:cats[0]?.id||"",sub_id:cats[0]?.subs?.[0]?.id||"",monto:"",monto_cliente:"",moneda:"ARS",descripcion:"",visibilidad:esAdmin?"solo_admin":"publico",cuotas:1});
   const [draft,setDraft]=useState(initD);
   const [saving,setSaving]=useState(false);
   const montoNum=parseFloat(draft.monto)||0;
   const catD=cats.find(c=>c.id===draft.cat_id);
+  const nCuotas=Math.max(1,Math.min(24,parseInt(draft.cuotas)||1));
+  const montoPorCuota=nCuotas>1&&montoNum>0?splitEnCuotas(montoNum,nCuotas)[0]:null;
 
   const save=async()=>{
     if(montoNum<=0)return;setSaving(true);
-    const{error}=await supabase.from("gastos").insert({
+    if(nCuotas<=1){
+      const{error}=await supabase.from("gastos").insert({
+        obra_id:obra.id,user_id:user.id,
+        fecha:draft.fecha,cat_id:draft.cat_id,sub_id:draft.sub_id||null,
+        monto:montoNum,moneda:draft.moneda,
+        monto_cliente:esAdmin&&draft.monto_cliente?parseFloat(draft.monto_cliente):null,
+        tc_valor:draft.moneda==="USD"?tcVal:null,
+        descripcion:draft.descripcion.trim()||null,
+        visibilidad:esAdmin?draft.visibilidad:"publico",
+      });
+      if(error){toast.error("Error: "+error.message);setSaving(false);return;}
+      toast.success("Gasto guardado");await reload();setDraft(initD());setSaving(false);
+      return;
+    }
+    // En cuotas: se genera un renglón de gasto por mes, repartiendo el monto EXACTO (sin error de redondeo)
+    const grupo=(crypto.randomUUID?crypto.randomUUID():`${Date.now()}_${Math.random().toString(36).slice(2)}`);
+    const montosCuota=splitEnCuotas(montoNum,nCuotas);
+    const montosClienteCuota=(esAdmin&&draft.monto_cliente)?splitEnCuotas(parseFloat(draft.monto_cliente),nCuotas):null;
+    const rows=Array.from({length:nCuotas},(_,i)=>({
       obra_id:obra.id,user_id:user.id,
-      fecha:draft.fecha,cat_id:draft.cat_id,sub_id:draft.sub_id||null,
-      monto:montoNum,moneda:draft.moneda,
-      monto_cliente:esAdmin&&draft.monto_cliente?parseFloat(draft.monto_cliente):null,
+      fecha:addMonths(draft.fecha,i),cat_id:draft.cat_id,sub_id:draft.sub_id||null,
+      monto:montosCuota[i],moneda:draft.moneda,
+      monto_cliente:montosClienteCuota?montosClienteCuota[i]:null,
       tc_valor:draft.moneda==="USD"?tcVal:null,
-      descripcion:draft.descripcion.trim()||null,
+      descripcion:(draft.descripcion.trim()?draft.descripcion.trim()+" · ":"")+`Cuota ${i+1}/${nCuotas}`,
       visibilidad:esAdmin?draft.visibilidad:"publico",
-    });
+      grupo_cuota:grupo,cuota_num:i+1,cuota_total:nCuotas,
+    }));
+    const{error}=await supabase.from("gastos").insert(rows);
     if(error){toast.error("Error: "+error.message);setSaving(false);return;}
-    toast.success("Gasto guardado");await reload();setDraft(initD());setSaving(false);
+    toast.success(`${nCuotas} cuotas guardadas (${draft.fecha} a ${addMonths(draft.fecha,nCuotas-1)})`);
+    await reload();setDraft(initD());setSaving(false);
   };
 
   return <Modal title="Cargar gasto" onClose={onClose}>
     <div style={{display:"flex",flexDirection:"column",gap:12}}>
       <div style={{display:"grid",gridTemplateColumns:"1fr 80px",gap:8}}>
         <div>
-          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>{esAdmin?"🔒 Monto real":"Monto"}</div>
+          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>{esAdmin?(nCuotas>1?"🔒 Monto total de la compra":"🔒 Monto real"):(nCuotas>1?"Monto total de la compra":"Monto")}</div>
           <input style={{...INP,fontSize:20,fontWeight:700}} type="number" placeholder="0" autoFocus value={draft.monto} onChange={e=>setDraft(d=>({...d,monto:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&save()}/>
         </div>
         <div>
@@ -828,8 +864,19 @@ function GastoRapidoModal({user,obra,cats,tcOficial,tcBlue,tcManual,setTcManual,
         </div>
       </div>
 
+      <div>
+        <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Cuotas <span style={{color:C.t3,fontWeight:400}}>(1 = pago único)</span></div>
+        <select style={SEL} value={draft.cuotas} onChange={e=>setDraft(d=>({...d,cuotas:e.target.value}))}>
+          {Array.from({length:24},(_,i)=>i+1).map(n=><option key={n} value={n}>{n===1?"Sin cuotas":`${n} cuotas`}</option>)}
+        </select>
+        {nCuotas>1&&montoNum>0&&<div style={{marginTop:8,background:C.amber+"12",border:`1px solid ${C.amber}33`,borderRadius:8,padding:"8px 12px",fontSize:12,color:C.t2}}>
+          📅 Se van a crear <b>{nCuotas} gastos</b>, uno por mes, de <b style={{color:C.amber}}>{fmtM(montoPorCuota,draft.moneda)}</b> aprox. c/u (el reparto es exacto, alguna cuota puede diferir por centavos).<br/>
+          Desde <b>{draft.fecha}</b> hasta <b>{addMonths(draft.fecha,nCuotas-1)}</b>. Ya quedan cargados en Gastos, Dashboard, Presupuesto (ejecutado) y Reportes (cada uno en su mes).
+        </div>}
+      </div>
+
       {esAdmin&&<div>
-        <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>🌐 Monto cliente <span style={{color:C.t3,fontWeight:400}}>(opcional, si es distinto al real)</span></div>
+        <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>🌐 Monto cliente <span style={{color:C.t3,fontWeight:400}}>(opcional, {nCuotas>1?"total":"si es distinto al real"})</span></div>
         <input style={{...INP,borderColor:C.lima+"66"}} type="number" placeholder="igual al real" value={draft.monto_cliente} onChange={e=>setDraft(d=>({...d,monto_cliente:e.target.value}))}/>
       </div>}
 
@@ -877,7 +924,7 @@ function GastoRapidoModal({user,obra,cats,tcOficial,tcBlue,tcManual,setTcManual,
       </div>
 
       <Btn primary full onClick={save} loading={saving} disabled={montoNum<=0}>
-        {saving?"Guardando...":"Guardar gasto"}
+        {saving?"Guardando...":nCuotas>1?`Guardar ${nCuotas} cuotas`:"Guardar gasto"}
       </Btn>
       <div style={{textAlign:"center",fontSize:11,color:C.t3,marginTop:4}}>TC al guardar: ${tcVal?.toLocaleString("es-AR")} · Enter para guardar</div>
     </div>
