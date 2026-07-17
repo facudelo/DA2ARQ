@@ -3,6 +3,7 @@ import React, { useState, useMemo, useRef, useEffect, useCallback } from "react"
 import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
+import JSZip from "jszip";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -40,24 +41,70 @@ const CAT_MARCA_EJEMPLO="❌ EJEMPLO - borrar esta fila";
 const VIS_LABEL_A_CODIGO={"público":"publico","publico":"publico","solo equipo":"solo_admin","privado":"privado"};
 const VIS_CODIGO_A_LABEL={publico:"Público",solo_admin:"Solo equipo",privado:"Privado"};
 
-function generarPlantillaGastos(obraNombre,cats,tcHistData){
+// Post-procesa un .xlsx ya generado por SheetJS para agregarle lo que la librería gratuita no escribe:
+// estilo de header, fila congelada y desplegables (data validation). Probado contra LibreOffice real
+// (round-trip de apertura+guardado) antes de integrarse acá — sobrevive intacto.
+async function profesionalizarXlsx(wbBuffer,hojasConfig){
+  const zip=await JSZip.loadAsync(wbBuffer);
+  const workbookXml=await zip.file("xl/workbook.xml").async("string");
+  const relsXml=await zip.file("xl/_rels/workbook.xml.rels").async("string");
+  const sheetEntries=[...workbookXml.matchAll(/<sheet name="([^"]+)"[^>]*r:id="(rId\d+)"/g)];
+  const relMap=Object.fromEntries([...relsXml.matchAll(/<Relationship Id="(rId\d+)"[^>]*Target="worksheets\/(sheet\d+\.xml)"/g)].map(m=>[m[1],m[2]]));
+  const nombreAArchivo={};
+  sheetEntries.forEach(([,name,rid])=>{if(relMap[rid])nombreAArchivo[name]=relMap[rid];});
+
+  let stylesXml=await zip.file("xl/styles.xml").async("string");
+  const fontsCount=parseInt(stylesXml.match(/<fonts count="(\d+)"/)[1]);
+  stylesXml=stylesXml.replace(/(<fonts count=")(\d+)(">)/,`$1${fontsCount+1}$3`).replace("</fonts>",`<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts>`);
+  const newFontId=fontsCount;
+  const fillsCount=parseInt(stylesXml.match(/<fills count="(\d+)"/)[1]);
+  stylesXml=stylesXml.replace(/(<fills count=")(\d+)(">)/,`$1${fillsCount+1}$3`).replace("</fills>",`<fill><patternFill patternType="solid"><fgColor rgb="FF2E6E18"/><bgColor indexed="64"/></patternFill></fill></fills>`);
+  const newFillId=fillsCount;
+  const cellXfsCount=parseInt(stylesXml.match(/<cellXfs count="(\d+)"/)[1]);
+  stylesXml=stylesXml.replace(/(<cellXfs count=")(\d+)(">)/,`$1${cellXfsCount+1}$3`).replace("</cellXfs>",`<xf numFmtId="0" fontId="${newFontId}" fillId="${newFillId}" borderId="0" xfId="0" applyFont="1" applyFill="1"/></cellXfs>`);
+  const headerStyleIdx=cellXfsCount;
+  zip.file("xl/styles.xml",stylesXml);
+
+  for(const[nombreHoja,cfg]of Object.entries(hojasConfig)){
+    const archivo=nombreAArchivo[nombreHoja];
+    if(!archivo)continue;
+    let xml=await zip.file(`xl/worksheets/${archivo}`).async("string");
+    if(cfg.headerCols){
+      for(let col=0;col<cfg.headerCols;col++){
+        const ref=`${XLSX.utils.encode_col(col)}1`;
+        xml=xml.replace(new RegExp(`<c r="${ref}"([^>]*)>`),(m,attrs)=>`<c r="${ref}"${attrs.replace(/\ss="\d+"/,"")} s="${headerStyleIdx}">`);
+      }
+    }
+    if(cfg.freeze)xml=xml.replace(/<sheetView([^>]*)\/>/,`<sheetView$1><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft"/></sheetView>`);
+    if(cfg.validations&&cfg.validations.length){
+      const dvs=cfg.validations.map(v=>`<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" sqref="${v.sqref}"><formula1>${v.formula1}</formula1></dataValidation>`).join("");
+      const block=`<dataValidations count="${cfg.validations.length}">${dvs}</dataValidations>`;
+      xml=xml.includes("</sheetData><ignoredErrors")?xml.replace("</sheetData><ignoredErrors",`</sheetData>${block}<ignoredErrors`):xml.replace("</sheetData>",`</sheetData>${block}`);
+    }
+    zip.file(`xl/worksheets/${archivo}`,xml);
+  }
+  return await zip.generateAsync({type:"blob"});
+}
+
+async function generarPlantillaGastos(obraNombre,cats,tcHistData){
   const wb=XLSX.utils.book_new();
   const headers=["Fecha","Categoria","Subcategoria","Moneda","Monto real","Monto cliente","Tipo de cambio dia pago","Cuotas","Visibilidad","Descripcion"];
-  const ej1=["2026-01-15",CAT_MARCA_EJEMPLO,"","ARS",150000,150000,"",1,"Público","Ej: 20 bolsas de cemento — BORRAR esta fila"];
-  const ej2=["2026-01-20",CAT_MARCA_EJEMPLO,"","USD",500,"","",3,"Solo equipo","Ej: pago en 3 cuotas — BORRAR esta fila"];
+  const hoy=new Date();
+  const ej1=[hoy,CAT_MARCA_EJEMPLO,"","ARS",150000,150000,"",1,"Público","Ej: 20 bolsas de cemento — BORRAR esta fila"];
   const FILAS=300;
-  const aoa=[headers,ej1,ej2];
+  const aoa=[headers,ej1];
   for(let i=aoa.length;i<=FILAS;i++)aoa.push([]);
-  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  const ws=XLSX.utils.aoa_to_sheet(aoa,{cellDates:true});
+  ws["A2"].z="dd/mm/yyyy";
   for(let r=2;r<=FILAS+1;r++)ws["G"+r]={t:"n",v:0,f:`IFERROR(VLOOKUP(A${r},'TC Historico'!A:C,3,FALSE),0)`};
   ws["!ref"]=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:FILAS,c:9}});
-  ws["!cols"]=[{wch:12},{wch:18},{wch:18},{wch:8},{wch:13},{wch:13},{wch:16},{wch:8},{wch:12},{wch:32}];
+  ws["!cols"]=[{wch:12},{wch:24},{wch:18},{wch:8},{wch:13},{wch:13},{wch:16},{wch:8},{wch:14},{wch:32}];
   XLSX.utils.book_append_sheet(wb,ws,"Gastos");
 
   const catRows=[["Categoria","Subcategoria"]];
   cats.forEach(c=>{if(!c.subs||c.subs.length===0)catRows.push([c.label,"(sin subcategorías)"]);else c.subs.forEach(s=>catRows.push([c.label,s.label]));});
   const wsCat=XLSX.utils.aoa_to_sheet(catRows);
-  wsCat["!cols"]=[{wch:20},{wch:20}];
+  wsCat["!cols"]=[{wch:24},{wch:20}];
   XLSX.utils.book_append_sheet(wb,wsCat,"Categorias");
 
   const tcRows=[["Fecha","Oficial","Blue"]];
@@ -65,12 +112,39 @@ function generarPlantillaGastos(obraNombre,cats,tcHistData){
   const mapBlue=new Map(blue.map(x=>[x.fecha,x.venta]));
   const fechas=[...new Set([...oficial.map(x=>x.fecha),...blue.map(x=>x.fecha)])].sort();
   const mapOf=new Map(oficial.map(x=>[x.fecha,x.venta]));
-  fechas.forEach(f=>tcRows.push([f,mapOf.get(f)||"",mapBlue.get(f)||""]));
-  const wsTc=XLSX.utils.aoa_to_sheet(tcRows.length>1?tcRows:[["Fecha","Oficial","Blue"],["(sin datos históricos cargados todavía)","",""]]);
+  const hayTc=fechas.length>0;
+  if(hayTc)fechas.forEach(f=>tcRows.push([new Date(f+"T00:00:00"),mapOf.get(f)||"",mapBlue.get(f)||""]));
+  else tcRows.push(["(sin datos históricos cargados todavía)","",""]);
+  const wsTc=XLSX.utils.aoa_to_sheet(tcRows,{cellDates:true});
+  if(hayTc)for(let r=2;r<=fechas.length+1;r++)if(wsTc["A"+r])wsTc["A"+r].z="dd/mm/yyyy";
   wsTc["!cols"]=[{wch:12},{wch:10},{wch:10}];
   XLSX.utils.book_append_sheet(wb,wsTc,"TC Historico");
 
-  XLSX.writeFile(wb,`plantilla_gastos_${obraNombre.replace(/\s+/g,"_")}.xlsx`);
+  // Hoja de listas (soporte de los desplegables por RANGO, sin el límite de 255 caracteres de las listas en línea)
+  const nCat=Math.max(cats.length,1),nFilasListas=Math.max(nCat,24,3,4);
+  const listasRows=[["Categorias","Cuotas","Moneda","Visibilidad"]];
+  for(let i=0;i<nFilasListas;i++)listasRows.push([cats[i]?.label||"",i<24?i+1:"",i===0?"ARS":i===1?"USD":"",i===0?"Público":i===1?"Solo equipo":i===2?"Privado":""]);
+  const wsListas=XLSX.utils.aoa_to_sheet(listasRows);
+  wsListas["!cols"]=[{wch:24},{wch:8},{wch:10},{wch:12}];
+  XLSX.utils.book_append_sheet(wb,wsListas,"Listas");
+
+  const buf=XLSX.write(wb,{type:"array",bookType:"xlsx"});
+  const blob=await profesionalizarXlsx(buf,{
+    "Gastos":{headerCols:10,freeze:true,validations:[
+      {sqref:`B2:B${FILAS+1}`,formula1:`Listas!$A$2:$A$${nCat+1}`},
+      {sqref:`D2:D${FILAS+1}`,formula1:`Listas!$C$2:$C$3`},
+      {sqref:`H2:H${FILAS+1}`,formula1:`Listas!$B$2:$B$25`},
+      {sqref:`I2:I${FILAS+1}`,formula1:`Listas!$D$2:$D$4`},
+    ]},
+    "Categorias":{headerCols:2},
+    "TC Historico":{headerCols:3,freeze:true},
+    "Listas":{headerCols:4},
+  });
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download=`plantilla_gastos_${obraNombre.replace(/\s+/g,"_")}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 const normFechaExcel=v=>{
@@ -78,7 +152,11 @@ const normFechaExcel=v=>{
   if(v instanceof Date)return v.toISOString().slice(0,10);
   if(typeof v==="number"){const d=XLSX.SSF.parse_date_code(v);if(!d)return null;return`${d.y}-${String(d.m).padStart(2,"0")}-${String(d.d).padStart(2,"0")}`;}
   const s=String(v).trim();
-  return /^\d{4}-\d{2}-\d{2}$/.test(s)?s:null;
+  let m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(m)return s;
+  m=s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/); // DD/MM/YYYY o DD-MM-YYYY
+  if(m)return`${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
+  return null;
 };
 
 // Valida TODAS las filas de la hoja "Gastos" contra las categorías reales de la obra.
@@ -943,9 +1021,13 @@ function GastoRapidoModal({user,obra,cats,tcOficial,tcBlue,tcManual,setTcManual,
 
   const irAModoExcel=()=>{setModo("excel");if(!tcHistData)fetchTCHist();};
 
-  const descargarPlantilla=()=>{
+  const [descargando,setDescargando]=useState(false);
+  const descargarPlantilla=async()=>{
     if(!cats.length){toast.error("Primero creá al menos una categoría en esta obra.");return;}
-    generarPlantillaGastos(obra.nombre,cats,tcHistData);
+    setDescargando(true);
+    try{await generarPlantillaGastos(obra.nombre,cats,tcHistData);}
+    catch(err){toast.error("No se pudo generar la plantilla: "+err.message);}
+    setDescargando(false);
   };
 
   const onFileSelected=async(e)=>{
@@ -1099,12 +1181,12 @@ function GastoRapidoModal({user,obra,cats,tcOficial,tcBlue,tcManual,setTcManual,
 
     {modo==="excel"&&<div style={{display:"flex",flexDirection:"column",gap:14}}>
       <div style={{background:C.bg3,borderRadius:10,padding:"12px 14px",fontSize:12,color:C.t2,lineHeight:1.6}}>
-        <b>1)</b> Descargá la plantilla de esta obra (ya trae tus categorías/subcategorías y el tipo de cambio histórico para autocompletar).<br/>
-        <b>2)</b> Completala en Excel o Google Sheets — <u>abrila normalmente</u> para que la columna de tipo de cambio se autocalcule, y <u>borrá las 2 filas de ejemplo</u>.<br/>
+        <b>1)</b> Descargá la plantilla de esta obra (trae tus categorías reales con desplegable, tipo de cambio histórico para autocompletar, y una fila de ejemplo).<br/>
+        <b>2)</b> Completala en Excel o Google Sheets — <u>abrila normalmente</u> para que la columna de tipo de cambio se autocalcule, elegí Categoría/Moneda/Cuotas/Visibilidad del desplegable, y <u>borrá la fila de ejemplo</u>.<br/>
         <b>3)</b> Subila acá abajo. Se valida todo antes de cargar nada: si hay un error, no se importa ninguna fila hasta que lo corrijas.
       </div>
 
-      <Btn onClick={descargarPlantilla}>⬇ Descargar plantilla ({obra.nombre})</Btn>
+      <Btn onClick={descargarPlantilla} loading={descargando}>⬇ Descargar plantilla ({obra.nombre})</Btn>
 
       <div>
         <div style={{fontSize:11,color:C.t2,marginBottom:6,fontWeight:600}}>Subir plantilla completa (.xlsx)</div>
