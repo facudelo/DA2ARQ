@@ -45,9 +45,15 @@ const VIS_CODIGO_A_LABEL={publico:"Público",solo_admin:"Solo equipo",privado:"P
 // estilo de header, fila congelada y desplegables (data validation). Probado contra LibreOffice real
 // (round-trip de apertura+guardado) antes de integrarse acá — sobrevive intacto.
 // Convierte un texto libre en un nombre de rango Excel válido y único (sin tildes/espacios/símbolos).
+// IMPORTANTE: debe dar EXACTAMENTE el mismo resultado que buildSustituirChain() de abajo, porque
+// Excel recalcula el nombre del rango con esa fórmula en cada fila (no usa una tabla de mapeo).
+const ACENTOS_PARES=[["á","a"],["é","e"],["í","i"],["ó","o"],["ú","u"],["ñ","n"],["ü","u"],["Á","A"],["É","E"],["Í","I"],["Ó","O"],["Ú","U"],["Ñ","N"],["Ü","U"]];
+const PUNTUACION_PARES=[[" ","_"],["-","_"],[".","_"],[",","_"],["'","_"],["(","_"],[")","_"],["/","_"],["&","_"]];
+const TODOS_LOS_PARES=[...ACENTOS_PARES,...PUNTUACION_PARES];
 const sanitizeRangeName=(s,used)=>{
-  const sinAcentos=s.normalize("NFD").replace(/[\u0300-\u036f]/g,"");
-  let n=sinAcentos.replace(/[^a-zA-Z0-9_]/g,"_");
+  let n=s;
+  for(const[from,to]of TODOS_LOS_PARES)n=n.split(from).join(to);
+  n=n.replace(/[^a-zA-Z0-9_]/g,"_");
   if(!n||/^[0-9]/.test(n))n="C_"+n;
   n=n.slice(0,180);
   let final=n,i=1;
@@ -55,6 +61,10 @@ const sanitizeRangeName=(s,used)=>{
   used.add(final);
   return final;
 };
+// Cadena de SUBSTITUTE anidados que Excel evalúa fila por fila para resolver el nombre del rango
+// a partir del texto elegido en la columna Categoría — evita la necesidad de una tabla VLOOKUP
+// (que resultó poco confiable como fuente de un desplegable de validación en Excel real).
+const buildSustituirChain=cellRef=>{let e=cellRef;for(const[from,to]of TODOS_LOS_PARES)e=`SUBSTITUTE(${e},"${from}","${to}")`;return e;};
 
 async function profesionalizarXlsx(wbBuffer,hojasConfig,definedNames){
   const zip=await JSZip.loadAsync(wbBuffer);
@@ -142,38 +152,34 @@ async function generarPlantillaGastos(obraNombre,cats,tcHistData){
   XLSX.utils.book_append_sheet(wb,wsTc,"TC Historico");
 
   // Hoja "Listas": fuente de TODOS los desplegables.
-  // A=Categorias · B=Cuotas · C=Moneda · D=Visibilidad
-  // luego una columna por categoría con SUS subcategorías (para el desplegable dependiente)
-  // y al final una tabla de mapeo Categoria->NombreDeRango (para que Excel resuelva el INDIRECT sin tildes/espacios)
+  // A=Categorias · B=Cuotas · C=Moneda · D=Visibilidad · luego una columna por categoría con SUS subcategorías.
   const catLabels=cats.length?cats.map(c=>c.label):["(sin categorías)"];
   const catSubs=cats.length?cats.map(c=>(c.subs&&c.subs.length?c.subs.map(s=>s.label):["(sin subcategorías)"])):[["(sin subcategorías)"]];
   const used=new Set();
   const catToDefName=Object.fromEntries(catLabels.map(l=>[l,sanitizeRangeName(l,used)]));
-  const nSubCols=catLabels.length;
   const subColStart=4; // E (0-based: A=0,B=1,C=2,D=3,E=4)
-  const mapLabelCol=subColStart+nSubCols;
-  const mapNameCol=mapLabelCol+1;
   const nFilas=Math.max(catLabels.length,24,3,4,...catSubs.map(s=>s.length));
 
-  const listasHeader=["Categorias","Cuotas","Moneda","Visibilidad",...catLabels,"CategoriaLabel","NombreRango"];
+  const listasHeader=["Categorias","Cuotas","Moneda","Visibilidad",...catLabels];
   const listasRows=[listasHeader];
   for(let i=0;i<nFilas;i++){
     listasRows.push([
       catLabels[i]||"", i<24?i+1:"", i===0?"ARS":i===1?"USD":"", i===0?"Público":i===1?"Solo equipo":i===2?"Privado":"",
       ...catSubs.map(subs=>subs[i]||""),
-      catLabels[i]||"", catLabels[i]?catToDefName[catLabels[i]]:"",
     ]);
   }
   const wsListas=XLSX.utils.aoa_to_sheet(listasRows);
-  wsListas["!cols"]=[{wch:24},{wch:8},{wch:10},{wch:12},...catLabels.map(()=>({wch:18})),{wch:20},{wch:20}];
+  wsListas["!cols"]=[{wch:24},{wch:8},{wch:10},{wch:12},...catLabels.map(()=>({wch:18}))];
   XLSX.utils.book_append_sheet(wb,wsListas,"Listas");
 
-  const mapLabelColLetra=XLSX.utils.encode_col(mapLabelCol),mapNameColLetra=XLSX.utils.encode_col(mapNameCol);
   const definedNames=catLabels.map((l,i)=>({
     name:catToDefName[l],
     ref:`'Listas'!$${XLSX.utils.encode_col(subColStart+i)}$2:$${XLSX.utils.encode_col(subColStart+i)}$${catSubs[i].length+1}`,
   }));
-  const subFormula=`IFERROR(INDIRECT(VLOOKUP($B2,Listas!$${mapLabelColLetra}$2:$${mapNameColLetra}$${catLabels.length+1},2,0)),Listas!$Z$500)`;
+  // Desplegable dependiente: Excel resuelve el nombre del rango a partir de la Categoría elegida en la MISMA fila,
+  // usando la misma cadena de SUSTITUTE que sanitizeRangeName() reproduce en JS. Sin VLOOKUP ni IFERROR
+  // (esa combinación resultó no ser confiable como fuente de una lista desplegable en Excel real).
+  const subFormula=`INDIRECT(${buildSustituirChain("$B2")})`;
 
   const buf=XLSX.write(wb,{type:"array",bookType:"xlsx"});
   const blob=await profesionalizarXlsx(buf,{
