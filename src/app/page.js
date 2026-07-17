@@ -3,7 +3,6 @@ import React, { useState, useMemo, useRef, useEffect, useCallback } from "react"
 import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
-import JSZip from "jszip";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -62,138 +61,102 @@ const sanitizeRangeName=(s,used)=>{
   return final;
 };
 // Cadena de SUBSTITUTE anidados que Excel evalúa fila por fila para resolver el nombre del rango
-// a partir del texto elegido en la columna Categoría — evita la necesidad de una tabla VLOOKUP
-// (que resultó poco confiable como fuente de un desplegable de validación en Excel real).
+// a partir del texto elegido en la columna Categoría (desplegable dependiente de Subcategoría).
 const buildSustituirChain=cellRef=>{let e=cellRef;for(const[from,to]of TODOS_LOS_PARES)e=`SUBSTITUTE(${e},"${from}","${to}")`;return e;};
 
-async function profesionalizarXlsx(wbBuffer,hojasConfig,definedNames){
-  const zip=await JSZip.loadAsync(wbBuffer);
-  const workbookXml0=await zip.file("xl/workbook.xml").async("string");
-  const relsXml=await zip.file("xl/_rels/workbook.xml.rels").async("string");
-  const sheetEntries=[...workbookXml0.matchAll(/<sheet name="([^"]+)"[^>]*r:id="(rId\d+)"/g)];
-  const relMap=Object.fromEntries([...relsXml.matchAll(/<Relationship Id="(rId\d+)"[^>]*Target="worksheets\/(sheet\d+\.xml)"/g)].map(m=>[m[1],m[2]]));
-  const nombreAArchivo={};
-  sheetEntries.forEach(([,name,rid])=>{if(relMap[rid])nombreAArchivo[name]=relMap[rid];});
-
-  // Rangos con nombre (uno por categoría), necesarios para el desplegable dependiente de Subcategoría
-  if(definedNames&&definedNames.length){
-    const dnXml=`<definedNames>${definedNames.map(d=>`<definedName name="${d.name}">${d.ref}</definedName>`).join("")}</definedNames>`;
-    zip.file("xl/workbook.xml",workbookXml0.includes("</sheets>")?workbookXml0.replace("</sheets>",`</sheets>${dnXml}`):workbookXml0);
-  }
-
-  let stylesXml=await zip.file("xl/styles.xml").async("string");
-  const fontsCount=parseInt(stylesXml.match(/<fonts count="(\d+)"/)[1]);
-  stylesXml=stylesXml.replace(/(<fonts count=")(\d+)(">)/,`$1${fontsCount+1}$3`).replace("</fonts>",`<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts>`);
-  const newFontId=fontsCount;
-  const fillsCount=parseInt(stylesXml.match(/<fills count="(\d+)"/)[1]);
-  stylesXml=stylesXml.replace(/(<fills count=")(\d+)(">)/,`$1${fillsCount+1}$3`).replace("</fills>",`<fill><patternFill patternType="solid"><fgColor rgb="FF2E6E18"/><bgColor indexed="64"/></patternFill></fill></fills>`);
-  const newFillId=fillsCount;
-  const cellXfsCount=parseInt(stylesXml.match(/<cellXfs count="(\d+)"/)[1]);
-  stylesXml=stylesXml.replace(/(<cellXfs count=")(\d+)(">)/,`$1${cellXfsCount+1}$3`).replace("</cellXfs>",`<xf numFmtId="0" fontId="${newFontId}" fillId="${newFillId}" borderId="0" xfId="0" applyFont="1" applyFill="1"/></cellXfs>`);
-  const headerStyleIdx=cellXfsCount;
-  zip.file("xl/styles.xml",stylesXml);
-
-  for(const[nombreHoja,cfg]of Object.entries(hojasConfig)){
-    const archivo=nombreAArchivo[nombreHoja];
-    if(!archivo)continue;
-    let xml=await zip.file(`xl/worksheets/${archivo}`).async("string");
-    if(cfg.headerCols){
-      for(let col=0;col<cfg.headerCols;col++){
-        const ref=`${XLSX.utils.encode_col(col)}1`;
-        xml=xml.replace(new RegExp(`<c r="${ref}"([^>]*)>`),(m,attrs)=>`<c r="${ref}"${attrs.replace(/\ss="\d+"/,"")} s="${headerStyleIdx}">`);
-      }
-    }
-    if(cfg.freeze)xml=xml.replace(/<sheetView([^>]*)\/>/,`<sheetView$1><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft"/></sheetView>`);
-    if(cfg.validations&&cfg.validations.length){
-      const dvs=cfg.validations.map(v=>`<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" sqref="${v.sqref}"><formula1>${v.formula1}</formula1></dataValidation>`).join("");
-      const block=`<dataValidations count="${cfg.validations.length}">${dvs}</dataValidations>`;
-      xml=xml.includes("</sheetData><ignoredErrors")?xml.replace("</sheetData><ignoredErrors",`</sheetData>${block}<ignoredErrors`):xml.replace("</sheetData>",`</sheetData>${block}`);
-    }
-    zip.file(`xl/worksheets/${archivo}`,xml);
-  }
-  return await zip.generateAsync({type:"blob"});
-}
-
+// Genera la plantilla de Excel con ExcelJS (no con XML editado a mano: la primera versión, con
+// SheetJS + parches de XML propios, generaba archivos que LibreOffice toleraba pero Excel real
+// rechazaba como corruptos — ExcelJS arma el OOXML internamente y garantiza que sea válido).
+// Se importa de forma dinámica para no sumarle ~1MB al bundle principal de la página.
 async function generarPlantillaGastos(obraNombre,cats,tcHistData){
-  const wb=XLSX.utils.book_new();
-  const headers=["Fecha","Categoria","Subcategoria","Moneda","Monto real","Monto cliente","Tipo de cambio dia pago","Cuotas","Visibilidad","Descripcion"];
-  const hoy=new Date();
-  const ej1=[hoy,CAT_MARCA_EJEMPLO,"","ARS",150000,150000,"",1,"Solo equipo","Ej: 20 bolsas de cemento — BORRAR esta fila"];
+  const {default:ExcelJS}=await import("exceljs");
+  const wb=new ExcelJS.Workbook();
   const FILAS=300;
-  const aoa=[headers,ej1];
-  for(let i=aoa.length;i<=FILAS;i++)aoa.push([]);
-  const ws=XLSX.utils.aoa_to_sheet(aoa,{cellDates:true});
-  ws["A2"].z="dd/mm/yyyy";
+
+  // ── Hoja Gastos ──
+  const ws=wb.addWorksheet("Gastos");
+  ws.columns=[
+    {header:"Fecha",width:12},{header:"Categoria",width:24},{header:"Subcategoria",width:18},
+    {header:"Moneda",width:8},{header:"Monto real",width:13},{header:"Monto cliente",width:13},
+    {header:"Tipo de cambio dia pago",width:16},{header:"Cuotas",width:8},{header:"Visibilidad",width:14},{header:"Descripcion",width:32},
+  ];
+  ws.getRow(1).eachCell(c=>{c.font={bold:true,color:{argb:"FFFFFFFF"}};c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FF2E6E18"}};});
+  ws.views=[{state:"frozen",ySplit:1}];
+
+  ws.getCell("A2").value=new Date();ws.getCell("A2").numFmt="dd/mm/yyyy";
+  ws.getCell("B2").value=CAT_MARCA_EJEMPLO;
+  ws.getCell("D2").value="ARS";ws.getCell("E2").value=150000;ws.getCell("F2").value=150000;
+  ws.getCell("H2").value=1;ws.getCell("I2").value="Solo equipo";
+  ws.getCell("J2").value="Ej: 20 bolsas de cemento — BORRAR esta fila";
   for(let r=2;r<=FILAS+1;r++){
-    ws["G"+r]={t:"n",v:0,f:`IFERROR(VLOOKUP(A${r},'TC Historico'!A:C,3,FALSE),0)`};
-    if(r>2)ws["I"+r]={t:"s",v:"Solo equipo"}; // visibilidad por defecto (fila 2 ya la tiene del ejemplo)
+    ws.getCell("G"+r).value={formula:`IFERROR(VLOOKUP(A${r},'TC Historico'!A:C,3,FALSE),0)`,result:0};
+    if(r>2)ws.getCell("I"+r).value="Solo equipo";
   }
-  ws["!ref"]=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:FILAS,c:9}});
-  ws["!cols"]=[{wch:12},{wch:24},{wch:18},{wch:8},{wch:13},{wch:13},{wch:16},{wch:8},{wch:14},{wch:32}];
-  XLSX.utils.book_append_sheet(wb,ws,"Gastos");
 
-  const catRows=[["Categoria","Subcategoria"]];
-  cats.forEach(c=>{if(!c.subs||c.subs.length===0)catRows.push([c.label,"(sin subcategorías)"]);else c.subs.forEach(s=>catRows.push([c.label,s.label]));});
-  const wsCat=XLSX.utils.aoa_to_sheet(catRows);
-  wsCat["!cols"]=[{wch:24},{wch:20}];
-  XLSX.utils.book_append_sheet(wb,wsCat,"Categorias");
+  // ── Hoja Listas (fuente de todos los desplegables) ──
+  const catLabels=cats.length?cats.map(c=>c.label):["(sin categorías)"];
+  const catSubs=cats.length?cats.map(c=>(c.subs&&c.subs.length?c.subs.map(s=>s.label):["(sin subcategorías)"])):[["(sin subcategorías)"]];
+  const wsListas=wb.addWorksheet("Listas");
+  wsListas.getCell("A1").value="Categorias";wsListas.getCell("B1").value="Cuotas";wsListas.getCell("C1").value="Moneda";wsListas.getCell("D1").value="Visibilidad";
+  catLabels.forEach((l,i)=>{wsListas.getCell(1,5+i).value=l;});
+  const nFilasListas=Math.max(catLabels.length,24,3,4,...catSubs.map(s=>s.length));
+  for(let i=0;i<nFilasListas;i++){
+    wsListas.getCell(2+i,1).value=catLabels[i]||"";
+    wsListas.getCell(2+i,2).value=i<24?i+1:"";
+    wsListas.getCell(2+i,3).value=i===0?"ARS":i===1?"USD":"";
+    wsListas.getCell(2+i,4).value=i===0?"Público":i===1?"Solo equipo":i===2?"Privado":"";
+    catSubs.forEach((subs,ci)=>{wsListas.getCell(2+i,5+ci).value=subs[i]||"";});
+  }
+  wsListas.getColumn(1).width=24;wsListas.getColumn(2).width=8;wsListas.getColumn(3).width=10;wsListas.getColumn(4).width=12;
+  catLabels.forEach((_,i)=>{wsListas.getColumn(5+i).width=18;});
 
-  const tcRows=[["Fecha","Oficial","Blue"]];
+  // Rangos con nombre, uno por categoría (subcategorías de esa categoría)
+  const used=new Set();
+  const catToDefName=Object.fromEntries(catLabels.map(l=>[l,sanitizeRangeName(l,used)]));
+  catLabels.forEach((l,i)=>{
+    const colLetter=String.fromCharCode(65+4+i); // E,F,G...
+    wb.definedNames.add(`Listas!$${colLetter}$2:$${colLetter}$${catSubs[i].length+1}`,catToDefName[l]);
+  });
+
+  // Desplegables de Gastos
+  ws.dataValidations.add(`B2:B${FILAS+1}`,{type:"list",allowBlank:true,formulae:[`Listas!$A$2:$A$${catLabels.length+1}`]});
+  ws.dataValidations.add(`C2:C${FILAS+1}`,{type:"list",allowBlank:true,formulae:[`INDIRECT(${buildSustituirChain("$B2")})`]});
+  ws.dataValidations.add(`D2:D${FILAS+1}`,{type:"list",allowBlank:true,formulae:["Listas!$C$2:$C$3"]});
+  ws.dataValidations.add(`H2:H${FILAS+1}`,{type:"list",allowBlank:true,formulae:["Listas!$B$2:$B$25"]});
+  ws.dataValidations.add(`I2:I${FILAS+1}`,{type:"list",allowBlank:true,formulae:["Listas!$D$2:$D$4"]});
+
+  // ── Hoja Categorias (referencia legible) ──
+  const wsCat=wb.addWorksheet("Categorias");
+  wsCat.getCell("A1").value="Categoria";wsCat.getCell("B1").value="Subcategoria";
+  wsCat.getRow(1).eachCell(c=>{c.font={bold:true,color:{argb:"FFFFFFFF"}};c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FF2E6E18"}};});
+  let rr=2;
+  cats.forEach(c=>{
+    const subs=c.subs&&c.subs.length?c.subs.map(s=>s.label):["(sin subcategorías)"];
+    subs.forEach(s=>{wsCat.getCell("A"+rr).value=c.label;wsCat.getCell("B"+rr).value=s;rr++;});
+  });
+  wsCat.getColumn(1).width=24;wsCat.getColumn(2).width=20;
+
+  // ── Hoja TC Historico ──
+  const wsTc=wb.addWorksheet("TC Historico");
+  wsTc.getCell("A1").value="Fecha";wsTc.getCell("B1").value="Oficial";wsTc.getCell("C1").value="Blue";
+  wsTc.getRow(1).eachCell(c=>{c.font={bold:true,color:{argb:"FFFFFFFF"}};c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FF2E6E18"}};});
+  wsTc.views=[{state:"frozen",ySplit:1}];
   const oficial=tcHistData?.oficial||[],blue=tcHistData?.blue||[];
   const mapBlue=new Map(blue.map(x=>[x.fecha,x.venta]));
   const fechas=[...new Set([...oficial.map(x=>x.fecha),...blue.map(x=>x.fecha)])].sort();
   const mapOf=new Map(oficial.map(x=>[x.fecha,x.venta]));
-  const hayTc=fechas.length>0;
-  if(hayTc)fechas.forEach(f=>tcRows.push([new Date(f+"T00:00:00"),mapOf.get(f)||"",mapBlue.get(f)||""]));
-  else tcRows.push(["(sin datos históricos cargados todavía)","",""]);
-  const wsTc=XLSX.utils.aoa_to_sheet(tcRows,{cellDates:true});
-  if(hayTc)for(let r=2;r<=fechas.length+1;r++)if(wsTc["A"+r])wsTc["A"+r].z="dd/mm/yyyy";
-  wsTc["!cols"]=[{wch:12},{wch:10},{wch:10}];
-  XLSX.utils.book_append_sheet(wb,wsTc,"TC Historico");
+  if(fechas.length){
+    fechas.forEach((f,i)=>{
+      const r=2+i;
+      wsTc.getCell("A"+r).value=new Date(f+"T00:00:00");wsTc.getCell("A"+r).numFmt="dd/mm/yyyy";
+      wsTc.getCell("B"+r).value=mapOf.get(f)||"";
+      wsTc.getCell("C"+r).value=mapBlue.get(f)||"";
+    });
+  }else wsTc.getCell("A2").value="(sin datos históricos cargados todavía)";
+  wsTc.getColumn(1).width=12;wsTc.getColumn(2).width=10;wsTc.getColumn(3).width=10;
 
-  // Hoja "Listas": fuente de TODOS los desplegables.
-  // A=Categorias · B=Cuotas · C=Moneda · D=Visibilidad · luego una columna por categoría con SUS subcategorías.
-  const catLabels=cats.length?cats.map(c=>c.label):["(sin categorías)"];
-  const catSubs=cats.length?cats.map(c=>(c.subs&&c.subs.length?c.subs.map(s=>s.label):["(sin subcategorías)"])):[["(sin subcategorías)"]];
-  const used=new Set();
-  const catToDefName=Object.fromEntries(catLabels.map(l=>[l,sanitizeRangeName(l,used)]));
-  const subColStart=4; // E (0-based: A=0,B=1,C=2,D=3,E=4)
-  const nFilas=Math.max(catLabels.length,24,3,4,...catSubs.map(s=>s.length));
-
-  const listasHeader=["Categorias","Cuotas","Moneda","Visibilidad",...catLabels];
-  const listasRows=[listasHeader];
-  for(let i=0;i<nFilas;i++){
-    listasRows.push([
-      catLabels[i]||"", i<24?i+1:"", i===0?"ARS":i===1?"USD":"", i===0?"Público":i===1?"Solo equipo":i===2?"Privado":"",
-      ...catSubs.map(subs=>subs[i]||""),
-    ]);
-  }
-  const wsListas=XLSX.utils.aoa_to_sheet(listasRows);
-  wsListas["!cols"]=[{wch:24},{wch:8},{wch:10},{wch:12},...catLabels.map(()=>({wch:18}))];
-  XLSX.utils.book_append_sheet(wb,wsListas,"Listas");
-
-  const definedNames=catLabels.map((l,i)=>({
-    name:catToDefName[l],
-    ref:`'Listas'!$${XLSX.utils.encode_col(subColStart+i)}$2:$${XLSX.utils.encode_col(subColStart+i)}$${catSubs[i].length+1}`,
-  }));
-  // Desplegable dependiente: Excel resuelve el nombre del rango a partir de la Categoría elegida en la MISMA fila,
-  // usando la misma cadena de SUSTITUTE que sanitizeRangeName() reproduce en JS. Sin VLOOKUP ni IFERROR
-  // (esa combinación resultó no ser confiable como fuente de una lista desplegable en Excel real).
-  const subFormula=`INDIRECT(${buildSustituirChain("$B2")})`;
-
-  const buf=XLSX.write(wb,{type:"array",bookType:"xlsx"});
-  const blob=await profesionalizarXlsx(buf,{
-    "Gastos":{headerCols:10,freeze:true,validations:[
-      {sqref:`B2:B${FILAS+1}`,formula1:`Listas!$A$2:$A$${catLabels.length+1}`},
-      {sqref:`C2:C${FILAS+1}`,formula1:subFormula},
-      {sqref:`D2:D${FILAS+1}`,formula1:`Listas!$C$2:$C$3`},
-      {sqref:`H2:H${FILAS+1}`,formula1:`Listas!$B$2:$B$25`},
-      {sqref:`I2:I${FILAS+1}`,formula1:`Listas!$D$2:$D$4`},
-    ]},
-    "Categorias":{headerCols:2},
-    "TC Historico":{headerCols:3,freeze:true},
-    "Listas":{headerCols:listasHeader.length},
-  },definedNames);
+  const buf=await wb.xlsx.writeBuffer();
+  const blob=new Blob([buf],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
   const a=document.createElement("a");
   a.href=URL.createObjectURL(blob);
   a.download=`plantilla_gastos_${obraNombre.replace(/\s+/g,"_")}.xlsx`;
@@ -201,10 +164,17 @@ async function generarPlantillaGastos(obraNombre,cats,tcHistData){
   URL.revokeObjectURL(a.href);
 }
 
+// Conversión de serial de fecha de Excel a AAAA-MM-DD sin depender de XLSX.SSF
+// (esa API resultó no estar disponible de forma consistente según cómo se importe la librería).
+const excelSerialToYMD=serial=>{
+  const utcDays=Math.floor(serial-25569);
+  const date=new Date(utcDays*86400*1000);
+  return`${date.getUTCFullYear()}-${String(date.getUTCMonth()+1).padStart(2,"0")}-${String(date.getUTCDate()).padStart(2,"0")}`;
+};
 const normFechaExcel=v=>{
   if(v==null||v==="")return null;
   if(v instanceof Date)return v.toISOString().slice(0,10);
-  if(typeof v==="number"){const d=XLSX.SSF.parse_date_code(v);if(!d)return null;return`${d.y}-${String(d.m).padStart(2,"0")}-${String(d.d).padStart(2,"0")}`;}
+  if(typeof v==="number")return excelSerialToYMD(v);
   const s=String(v).trim();
   let m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if(m)return s;
