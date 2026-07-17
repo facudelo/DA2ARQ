@@ -44,14 +44,32 @@ const VIS_CODIGO_A_LABEL={publico:"Público",solo_admin:"Solo equipo",privado:"P
 // Post-procesa un .xlsx ya generado por SheetJS para agregarle lo que la librería gratuita no escribe:
 // estilo de header, fila congelada y desplegables (data validation). Probado contra LibreOffice real
 // (round-trip de apertura+guardado) antes de integrarse acá — sobrevive intacto.
-async function profesionalizarXlsx(wbBuffer,hojasConfig){
+// Convierte un texto libre en un nombre de rango Excel válido y único (sin tildes/espacios/símbolos).
+const sanitizeRangeName=(s,used)=>{
+  const sinAcentos=s.normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+  let n=sinAcentos.replace(/[^a-zA-Z0-9_]/g,"_");
+  if(!n||/^[0-9]/.test(n))n="C_"+n;
+  n=n.slice(0,180);
+  let final=n,i=1;
+  while(used.has(final))final=n+"_"+(i++);
+  used.add(final);
+  return final;
+};
+
+async function profesionalizarXlsx(wbBuffer,hojasConfig,definedNames){
   const zip=await JSZip.loadAsync(wbBuffer);
-  const workbookXml=await zip.file("xl/workbook.xml").async("string");
+  const workbookXml0=await zip.file("xl/workbook.xml").async("string");
   const relsXml=await zip.file("xl/_rels/workbook.xml.rels").async("string");
-  const sheetEntries=[...workbookXml.matchAll(/<sheet name="([^"]+)"[^>]*r:id="(rId\d+)"/g)];
+  const sheetEntries=[...workbookXml0.matchAll(/<sheet name="([^"]+)"[^>]*r:id="(rId\d+)"/g)];
   const relMap=Object.fromEntries([...relsXml.matchAll(/<Relationship Id="(rId\d+)"[^>]*Target="worksheets\/(sheet\d+\.xml)"/g)].map(m=>[m[1],m[2]]));
   const nombreAArchivo={};
   sheetEntries.forEach(([,name,rid])=>{if(relMap[rid])nombreAArchivo[name]=relMap[rid];});
+
+  // Rangos con nombre (uno por categoría), necesarios para el desplegable dependiente de Subcategoría
+  if(definedNames&&definedNames.length){
+    const dnXml=`<definedNames>${definedNames.map(d=>`<definedName name="${d.name}">${d.ref}</definedName>`).join("")}</definedNames>`;
+    zip.file("xl/workbook.xml",workbookXml0.includes("</sheets>")?workbookXml0.replace("</sheets>",`</sheets>${dnXml}`):workbookXml0);
+  }
 
   let stylesXml=await zip.file("xl/styles.xml").async("string");
   const fontsCount=parseInt(stylesXml.match(/<fonts count="(\d+)"/)[1]);
@@ -90,13 +108,16 @@ async function generarPlantillaGastos(obraNombre,cats,tcHistData){
   const wb=XLSX.utils.book_new();
   const headers=["Fecha","Categoria","Subcategoria","Moneda","Monto real","Monto cliente","Tipo de cambio dia pago","Cuotas","Visibilidad","Descripcion"];
   const hoy=new Date();
-  const ej1=[hoy,CAT_MARCA_EJEMPLO,"","ARS",150000,150000,"",1,"Público","Ej: 20 bolsas de cemento — BORRAR esta fila"];
+  const ej1=[hoy,CAT_MARCA_EJEMPLO,"","ARS",150000,150000,"",1,"Solo equipo","Ej: 20 bolsas de cemento — BORRAR esta fila"];
   const FILAS=300;
   const aoa=[headers,ej1];
   for(let i=aoa.length;i<=FILAS;i++)aoa.push([]);
   const ws=XLSX.utils.aoa_to_sheet(aoa,{cellDates:true});
   ws["A2"].z="dd/mm/yyyy";
-  for(let r=2;r<=FILAS+1;r++)ws["G"+r]={t:"n",v:0,f:`IFERROR(VLOOKUP(A${r},'TC Historico'!A:C,3,FALSE),0)`};
+  for(let r=2;r<=FILAS+1;r++){
+    ws["G"+r]={t:"n",v:0,f:`IFERROR(VLOOKUP(A${r},'TC Historico'!A:C,3,FALSE),0)`};
+    if(r>2)ws["I"+r]={t:"s",v:"Solo equipo"}; // visibilidad por defecto (fila 2 ya la tiene del ejemplo)
+  }
   ws["!ref"]=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:FILAS,c:9}});
   ws["!cols"]=[{wch:12},{wch:24},{wch:18},{wch:8},{wch:13},{wch:13},{wch:16},{wch:8},{wch:14},{wch:32}];
   XLSX.utils.book_append_sheet(wb,ws,"Gastos");
@@ -120,26 +141,53 @@ async function generarPlantillaGastos(obraNombre,cats,tcHistData){
   wsTc["!cols"]=[{wch:12},{wch:10},{wch:10}];
   XLSX.utils.book_append_sheet(wb,wsTc,"TC Historico");
 
-  // Hoja de listas (soporte de los desplegables por RANGO, sin el límite de 255 caracteres de las listas en línea)
-  const nCat=Math.max(cats.length,1),nFilasListas=Math.max(nCat,24,3,4);
-  const listasRows=[["Categorias","Cuotas","Moneda","Visibilidad"]];
-  for(let i=0;i<nFilasListas;i++)listasRows.push([cats[i]?.label||"",i<24?i+1:"",i===0?"ARS":i===1?"USD":"",i===0?"Público":i===1?"Solo equipo":i===2?"Privado":""]);
+  // Hoja "Listas": fuente de TODOS los desplegables.
+  // A=Categorias · B=Cuotas · C=Moneda · D=Visibilidad
+  // luego una columna por categoría con SUS subcategorías (para el desplegable dependiente)
+  // y al final una tabla de mapeo Categoria->NombreDeRango (para que Excel resuelva el INDIRECT sin tildes/espacios)
+  const catLabels=cats.length?cats.map(c=>c.label):["(sin categorías)"];
+  const catSubs=cats.length?cats.map(c=>(c.subs&&c.subs.length?c.subs.map(s=>s.label):["(sin subcategorías)"])):[["(sin subcategorías)"]];
+  const used=new Set();
+  const catToDefName=Object.fromEntries(catLabels.map(l=>[l,sanitizeRangeName(l,used)]));
+  const nSubCols=catLabels.length;
+  const subColStart=4; // E (0-based: A=0,B=1,C=2,D=3,E=4)
+  const mapLabelCol=subColStart+nSubCols;
+  const mapNameCol=mapLabelCol+1;
+  const nFilas=Math.max(catLabels.length,24,3,4,...catSubs.map(s=>s.length));
+
+  const listasHeader=["Categorias","Cuotas","Moneda","Visibilidad",...catLabels,"CategoriaLabel","NombreRango"];
+  const listasRows=[listasHeader];
+  for(let i=0;i<nFilas;i++){
+    listasRows.push([
+      catLabels[i]||"", i<24?i+1:"", i===0?"ARS":i===1?"USD":"", i===0?"Público":i===1?"Solo equipo":i===2?"Privado":"",
+      ...catSubs.map(subs=>subs[i]||""),
+      catLabels[i]||"", catLabels[i]?catToDefName[catLabels[i]]:"",
+    ]);
+  }
   const wsListas=XLSX.utils.aoa_to_sheet(listasRows);
-  wsListas["!cols"]=[{wch:24},{wch:8},{wch:10},{wch:12}];
+  wsListas["!cols"]=[{wch:24},{wch:8},{wch:10},{wch:12},...catLabels.map(()=>({wch:18})),{wch:20},{wch:20}];
   XLSX.utils.book_append_sheet(wb,wsListas,"Listas");
+
+  const mapLabelColLetra=XLSX.utils.encode_col(mapLabelCol),mapNameColLetra=XLSX.utils.encode_col(mapNameCol);
+  const definedNames=catLabels.map((l,i)=>({
+    name:catToDefName[l],
+    ref:`'Listas'!$${XLSX.utils.encode_col(subColStart+i)}$2:$${XLSX.utils.encode_col(subColStart+i)}$${catSubs[i].length+1}`,
+  }));
+  const subFormula=`IFERROR(INDIRECT(VLOOKUP($B2,Listas!$${mapLabelColLetra}$2:$${mapNameColLetra}$${catLabels.length+1},2,0)),Listas!$Z$500)`;
 
   const buf=XLSX.write(wb,{type:"array",bookType:"xlsx"});
   const blob=await profesionalizarXlsx(buf,{
     "Gastos":{headerCols:10,freeze:true,validations:[
-      {sqref:`B2:B${FILAS+1}`,formula1:`Listas!$A$2:$A$${nCat+1}`},
+      {sqref:`B2:B${FILAS+1}`,formula1:`Listas!$A$2:$A$${catLabels.length+1}`},
+      {sqref:`C2:C${FILAS+1}`,formula1:subFormula},
       {sqref:`D2:D${FILAS+1}`,formula1:`Listas!$C$2:$C$3`},
       {sqref:`H2:H${FILAS+1}`,formula1:`Listas!$B$2:$B$25`},
       {sqref:`I2:I${FILAS+1}`,formula1:`Listas!$D$2:$D$4`},
     ]},
     "Categorias":{headerCols:2},
     "TC Historico":{headerCols:3,freeze:true},
-    "Listas":{headerCols:4},
-  });
+    "Listas":{headerCols:listasHeader.length},
+  },definedNames);
   const a=document.createElement("a");
   a.href=URL.createObjectURL(blob);
   a.download=`plantilla_gastos_${obraNombre.replace(/\s+/g,"_")}.xlsx`;
