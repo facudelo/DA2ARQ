@@ -576,6 +576,7 @@ function ObraApp(props){
   const [comentarios,setComentarios]=useState([]);
   const [obraEtapas,setObraEtapas]=useState([]);
   const [pagosCliente,setPagosCliente]=useState([]);
+  const [retirosGanancia,setRetirosGanancia]=useState([]);
   const [loadingData,setLoadingData]=useState(true);
   const [mobileMenu,setMobileMenu]=useState(false);
   const [showGastoModal,setShowGastoModal]=useState(false);
@@ -598,7 +599,7 @@ function ObraApp(props){
 
   const loadAll=useCallback(async()=>{
     setLoadingData(true);
-    const[gRes,prRes,cRes,fRes,partRes,hRes,cRes2,etRes,pgRes]=await Promise.all([
+    const[gRes,prRes,cRes,fRes,partRes,hRes,cRes2,etRes,pgRes,rgRes]=await Promise.all([
       supabase.from("gastos").select("*").eq("obra_id",obra.id).order("fecha",{ascending:false}),
       supabase.from("presupuestos").select("*").eq("obra_id",obra.id).order("fecha",{ascending:true}),
       supabase.from("categorias").select("*, subcategorias(*)").eq("obra_id",obra.id).order("orden"),
@@ -608,6 +609,7 @@ function ObraApp(props){
       supabase.from("comentarios_gasto").select("*").eq("obra_id",obra.id).order("created_at"),
       supabase.from("obra_etapas").select("*").eq("obra_id",obra.id).order("orden"),
       supabase.from("pagos_cliente").select("*").eq("obra_id",obra.id).order("fecha",{ascending:true}),
+      supabase.from("retiros_ganancia").select("*").eq("obra_id",obra.id).order("fecha",{ascending:true}),
     ]);
     setGastos(gRes.data||[]);setPresup(prRes.data||[]);
     setCats((cRes.data||[]).map(c=>({...c,subs:c.subcategorias||[]})));
@@ -615,6 +617,7 @@ function ObraApp(props){
     setHitos(hRes.data||[]);setComentarios(cRes2.data||[]);
     setObraEtapas(etRes.data||[]);
     setPagosCliente(pgRes.data||[]);
+    setRetirosGanancia(rgRes.data||[]);
     setLoadingData(false);
   },[obra.id]);
   useEffect(()=>{loadAll();},[loadAll]);
@@ -639,6 +642,7 @@ function ObraApp(props){
     ...(esAdmin||tabsCliente.includes("gastos")?[{id:"gastos",label:"Gastos",icon:"💸",badge:totalNotifs}]:[]),
     ...(esAdmin||tabsCliente.includes("presupuesto")?[{id:"presupuesto",label:"Presupuesto",icon:"📐"}]:[]),
     ...(esAdmin?[{id:"contratistas",label:"Contratistas",icon:"👷"}]:[]),
+    ...(esAdmin?[{id:"ganancia",label:"Ganancia",icon:"💰"}]:[]),
     ...(esAdmin||tabsCliente.includes("fotos")?[{id:"fotos",label:"Fotos",icon:"📷"}]:[]),
     ...(esAdmin||tabsCliente.includes("objetivos")?[{id:"objetivos",label:"Objetivos",icon:"🏁"}]:[]),
     ...(esAdmin||tabsCliente.includes("reportes")?[{id:"reportes",label:"Reportes",icon:"📈"}]:[]),
@@ -720,6 +724,7 @@ function ObraApp(props){
         {tab==="gastos"&&<GastosTab user={user} obra={obra} gastos={gastos} esAdmin={esAdmin} miRol={miRol} puedoCargar={puedoCargar} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} tcHistData={tcHistData} fetchTCHist={fetchTCHist} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} externalOpen={showGastoModal} onExternalClose={()=>setShowGastoModal(false)} comentarios={comentarios} miUserId={user.id}/>}
         {tab==="presupuesto"&&(esAdmin||tabsCliente.includes("presupuesto"))&&<PresupuestoTab obra={obra} gastos={gastos} presup={presup} pagosCliente={pagosCliente} tcRef={tcRef} tcOficial={tcOficial} tcBlue={tcBlue} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} inflData={inflData} fetchIPC={fetchIPC} cacData={cacData} fetchCAC={fetchCAC} esAdmin={esAdmin} puedeVerEjecutado={esAdmin||puedeVerEjecutado}/>}
         {tab==="contratistas"&&esAdmin&&<ContratistasTab gastos={gastos} presup={presup} cats={cats} tcRef={tcRef} monedaVista={monedaVista}/>}
+        {tab==="ganancia"&&esAdmin&&<GananciaTab obra={obra} gastos={gastos} presup={presup} pagosCliente={pagosCliente} retirosGanancia={retirosGanancia} cats={cats} cacData={cacData} fetchCAC={fetchCAC} tcRef={tcRef} monedaVista={monedaVista} toast={toast} reload={loadAll}/>}
         {tab==="fotos"&&<FotosTab obra={obra} fotos={fotos} puedoCargar={true} esAdmin={esAdmin} user={user} toast={toast} reload={loadAll} obraEtapas={obraEtapas}/>}
         {tab==="objetivos"&&<HitosTab obra={obra} hitos={hitos} esAdmin={esAdmin} toast={toast} reload={loadAll}/>}
         {tab==="reportes"&&<ReportesTab obra={obra} gastos={gastosVis} presup={presup} tcRef={tcRef} cats={cats} esAdmin={esAdmin} monedaVista={monedaVista}/>}
@@ -1506,6 +1511,133 @@ function DeudaClienteCard({obra,presup,pagosCliente,cats,cacData,fetchCAC,tcRef,
       </div>
     </Modal>}
   </Card>;
+}
+
+// ── CONTRATISTAS (avance de presupuesto por subcategoría) ──────────────────────
+// ── GANANCIA / BENEFICIO DEL ARQUITECTO ─────────────────────────────────────────
+// Fórmula: Presupuesto (cobrado del cliente) = Gastos ejecutados + Ganancia.
+// La "ganancia disponible para retirar" se calcula sobre lo que el cliente YA PAGÓ
+// (no sobre todo lo pactado), llevado a valor de hoy con el mismo método de "Deuda
+// del cliente" (cada pago/renglón de presupuesto ajustado por CAC desde su propia
+// fecha). Los gastos y los retiros ya son plata real movida, así que van nominales,
+// sin ajustar — no tiene sentido "actualizar por inflación" un pago ya hecho.
+function GananciaTab({obra,gastos,presup,pagosCliente,retirosGanancia,cats,cacData,fetchCAC,tcRef,monedaVista,toast,reload}){
+  const enUSD=monedaVista==="USD";
+  const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
+  const toMV=ars=>enUSD?(tcRef>0?ars/tcRef:0):ars;
+
+  const [modal,setModal]=useState(false);
+  const [draft,setDraft]=useState({fecha:todayISO(),monto:"",moneda:"ARS",descripcion:""});
+  const [saving,setSaving]=useState(false);
+
+  const hayCAC=!!(cacData&&cacData.length);
+
+  const cargos=presup.filter(p=>p.monto_cliente!=null&&p.monto_cliente>0).map(p=>({
+    fecha:p.fecha,montoARS:p.moneda==="USD"?p.monto_cliente*tcRef:p.monto_cliente,
+  }));
+  const totalPactadoAjustadoARS=hayCAC?cargos.reduce((s,c)=>s+c.montoARS*calcFactorIndice(c.fecha,cacData),0):null;
+
+  const pagosARS=pagosCliente.map(pg=>({fecha:pg.fecha,montoARS:toARS(pg,tcRef)}));
+  const totalPagadoAjustadoARS=hayCAC?pagosARS.reduce((s,p)=>s+p.montoARS*calcFactorIndice(p.fecha,cacData),0):null;
+  const totalPagadoNominalARS=pagosARS.reduce((s,p)=>s+p.montoARS,0);
+
+  const totalGastosARS=gastos.reduce((s,g)=>s+toARS(g,tcRef),0);
+  const totalRetirosARS=retirosGanancia.reduce((s,r)=>s+toARS(r,tcRef),0);
+
+  const gananciaDisponibleHoy=totalPagadoAjustadoARS!=null?totalPagadoAjustadoARS-totalGastosARS-totalRetirosARS:null;
+  const gananciaTeoricaTotal=totalPactadoAjustadoARS!=null?totalPactadoAjustadoARS-totalGastosARS:null;
+
+  const montoNum=parseFloat(draft.monto)||0;
+  const save=async()=>{
+    if(montoNum<=0)return;setSaving(true);
+    const{error}=await supabase.from("retiros_ganancia").insert({
+      obra_id:obra.id,fecha:draft.fecha,monto:montoNum,moneda:draft.moneda,
+      tc_valor:draft.moneda==="USD"?tcRef:null,
+      descripcion:draft.descripcion.trim()||null,
+    });
+    if(error){toast.error("Error: "+error.message);setSaving(false);return;}
+    toast.success("Retiro registrado");
+    setDraft({fecha:todayISO(),monto:"",moneda:"ARS",descripcion:""});
+    setModal(false);await reload();setSaving(false);
+  };
+
+  const deleteRetiro=async(id)=>{
+    const{error}=await supabase.from("retiros_ganancia").delete().eq("id",id);
+    if(error)toast.error("Error: "+error.message);else{toast.success("Retiro eliminado");await reload();}
+  };
+
+  return <div className="fu">
+    <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:4}}>💰 Ganancia / Beneficio</div>
+    <div style={{fontSize:12,color:C.t3,marginBottom:16}}>Presupuesto (lo que cobrás del cliente) = Gastos ejecutados + Ganancia. Acá anotás lo que vas retirando.</div>
+
+    {!hayCAC&&<Card style={{marginBottom:16}}>
+      <div style={{textAlign:"center",padding:"12px 0",color:C.t3,fontSize:12}}>
+        Esta solapa necesita los datos de CAC para ajustar el presupuesto cobrado (igual que "Deuda del cliente").
+        <div style={{marginTop:10}}><Btn onClick={fetchCAC}>Cargar CAC</Btn></div>
+      </div>
+    </Card>}
+
+    {hayCAC&&<>
+      <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:8}}>
+        <StatCard label={`Cobrado del cliente, ajustado a hoy (${monedaVista})`} value={fmt(toMV(totalPagadoAjustadoARS))} color={C.blue} icon="🌐"/>
+        <StatCard label={`Gastado / ejecutado (${monedaVista})`} value={fmt(toMV(totalGastosARS))} color={C.amber} icon="🧾"/>
+        <StatCard label={`Ya retirado (${monedaVista})`} value={fmt(toMV(totalRetirosARS))} color={C.t2} icon="🏦"/>
+        <StatCard label={`Disponible para retirar HOY (${monedaVista})`} value={fmt(toMV(gananciaDisponibleHoy))} color={gananciaDisponibleHoy<0?C.red:C.green} icon="💰"/>
+      </div>
+      <div style={{fontSize:11,color:C.t3,marginBottom:16}}>
+        Ganancia total estimada del proyecto si se cobrara todo lo pactado: <b style={{color:C.t2}}>{fmt(toMV(gananciaTeoricaTotal))}</b>
+        {gananciaDisponibleHoy<0&&<span style={{color:C.red,fontWeight:600}}> · Retiraste más de lo que el cliente pagó hasta ahora</span>}
+      </div>
+
+      <Card style={{marginBottom:16}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.t}}>Retiros registrados</div>
+          <Btn primary small onClick={()=>setModal(true)}>+ Registrar retiro</Btn>
+        </div>
+        {retirosGanancia.length===0&&<div style={{textAlign:"center",padding:"16px 0",color:C.t3,fontSize:12}}>Todavía no registraste ningún retiro.</div>}
+        {retirosGanancia.length>0&&<div style={{display:"flex",flexDirection:"column"}}>
+          {[...retirosGanancia].sort((a,b)=>b.fecha>a.fecha?1:-1).map(r=><div key={r.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderBottom:`1px solid ${C.bd}`}}>
+            <div>
+              <div style={{fontSize:12,color:C.t2}}>{r.fecha}</div>
+              {r.descripcion&&<div style={{fontSize:11,color:C.t3}}>{r.descripcion}</div>}
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:13,fontWeight:700,color:C.t}}>{r.moneda==="USD"?`USD ${r.monto.toLocaleString("es-AR")}`:fmtARS(r.monto)}</span>
+              <button onClick={()=>deleteRetiro(r.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.t3,fontSize:16,padding:"0 4px"}}>×</button>
+            </div>
+          </div>)}
+        </div>}
+      </Card>
+
+      <div style={{fontSize:10,color:C.t3,lineHeight:1.5}}>
+        ℹ️ Cómo se calcula: el cobrado se ajusta por CAC desde la fecha de cada pago hasta hoy (mismo método que "Deuda del cliente"). Los gastos y los retiros son plata ya movida, así que se suman nominales, sin ajustar.
+      </div>
+    </>}
+
+    {modal&&<Modal title="Registrar retiro de ganancia" onClose={()=>setModal(false)}>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 90px",gap:8}}>
+          <div>
+            <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Monto</div>
+            <input style={{...INP,fontSize:18,fontWeight:700}} type="number" placeholder="0" autoFocus value={draft.monto} onChange={e=>setDraft(d=>({...d,monto:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&save()}/>
+          </div>
+          <div>
+            <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Moneda</div>
+            <select style={SEL} value={draft.moneda} onChange={e=>setDraft(d=>({...d,moneda:e.target.value}))}><option>ARS</option><option>USD</option></select>
+          </div>
+        </div>
+        <div>
+          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Fecha del retiro</div>
+          <input style={INP} type="date" value={draft.fecha} onChange={e=>setDraft(d=>({...d,fecha:e.target.value}))}/>
+        </div>
+        <div>
+          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Descripción (opcional)</div>
+          <input style={INP} placeholder="Ej: Retiro parcial honorarios" value={draft.descripcion} onChange={e=>setDraft(d=>({...d,descripcion:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&save()}/>
+        </div>
+        <Btn primary full onClick={save} loading={saving} disabled={montoNum<=0}>Guardar retiro</Btn>
+      </div>
+    </Modal>}
+  </div>;
 }
 
 // ── CONTRATISTAS (avance de presupuesto por subcategoría) ──────────────────────
