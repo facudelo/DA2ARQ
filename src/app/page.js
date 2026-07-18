@@ -331,25 +331,27 @@ export default function App(){
   const [tcLoading,setTcLoading]=useState(false);
   const [inflData,setInflData]=useState(null);
   const [tcHistData,setTcHistData]=useState(null);
+  // Índice CAMARCO (costo de la construcción, edificio tipo CABA) — variación % mensual.
+  // Verificado UNO POR UNO contra el posteo oficial de camarco.org.ar (18/jul/2026). Fuente: no existe
+  // API pública de CAC; CAMARCO publica un posteo separado por mes, sin serie histórica consolidada.
+  // IMPORTANTE — hueco enero/2022 a julio/2024: NO hay posteo público de CAMARCO con el dato (queda
+  // detrás de un muro de "solo socios"). A propósito NO se cargan valores estimados/inventados acá:
+  // mejor un hueco visible que un número falso en un cálculo de plata real. Si tenés obras con
+  // presupuesto pactado ANTES de agosto/2024, esos meses van a quedar sin ajuste hasta que consigas
+  // el dato real (área de socios de CAMARCO, o el .xls "Indicador-CAC serie histórica" de
+  // cifrasonline.com.ar) y lo cargues a mano desde la solapa CAC → Agregar/editar.
+  // Mayo/2026 figura como PROVISORIO en el posteo de CAMARCO (puede revisarse). Junio/2026 en
+  // adelante: todavía no estaba publicado al momento de esta verificación — cargalo desde la solapa
+  // CAC cuando CAMARCO lo publique (suele ser entre el 20 y 25 del mes siguiente).
   const CAC_BASE=[
-    {fecha:"2022-01",valor:4.8},{fecha:"2022-02",valor:6.0},{fecha:"2022-03",valor:7.3},
-    {fecha:"2022-04",valor:6.2},{fecha:"2022-05",valor:5.8},{fecha:"2022-06",valor:6.4},
-    {fecha:"2022-07",valor:7.9},{fecha:"2022-08",valor:7.0},{fecha:"2022-09",valor:7.1},
-    {fecha:"2022-10",valor:7.4},{fecha:"2022-11",valor:6.5},{fecha:"2022-12",valor:6.3},
-    {fecha:"2023-01",valor:7.4},{fecha:"2023-02",valor:7.2},{fecha:"2023-03",valor:8.5},
-    {fecha:"2023-04",valor:8.8},{fecha:"2023-05",valor:8.6},{fecha:"2023-06",valor:8.2},
-    {fecha:"2023-07",valor:10.2},{fecha:"2023-08",valor:14.5},{fecha:"2023-09",valor:12.7},
-    {fecha:"2023-10",valor:11.0},{fecha:"2023-11",valor:14.7},{fecha:"2023-12",valor:40.1},
-    {fecha:"2024-01",valor:14.2},{fecha:"2024-02",valor:14.2},{fecha:"2024-03",valor:9.8},
-    {fecha:"2024-04",valor:8.1},{fecha:"2024-05",valor:5.1},{fecha:"2024-06",valor:3.4},
-    {fecha:"2024-07",valor:2.4},{fecha:"2024-08",valor:2.5},{fecha:"2024-09",valor:2.7},
-    {fecha:"2024-10",valor:2.3},{fecha:"2024-11",valor:2.2},{fecha:"2024-12",valor:2.2},
-    {fecha:"2025-01",valor:2.1},{fecha:"2025-02",valor:2.2},{fecha:"2025-03",valor:2.5},
-    {fecha:"2025-04",valor:2.4},{fecha:"2025-05",valor:2.1},{fecha:"2025-06",valor:1.9},
-    {fecha:"2025-07",valor:1.8},{fecha:"2025-08",valor:1.7},{fecha:"2025-09",valor:1.6},
-    {fecha:"2025-10",valor:1.5},{fecha:"2025-11",valor:1.4},{fecha:"2025-12",valor:1.4},
-    {fecha:"2026-01",valor:1.3},{fecha:"2026-02",valor:1.2},{fecha:"2026-03",valor:1.1},
-    {fecha:"2026-04",valor:0.9},{fecha:"2026-05",valor:0.9},{fecha:"2026-06",valor:0.8},
+    {fecha:"2024-08",valor:3.3},{fecha:"2024-09",valor:2.5},{fecha:"2024-10",valor:1.7},
+    {fecha:"2024-11",valor:2.9},{fecha:"2024-12",valor:2.1},
+    {fecha:"2025-01",valor:1.0},{fecha:"2025-02",valor:1.7},{fecha:"2025-03",valor:0.9},
+    {fecha:"2025-04",valor:1.6},{fecha:"2025-05",valor:1.6},{fecha:"2025-06",valor:0.7},
+    {fecha:"2025-07",valor:1.8},{fecha:"2025-08",valor:1.5},{fecha:"2025-09",valor:3.3},
+    {fecha:"2025-10",valor:2.3},{fecha:"2025-11",valor:2.0},{fecha:"2025-12",valor:1.3},
+    {fecha:"2026-01",valor:2.3},{fecha:"2026-02",valor:1.3},{fecha:"2026-03",valor:1.6},
+    {fecha:"2026-04",valor:3.7},{fecha:"2026-05",valor:2.6},
   ];
   const [cacData,setCacData]=useState(CAC_BASE);
   const toast=useToast();
