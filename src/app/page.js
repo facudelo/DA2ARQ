@@ -1532,19 +1532,21 @@ function GananciaTab({obra,gastos,presup,pagosCliente,retirosGanancia,cats,cacDa
 
   const hayCAC=!!(cacData&&cacData.length);
 
+  // Lo pactado (contrato total) SÍ se actualiza por CAC — es "la deuda", el compromiso total a valor de hoy.
   const cargos=presup.filter(p=>p.monto_cliente!=null&&p.monto_cliente>0).map(p=>({
     fecha:p.fecha,montoARS:p.moneda==="USD"?p.monto_cliente*tcRef:p.monto_cliente,
   }));
   const totalPactadoAjustadoARS=hayCAC?cargos.reduce((s,c)=>s+c.montoARS*calcFactorIndice(c.fecha,cacData),0):null;
 
-  const pagosARS=pagosCliente.map(pg=>({fecha:pg.fecha,montoARS:toARS(pg,tcRef)}));
-  const totalPagadoAjustadoARS=hayCAC?pagosARS.reduce((s,p)=>s+p.montoARS*calcFactorIndice(p.fecha,cacData),0):null;
-  const totalPagadoNominalARS=pagosARS.reduce((s,p)=>s+p.montoARS,0);
-
+  // Lo YA cobrado es un hecho: plata que entró en una fecha por un monto fijo. No se ajusta por nada
+  // (el CAC ajusta lo que falta cobrar —la deuda—, no lo que ya se cobró). Gastos y retiros: misma lógica,
+  // son movimientos de plata reales ya ocurridos.
+  const totalPagadoNominalARS=pagosCliente.reduce((s,pg)=>s+toARS(pg,tcRef),0);
   const totalGastosARS=gastos.reduce((s,g)=>s+toARS(g,tcRef),0);
   const totalRetirosARS=retirosGanancia.reduce((s,r)=>s+toARS(r,tcRef),0);
 
-  const gananciaDisponibleHoy=totalPagadoAjustadoARS!=null?totalPagadoAjustadoARS-totalGastosARS-totalRetirosARS:null;
+  const gananciaDisponibleHoy=totalPagadoNominalARS-totalGastosARS-totalRetirosARS;
+  // "Techo": si se cobrara HOY todo lo pactado (a su valor actualizado), cuánta ganancia total habría en total.
   const gananciaTeoricaTotal=totalPactadoAjustadoARS!=null?totalPactadoAjustadoARS-totalGastosARS:null;
 
   const montoNum=parseFloat(draft.monto)||0;
@@ -1570,26 +1572,22 @@ function GananciaTab({obra,gastos,presup,pagosCliente,retirosGanancia,cats,cacDa
     <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:4}}>💰 Ganancia / Beneficio</div>
     <div style={{fontSize:12,color:C.t3,marginBottom:16}}>Presupuesto (lo que cobrás del cliente) = Gastos ejecutados + Ganancia. Acá anotás lo que vas retirando.</div>
 
-    {!hayCAC&&<Card style={{marginBottom:16}}>
-      <div style={{textAlign:"center",padding:"12px 0",color:C.t3,fontSize:12}}>
-        Esta solapa necesita los datos de CAC para ajustar el presupuesto cobrado (igual que "Deuda del cliente").
-        <div style={{marginTop:10}}><Btn onClick={fetchCAC}>Cargar CAC</Btn></div>
-      </div>
-    </Card>}
+    {!hayCAC&&<div style={{fontSize:11,color:C.t3,background:C.bg3,borderRadius:8,padding:"8px 12px",marginBottom:14}}>
+      ℹ️ Sin datos de CAC: se muestra el disponible para retirar igual (no lo necesita), pero falta la "ganancia teórica total" (que sí usa el pactado ajustado). <Btn small onClick={fetchCAC}>Cargar CAC</Btn>
+    </div>}
 
-    {hayCAC&&<>
-      <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:8}}>
-        <StatCard label={`Cobrado del cliente, ajustado a hoy (${monedaVista})`} value={fmt(toMV(totalPagadoAjustadoARS))} color={C.blue} icon="🌐"/>
-        <StatCard label={`Gastado / ejecutado (${monedaVista})`} value={fmt(toMV(totalGastosARS))} color={C.amber} icon="🧾"/>
-        <StatCard label={`Ya retirado (${monedaVista})`} value={fmt(toMV(totalRetirosARS))} color={C.t2} icon="🏦"/>
-        <StatCard label={`Disponible para retirar HOY (${monedaVista})`} value={fmt(toMV(gananciaDisponibleHoy))} color={gananciaDisponibleHoy<0?C.red:C.green} icon="💰"/>
-      </div>
-      <div style={{fontSize:11,color:C.t3,marginBottom:16}}>
-        Ganancia total estimada del proyecto si se cobrara todo lo pactado: <b style={{color:C.t2}}>{fmt(toMV(gananciaTeoricaTotal))}</b>
-        {gananciaDisponibleHoy<0&&<span style={{color:C.red,fontWeight:600}}> · Retiraste más de lo que el cliente pagó hasta ahora</span>}
-      </div>
+    <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:8}}>
+      <StatCard label={`Cobrado del cliente (${monedaVista})`} value={fmt(toMV(totalPagadoNominalARS))} color={C.blue} icon="🌐"/>
+      <StatCard label={`Gastado / ejecutado (${monedaVista})`} value={fmt(toMV(totalGastosARS))} color={C.amber} icon="🧾"/>
+      <StatCard label={`Ya retirado (${monedaVista})`} value={fmt(toMV(totalRetirosARS))} color={C.t2} icon="🏦"/>
+      <StatCard label={`Disponible para retirar HOY (${monedaVista})`} value={fmt(toMV(gananciaDisponibleHoy))} color={gananciaDisponibleHoy<0?C.red:C.green} icon="💰"/>
+    </div>
+    <div style={{fontSize:11,color:C.t3,marginBottom:16}}>
+      {gananciaTeoricaTotal!=null&&<>Ganancia total estimada del proyecto si se cobrara hoy todo lo pactado (ajustado): <b style={{color:C.t2}}>{fmt(toMV(gananciaTeoricaTotal))}</b></>}
+      {gananciaDisponibleHoy<0&&<span style={{color:C.red,fontWeight:600}}> · Retiraste más de lo que el cliente pagó hasta ahora</span>}
+    </div>
 
-      <Card style={{marginBottom:16}}>
+    <Card style={{marginBottom:16}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
           <div style={{fontSize:13,fontWeight:700,color:C.t}}>Retiros registrados</div>
           <Btn primary small onClick={()=>setModal(true)}>+ Registrar retiro</Btn>
@@ -1610,9 +1608,8 @@ function GananciaTab({obra,gastos,presup,pagosCliente,retirosGanancia,cats,cacDa
       </Card>
 
       <div style={{fontSize:10,color:C.t3,lineHeight:1.5}}>
-        ℹ️ Cómo se calcula: el cobrado se ajusta por CAC desde la fecha de cada pago hasta hoy (mismo método que "Deuda del cliente"). Los gastos y los retiros son plata ya movida, así que se suman nominales, sin ajustar.
+        ℹ️ Cómo se calcula: "Cobrado", "Gastado" y "Ya retirado" son plata real ya movida — se suman nominales, sin ajustar por ningún índice (lo que se cobró, se cobró). El CAC solo se usa para el "techo teórico" de arriba, que proyecta el pactado total a valor de hoy — igual que en "Deuda del cliente", donde el CAC ajusta lo que falta cobrar, no lo ya cobrado.
       </div>
-    </>}
 
     {modal&&<Modal title="Registrar retiro de ganancia" onClose={()=>setModal(false)}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
