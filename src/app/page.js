@@ -30,6 +30,21 @@ const fmtM=(n,m)=>m==="USD"?fmtUSD(n):fmtARS(n);
 const toARS=(g,tcRef)=>g.moneda==="USD"?g.monto*(g.tc_valor||tcRef):g.monto;
 const toUSD=(g,tcRef)=>g.moneda==="ARS"?g.monto/(g.tc_valor||tcRef):g.monto;
 const calcFactorIndice=(fechaDesde,data)=>{if(!fechaDesde||!data||!data.length)return 1;const desde=fechaDesde.slice(0,7);const serie=data.filter(x=>x.fecha.slice(0,7)>=desde).sort((a,b)=>a.fecha<b.fecha?-1:1);return serie.length>0?serie.reduce((f,x)=>f*(1+x.valor/100),1):1;};
+// Única fuente de verdad para "Ganancia" — la usan GananciaTab, DashboardTab (esAdmin) y PresupuestoTab (esAdmin).
+// Cobrado/Gastado/Retirado son plata real ya movida: nominales, sin ajustar. Solo el pactado total (el
+// "techo teórico") se ajusta por CAC — mismo criterio que "Deuda del cliente" (el índice ajusta lo que
+// falta cobrar, nunca lo ya cobrado).
+const calcGanancia=({presup,pagosCliente,gastos,retirosGanancia,tcRef,cacData})=>{
+  const hayCAC=!!(cacData&&cacData.length);
+  const cargos=presup.filter(p=>p.monto_cliente!=null&&p.monto_cliente>0).map(p=>({fecha:p.fecha,montoARS:p.moneda==="USD"?p.monto_cliente*tcRef:p.monto_cliente}));
+  const totalPactadoAjustadoARS=hayCAC?cargos.reduce((s,c)=>s+c.montoARS*calcFactorIndice(c.fecha,cacData),0):null;
+  const totalPagadoNominalARS=pagosCliente.reduce((s,pg)=>s+toARS(pg,tcRef),0);
+  const totalGastosARS=gastos.reduce((s,g)=>s+toARS(g,tcRef),0);
+  const totalRetirosARS=retirosGanancia.reduce((s,r)=>s+toARS(r,tcRef),0);
+  const gananciaDisponibleHoy=totalPagadoNominalARS-totalGastosARS-totalRetirosARS;
+  const gananciaTeoricaTotal=totalPactadoAjustadoARS!=null?totalPactadoAjustadoARS-totalGastosARS:null;
+  return{hayCAC,totalPactadoAjustadoARS,totalPagadoNominalARS,totalGastosARS,totalRetirosARS,gananciaDisponibleHoy,gananciaTeoricaTotal};
+};
 const addMonths=(fechaISO,n)=>{const[y,m,d]=fechaISO.split("-").map(Number);const total=(m-1)+n;const ny=y+Math.floor(total/12);const nm=((total%12)+12)%12;const lastDay=new Date(ny,nm+1,0).getDate();const nd=Math.min(d,lastDay);return`${ny}-${String(nm+1).padStart(2,"0")}-${String(nd).padStart(2,"0")}`;};
 // Reparte `total` en `n` cuotas cuya suma da EXACTO total (evita errores de redondeo): la diferencia en centavos se distribuye entre las primeras cuotas.
 const splitEnCuotas=(total,n)=>{const centavos=Math.round(total*100);const base=Math.floor(centavos/n);const resto=centavos-base*n;return Array.from({length:n},(_,i)=>(base+(i<resto?1:0))/100);};
@@ -720,9 +735,9 @@ function ObraApp(props){
 
     <div style={{padding:20,paddingBottom:100,maxWidth:1040,margin:"0 auto"}}>
       {loadingData?<Spinner/>:<>
-        {tab==="dashboard"&&<DashboardTab obra={obra} gastos={gastosVis} esAdmin={esAdmin} presup={presup} tcRef={tcRef} partic={partic} cats={cats} fotos={fotos} hitos={hitos} monedaVista={monedaVista}/>}
+        {tab==="dashboard"&&<DashboardTab obra={obra} gastos={gastosVis} esAdmin={esAdmin} presup={presup} tcRef={tcRef} partic={partic} cats={cats} fotos={fotos} hitos={hitos} monedaVista={monedaVista} pagosCliente={pagosCliente} retirosGanancia={retirosGanancia} cacData={cacData}/>}
         {tab==="gastos"&&<GastosTab user={user} obra={obra} gastos={gastos} esAdmin={esAdmin} miRol={miRol} puedoCargar={puedoCargar} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} tcHistData={tcHistData} fetchTCHist={fetchTCHist} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} externalOpen={showGastoModal} onExternalClose={()=>setShowGastoModal(false)} comentarios={comentarios} miUserId={user.id}/>}
-        {tab==="presupuesto"&&(esAdmin||tabsCliente.includes("presupuesto"))&&<PresupuestoTab obra={obra} gastos={gastos} presup={presup} pagosCliente={pagosCliente} tcRef={tcRef} tcOficial={tcOficial} tcBlue={tcBlue} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} inflData={inflData} fetchIPC={fetchIPC} cacData={cacData} fetchCAC={fetchCAC} esAdmin={esAdmin} puedeVerEjecutado={esAdmin||puedeVerEjecutado}/>}
+        {tab==="presupuesto"&&(esAdmin||tabsCliente.includes("presupuesto"))&&<PresupuestoTab obra={obra} gastos={gastos} presup={presup} pagosCliente={pagosCliente} retirosGanancia={retirosGanancia} tcRef={tcRef} tcOficial={tcOficial} tcBlue={tcBlue} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} inflData={inflData} fetchIPC={fetchIPC} cacData={cacData} fetchCAC={fetchCAC} esAdmin={esAdmin} puedeVerEjecutado={esAdmin||puedeVerEjecutado}/>}
         {tab==="contratistas"&&esAdmin&&<ContratistasTab gastos={gastos} presup={presup} cats={cats} tcRef={tcRef} monedaVista={monedaVista}/>}
         {tab==="ganancia"&&esAdmin&&<GananciaTab obra={obra} gastos={gastos} presup={presup} pagosCliente={pagosCliente} retirosGanancia={retirosGanancia} cats={cats} cacData={cacData} fetchCAC={fetchCAC} tcRef={tcRef} monedaVista={monedaVista} toast={toast} reload={loadAll}/>}
         {tab==="fotos"&&<FotosTab obra={obra} fotos={fotos} puedoCargar={true} esAdmin={esAdmin} user={user} toast={toast} reload={loadAll} obraEtapas={obraEtapas}/>}
@@ -757,7 +772,7 @@ function ObraApp(props){
 }
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
-function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=[],monedaVista}){
+function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=[],monedaVista,pagosCliente=[],retirosGanancia=[],cacData}){
   const enUSD=monedaVista==="USD";
   const conv=g=>enUSD?toUSD(g,tcRef):toARS(g,tcRef);
   const totalMV=gastos.reduce((s,g)=>s+conv(g),0);
@@ -766,10 +781,12 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=
   const presupBaseARS=presupCatARS>0?presupCatARS:presupTotalARS;
   const presupMV=enUSD?(tcRef>0?presupBaseARS/tcRef:0):presupBaseARS;
   const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
+  const toMV=ars=>enUSD?(tcRef>0?ars/tcRef:0):ars;
   const pct=presupMV>0?Math.min(Math.round((totalMV/presupMV)*100),999):null;
   const ultGastos=gastos.filter(g=>g.fecha<=todayISO()).slice(0,8);
   const ultFotos=fotos.slice(0,4);
   const autorG=g=>partic.find(p=>p.user_id===g.user_id)?.nombre||g.user_email||"—";
+  const gan=esAdmin?calcGanancia({presup,pagosCliente,gastos,retirosGanancia,tcRef,cacData}):null;
 
   // Categorías con subcategorías ordenadas por monto desc
   const porCat=cats.map(c=>{
@@ -783,12 +800,19 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=
 
   return <div className="fu">
     {/* FILA 1: KPIs */}
-    <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:20}}>
+    <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:esAdmin?10:20}}>
       <StatCard label={`Total gastado (${monedaVista})`} value={fmt(totalMV)} color={C.green} icon="💸"/>
       {presupMV>0&&<StatCard label={`Presupuesto (${monedaVista})`} value={fmt(presupMV)} color={C.blue} icon="📐"/>}
       {presupMV>0&&<StatCard label="Avance presupuesto" value={pct!==null?`${pct}%`:"—"} color={pct>100?C.red:pct>80?C.amber:C.green} icon="📊"/>}
       <StatCard label="Participantes" value={partic.length} color={C.lima} icon="👥"/>
     </div>
+
+    {/* FILA 1B: Ganancia — solo arquitecto/ayudante, el cliente nunca ve esto */}
+    {esAdmin&&<div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:20}}>
+      <StatCard label={`Cobrado del cliente (${monedaVista})`} value={fmt(toMV(gan.totalPagadoNominalARS))} color={C.blue} icon="🌐"/>
+      <StatCard label={`Ya retirado — ganancia (${monedaVista})`} value={fmt(toMV(gan.totalRetirosARS))} color={C.t2} icon="🏦"/>
+      <StatCard label={`Disponible para retirar (${monedaVista})`} value={fmt(toMV(gan.gananciaDisponibleHoy))} color={gan.gananciaDisponibleHoy<0?C.red:C.green} icon="💰"/>
+    </div>}
 
     {/* FILA 2: Gastos por categoría / subcategoría */}
     <Card style={{marginBottom:16}}>
@@ -1530,24 +1554,7 @@ function GananciaTab({obra,gastos,presup,pagosCliente,retirosGanancia,cats,cacDa
   const [draft,setDraft]=useState({fecha:todayISO(),monto:"",moneda:"ARS",descripcion:""});
   const [saving,setSaving]=useState(false);
 
-  const hayCAC=!!(cacData&&cacData.length);
-
-  // Lo pactado (contrato total) SÍ se actualiza por CAC — es "la deuda", el compromiso total a valor de hoy.
-  const cargos=presup.filter(p=>p.monto_cliente!=null&&p.monto_cliente>0).map(p=>({
-    fecha:p.fecha,montoARS:p.moneda==="USD"?p.monto_cliente*tcRef:p.monto_cliente,
-  }));
-  const totalPactadoAjustadoARS=hayCAC?cargos.reduce((s,c)=>s+c.montoARS*calcFactorIndice(c.fecha,cacData),0):null;
-
-  // Lo YA cobrado es un hecho: plata que entró en una fecha por un monto fijo. No se ajusta por nada
-  // (el CAC ajusta lo que falta cobrar —la deuda—, no lo que ya se cobró). Gastos y retiros: misma lógica,
-  // son movimientos de plata reales ya ocurridos.
-  const totalPagadoNominalARS=pagosCliente.reduce((s,pg)=>s+toARS(pg,tcRef),0);
-  const totalGastosARS=gastos.reduce((s,g)=>s+toARS(g,tcRef),0);
-  const totalRetirosARS=retirosGanancia.reduce((s,r)=>s+toARS(r,tcRef),0);
-
-  const gananciaDisponibleHoy=totalPagadoNominalARS-totalGastosARS-totalRetirosARS;
-  // "Techo": si se cobrara HOY todo lo pactado (a su valor actualizado), cuánta ganancia total habría en total.
-  const gananciaTeoricaTotal=totalPactadoAjustadoARS!=null?totalPactadoAjustadoARS-totalGastosARS:null;
+  const{hayCAC,totalPagadoNominalARS,totalGastosARS,totalRetirosARS,gananciaDisponibleHoy,gananciaTeoricaTotal}=calcGanancia({presup,pagosCliente,gastos,retirosGanancia,tcRef,cacData});
 
   const montoNum=parseFloat(draft.monto)||0;
   const save=async()=>{
@@ -1713,8 +1720,26 @@ function ContratistasTab({gastos,presup,cats,tcRef,monedaVista}){
   </div>;
 }
 
+// Versión compacta de "Ganancia", para mostrar dentro de la solapa Presupuesto (esAdmin only).
+function GananciaResumenCard({presup,pagosCliente,gastos,retirosGanancia,tcRef,cacData,monedaVista}){
+  const enUSD=monedaVista==="USD";
+  const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
+  const toMV=ars=>enUSD?(tcRef>0?ars/tcRef:0):ars;
+  const{totalPagadoNominalARS,totalGastosARS,totalRetirosARS,gananciaDisponibleHoy}=calcGanancia({presup,pagosCliente,gastos,retirosGanancia,tcRef,cacData});
+  return <Card style={{marginTop:14,border:`1px solid ${C.green}33`}}>
+    <div style={{fontSize:14,fontWeight:700,color:C.t,marginBottom:2}}>💰 Ganancia</div>
+    <div style={{fontSize:11,color:C.t3,marginBottom:14}}>Cobrado, gastado y retirado, en pesos reales ya movidos (sin ajustar) — vista completa en la solapa "Ganancia"</div>
+    <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+      <StatCard label={`Cobrado del cliente (${monedaVista})`} value={fmt(toMV(totalPagadoNominalARS))} color={C.blue} icon="🌐"/>
+      <StatCard label={`Gastado (${monedaVista})`} value={fmt(toMV(totalGastosARS))} color={C.amber} icon="🧾"/>
+      <StatCard label={`Ya retirado (${monedaVista})`} value={fmt(toMV(totalRetirosARS))} color={C.t2} icon="🏦"/>
+      <StatCard label={`Disponible para retirar (${monedaVista})`} value={fmt(toMV(gananciaDisponibleHoy))} color={gananciaDisponibleHoy<0?C.red:C.green} icon="💰"/>
+    </div>
+  </Card>;
+}
+
 // ── PRESUPUESTO ───────────────────────────────────────────────────────────────
-function PresupuestoTab({obra,gastos,presup,pagosCliente=[],tcRef,tcOficial,tcBlue,cats,toast,reload,monedaVista,inflData,fetchIPC,cacData,fetchCAC,esAdmin=true,puedeVerEjecutado=true}){
+function PresupuestoTab({obra,gastos,presup,pagosCliente=[],retirosGanancia=[],tcRef,tcOficial,tcBlue,cats,toast,reload,monedaVista,inflData,fetchIPC,cacData,fetchCAC,esAdmin=true,puedeVerEjecutado=true}){
   const [modal,setModal]=useState(false);
   const [draft,setDraft]=useState({cat_id:cats[0]?.id||"",sub_id:"",monto:"",monto_cliente:"",moneda:"ARS",fecha:todayISO(),descripcion:""});
   const [saving,setSaving]=useState(false);
@@ -1987,6 +2012,9 @@ function PresupuestoTab({obra,gastos,presup,pagosCliente=[],tcRef,tcOficial,tcBl
       cacData={cacData} fetchCAC={fetchCAC} tcRef={tcRef}
       monedaVista={monedaVista} esAdmin={esAdmin} toast={toast} reload={reload}
     />
+
+    {/* Ganancia: nunca visible para el cliente, aunque tenga acceso a esta solapa */}
+    {esAdmin&&<GananciaResumenCard presup={presup} pagosCliente={pagosCliente} gastos={gastos} retirosGanancia={retirosGanancia} tcRef={tcRef} cacData={cacData} monedaVista={monedaVista}/>}
 
     {modal&&<Modal title="Agregar presupuesto" onClose={()=>setModal(false)}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
