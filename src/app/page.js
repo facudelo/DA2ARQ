@@ -638,6 +638,7 @@ function ObraApp(props){
     ...(esAdmin||tabsCliente.includes("dashboard")?[{id:"dashboard",label:"Dashboard",icon:"📊"}]:[]),
     ...(esAdmin||tabsCliente.includes("gastos")?[{id:"gastos",label:"Gastos",icon:"💸",badge:totalNotifs}]:[]),
     ...(esAdmin||tabsCliente.includes("presupuesto")?[{id:"presupuesto",label:"Presupuesto",icon:"📐"}]:[]),
+    ...(esAdmin?[{id:"contratistas",label:"Contratistas",icon:"👷"}]:[]),
     ...(esAdmin||tabsCliente.includes("fotos")?[{id:"fotos",label:"Fotos",icon:"📷"}]:[]),
     ...(esAdmin||tabsCliente.includes("objetivos")?[{id:"objetivos",label:"Objetivos",icon:"🏁"}]:[]),
     ...(esAdmin||tabsCliente.includes("reportes")?[{id:"reportes",label:"Reportes",icon:"📈"}]:[]),
@@ -718,6 +719,7 @@ function ObraApp(props){
         {tab==="dashboard"&&<DashboardTab obra={obra} gastos={gastosVis} esAdmin={esAdmin} presup={presup} tcRef={tcRef} partic={partic} cats={cats} fotos={fotos} hitos={hitos} monedaVista={monedaVista}/>}
         {tab==="gastos"&&<GastosTab user={user} obra={obra} gastos={gastos} esAdmin={esAdmin} miRol={miRol} puedoCargar={puedoCargar} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} tcHistData={tcHistData} fetchTCHist={fetchTCHist} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} externalOpen={showGastoModal} onExternalClose={()=>setShowGastoModal(false)} comentarios={comentarios} miUserId={user.id}/>}
         {tab==="presupuesto"&&(esAdmin||tabsCliente.includes("presupuesto"))&&<PresupuestoTab obra={obra} gastos={gastos} presup={presup} pagosCliente={pagosCliente} tcRef={tcRef} tcOficial={tcOficial} tcBlue={tcBlue} cats={cats} toast={toast} reload={loadAll} monedaVista={monedaVista} inflData={inflData} fetchIPC={fetchIPC} cacData={cacData} fetchCAC={fetchCAC} esAdmin={esAdmin} puedeVerEjecutado={esAdmin||puedeVerEjecutado}/>}
+        {tab==="contratistas"&&esAdmin&&<ContratistasTab gastos={gastos} presup={presup} cats={cats} tcRef={tcRef} monedaVista={monedaVista}/>}
         {tab==="fotos"&&<FotosTab obra={obra} fotos={fotos} puedoCargar={true} esAdmin={esAdmin} user={user} toast={toast} reload={loadAll} obraEtapas={obraEtapas}/>}
         {tab==="objetivos"&&<HitosTab obra={obra} hitos={hitos} esAdmin={esAdmin} toast={toast} reload={loadAll}/>}
         {tab==="reportes"&&<ReportesTab obra={obra} gastos={gastosVis} presup={presup} tcRef={tcRef} cats={cats} esAdmin={esAdmin} monedaVista={monedaVista}/>}
@@ -1504,6 +1506,82 @@ function DeudaClienteCard({obra,presup,pagosCliente,cats,cacData,fetchCAC,tcRef,
       </div>
     </Modal>}
   </Card>;
+}
+
+// ── CONTRATISTAS (avance de presupuesto por subcategoría) ──────────────────────
+function ContratistasTab({gastos,presup,cats,tcRef,monedaVista}){
+  const enUSD=monedaVista==="USD";
+  const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
+  const toMV=ars=>enUSD?(tcRef>0?ars/tcRef:0):ars;
+  const presupARS=p=>p.moneda==="USD"?p.monto*tcRef:p.monto;
+
+  // Por categoría: lista de "grupos" (cada subcategoría real + un grupo "Sin subcategoría" si aplica),
+  // cada uno comparando SOLO su propio presupuesto (sub_id exacto) contra sus propios gastos.
+  const porCat=cats.map(cat=>{
+    const gruposMap=new Map(); // sub_id conocido -> grupo propio; cualquier otro caso -> "null" (Sin subcategoría)
+    const subsConocidos=new Set((cat.subs||[]).map(s=>s.id));
+    const addGrupo=(subId,label)=>{
+      const key=subId&&subsConocidos.has(subId)?subId:"null";
+      if(!gruposMap.has(key))gruposMap.set(key,{subId:key==="null"?null:subId,label,gastoARS:0,presupARS:0});
+      return gruposMap.get(key);
+    };
+    (cat.subs||[]).forEach(s=>addGrupo(s.id,s.label));
+    gastos.filter(g=>g.cat_id===cat.id).forEach(g=>{
+      const label=(cat.subs||[]).find(s=>s.id===g.sub_id)?.label||"Sin subcategoría";
+      addGrupo(g.sub_id,label).gastoARS+=toARS(g,tcRef);
+    });
+    presup.filter(p=>p.cat_id===cat.id).forEach(p=>{
+      const label=(cat.subs||[]).find(s=>s.id===p.sub_id)?.label||"Sin subcategoría";
+      addGrupo(p.sub_id,label).presupARS+=presupARS(p);
+    });
+    const grupos=[...gruposMap.values()]
+      .filter(g=>g.gastoARS>0||g.presupARS>0)
+      .sort((a,b)=>b.gastoARS-a.gastoARS);
+    return{...cat,grupos,totalGasto:grupos.reduce((s,g)=>s+g.gastoARS,0)};
+  }).filter(c=>c.grupos.length>0);
+
+  const totalGeneral=porCat.reduce((s,c)=>s+c.totalGasto,0);
+
+  return <div className="fu">
+    <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:4}}>👷 Contratistas</div>
+    <div style={{fontSize:12,color:C.t3,marginBottom:16}}>Avance de presupuesto por subcategoría — cuánto gastaste vs. lo pactado con cada contratista/rubro</div>
+
+    {porCat.length===0&&<Card><div style={{textAlign:"center",padding:"32px 0",color:C.t3,fontSize:12}}>Todavía no hay gastos ni presupuesto cargados por subcategoría.</div></Card>}
+
+    {porCat.map(cat=><Card key={cat.id} style={{marginBottom:14}}>
+      <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:14,fontWeight:600,display:"flex",alignItems:"center",gap:8}}>
+        <span style={{fontSize:15}}>{cat.icon||"📦"}</span><span>{cat.label}</span>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        {cat.grupos.map(g=>{
+          const tienePresup=g.presupARS>0;
+          const pct=tienePresup?Math.round((g.gastoARS/g.presupARS)*100):null;
+          const excedido=tienePresup&&g.gastoARS>g.presupARS;
+          const barColor=!tienePresup?C.t3:excedido?C.red:pct>85?C.amber:(cat.color||C.green);
+          return <div key={g.subId||"null"}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4,gap:8,flexWrap:"wrap"}}>
+              <span style={{fontSize:13,fontWeight:600,color:C.t}}>{g.label}</span>
+              {tienePresup?
+                <span style={{fontSize:11,color:C.t3}}>Presup. <b style={{color:C.t}}>{fmt(toMV(g.presupARS))}</b> · Gastado <b style={{color:excedido?C.red:cat.color||C.green}}>{fmt(toMV(g.gastoARS))}</b></span>
+                :<span style={{fontSize:13,fontWeight:700,color:C.t}}>{fmt(toMV(g.gastoARS))} <span style={{fontSize:11,color:C.t3,fontWeight:400}}>gastado</span></span>
+              }
+            </div>
+            {tienePresup?<>
+              <div style={{height:6,borderRadius:3,background:C.bg3}}>
+                <div style={{height:"100%",borderRadius:3,background:barColor,width:`${Math.min(pct,100)}%`,transition:"width .5s"}}/>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.t3,marginTop:3}}>
+                <span style={{color:excedido?C.red:C.t3,fontWeight:excedido?700:400}}>{pct}% ejecutado</span>
+                <span>{excedido?<>Excedido en <b style={{color:C.red}}>{fmt(toMV(g.gastoARS-g.presupARS))}</b></>:<>Falta <b style={{color:C.amber}}>{fmt(toMV(g.presupARS-g.gastoARS))}</b></>}</span>
+              </div>
+            </>:<div style={{fontSize:11,color:C.t3,fontStyle:"italic"}}>Sin presupuesto pactado</div>}
+          </div>;
+        })}
+      </div>
+    </Card>)}
+
+    {porCat.length>0&&<div style={{textAlign:"right",fontSize:12,color:C.t3,marginTop:4}}>Total gastado en subcategorías con seguimiento: <b style={{color:C.t}}>{fmt(toMV(totalGeneral))}</b></div>}
+  </div>;
 }
 
 // ── PRESUPUESTO ───────────────────────────────────────────────────────────────
