@@ -823,7 +823,7 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=
     {esAdmin&&<div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:20}}>
       <StatCard label={`Cobrado del cliente (${monedaVista})`} value={fmt(toMV(gan.totalPagadoNominalARS))} color={C.blue} icon="🌐"/>
       <StatCard label={`Ya retirado — ganancia (${monedaVista})`} value={fmt(toMV(gan.totalRetirosARS))} color={C.t2} icon="🏦"/>
-      <StatCard label={`Disponible para retirar (${monedaVista})`} value={fmt(toMV(gan.gananciaDisponibleHoy))} color={gan.gananciaDisponibleHoy<0?C.red:C.green} icon="💰"/>
+      <StatCard label={`Disponible (${monedaVista})`} value={fmt(toMV(gan.gananciaDisponibleHoy))} color={gan.gananciaDisponibleHoy<0?C.red:C.green} icon="💰"/>
       <StatCard label={`Ganancia estimada (${monedaVista})`} value={fmt(toMV(gan.gananciaEstimadaARS))} color={gan.gananciaEstimadaARS<0?C.red:C.lima} icon="🎯"/>
       <StatCard label="Retirado vs. estimada" value={gan.pctRetiradoVsEstimada!==null?`${gan.pctRetiradoVsEstimada}%`:"—"} color={gan.pctRetiradoVsEstimada>100?C.red:gan.pctRetiradoVsEstimada>85?C.amber:C.green} icon="📈"/>
     </div>}
@@ -1601,7 +1601,7 @@ function GananciaTab({obra,gastos,presup,pagosCliente,retirosGanancia,cats,cacDa
       <StatCard label={`Cobrado del cliente (${monedaVista})`} value={fmt(toMV(totalPagadoNominalARS))} color={C.blue} icon="🌐"/>
       <StatCard label={`Gastado / ejecutado (${monedaVista})`} value={fmt(toMV(totalGastosARS))} color={C.amber} icon="🧾"/>
       <StatCard label={`Ya retirado (${monedaVista})`} value={fmt(toMV(totalRetirosARS))} color={C.t2} icon="🏦"/>
-      <StatCard label={`Disponible para retirar HOY (${monedaVista})`} value={fmt(toMV(gananciaDisponibleHoy))} color={gananciaDisponibleHoy<0?C.red:C.green} icon="💰"/>
+      <StatCard label={`Disponible (${monedaVista})`} value={fmt(toMV(gananciaDisponibleHoy))} color={gananciaDisponibleHoy<0?C.red:C.green} icon="💰"/>
     </div>
     <div style={{fontSize:11,color:C.t3,marginBottom:16}}>
       {gananciaTeoricaTotal!=null&&<>Ganancia total estimada del proyecto si se cobrara hoy todo lo pactado (ajustado): <b style={{color:C.t2}}>{fmt(toMV(gananciaTeoricaTotal))}</b></>}
@@ -1765,7 +1765,7 @@ function GananciaResumenCard({presup,pagosCliente,gastos,retirosGanancia,tcRef,c
       <StatCard label={`Cobrado del cliente (${monedaVista})`} value={fmt(toMV(totalPagadoNominalARS))} color={C.blue} icon="🌐"/>
       <StatCard label={`Gastado (${monedaVista})`} value={fmt(toMV(totalGastosARS))} color={C.amber} icon="🧾"/>
       <StatCard label={`Ya retirado (${monedaVista})`} value={fmt(toMV(totalRetirosARS))} color={C.t2} icon="🏦"/>
-      <StatCard label={`Disponible para retirar (${monedaVista})`} value={fmt(toMV(gananciaDisponibleHoy))} color={gananciaDisponibleHoy<0?C.red:C.green} icon="💰"/>
+      <StatCard label={`Disponible (${monedaVista})`} value={fmt(toMV(gananciaDisponibleHoy))} color={gananciaDisponibleHoy<0?C.red:C.green} icon="💰"/>
     </div>
     {gananciaEstimadaARS>0&&<div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${C.bd}`}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:5,flexWrap:"wrap",gap:6}}>
