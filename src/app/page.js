@@ -83,13 +83,16 @@ async function generarPlantillaGastos(obraNombre,cats,tcHistData){
   ws.getRow(1).eachCell(c=>{c.font={bold:true,color:{argb:"FFFFFFFF"}};c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FF2E6E18"}};});
   ws.views=[{state:"frozen",ySplit:1}];
 
-  ws.getCell("A2").value=new Date();ws.getCell("A2").numFmt="dd/mm/yyyy";
+  ws.getCell("A2").value=new Date(new Date().getFullYear(),new Date().getMonth(),new Date().getDate()); // sin hora
+  ws.getCell("A2").numFmt="dd/mm/yyyy";
   ws.getCell("B2").value=CAT_MARCA_EJEMPLO;
   ws.getCell("D2").value="ARS";ws.getCell("E2").value=150000;ws.getCell("F2").value=150000;
   ws.getCell("H2").value=1;ws.getCell("I2").value="Solo equipo";
   ws.getCell("J2").value="Ej: 20 bolsas de cemento — BORRAR esta fila";
   for(let r=2;r<=FILAS+1;r++){
-    ws.getCell("G"+r).value={formula:`IFERROR(VLOOKUP(A${r},'TC Historico'!A:C,3,FALSE),0)`,result:0};
+    ws.getCell("A"+r).numFmt="dd/mm/yyyy"; // fecha corta en toda la columna, para que nunca quede con hora
+    // INT() descarta cualquier resto de hora que traiga la fecha (evita que el VLOOKUP falle por eso)
+    ws.getCell("G"+r).value={formula:`IFERROR(VLOOKUP(INT(A${r}),'TC Historico'!A:C,3,FALSE),0)`,result:0};
     if(r>2)ws.getCell("I"+r).value="Solo equipo";
   }
 
@@ -309,6 +312,7 @@ export default function App(){
   const [tcOficial,setTcOficial]=useState(null);
   const [tcBlue,setTcBlue]=useState(null);
   const [tcManual,setTcManual]=useState(1300);
+  const [tcModo,setTcModo]=useState("blue"); // "oficial" | "blue" | "manual" — de qué cotización sale tcRef por defecto
   const [tcLoading,setTcLoading]=useState(false);
   const [inflData,setInflData]=useState(null);
   const [tcHistData,setTcHistData]=useState(null);
@@ -371,7 +375,7 @@ export default function App(){
   if(needsPassword)return <><style>{gCSS}</style><SetPasswordScreen user={user} toast={toast} onDone={()=>{window.history.replaceState(null,"",window.location.pathname);setNeedsPassword(false);}}/><ToastContainer toasts={toast.toasts}/></>;
   if(!user)return <><style>{gCSS}</style><AuthScreen onLogin={setUser} toast={toast}/><ToastContainer toasts={toast.toasts}/></>;
   if(!obraActiva)return <><style>{gCSS}</style><ObrasScreen user={user} onSelect={o=>{setObraActiva(o);setTab("dashboard");}} onLogout={async()=>{await supabase.auth.signOut();setUser(null);}} toast={toast}/><ToastContainer toasts={toast.toasts}/></>;
-  return <><style>{gCSS}</style><ObraApp user={user} obra={obraActiva} tab={tab} setTab={setTab} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} tcLoading={tcLoading} fetchTCs={fetchTCs} inflData={inflData} fetchIPC={fetchIPC} tcHistData={tcHistData} fetchTCHist={fetchTCHist} cacData={cacData} fetchCAC={fetchCAC} refreshCAC={refreshCAC} toast={toast} onBack={()=>setObraActiva(null)} onLogout={async()=>{await supabase.auth.signOut();setUser(null);setObraActiva(null);}}/><ToastContainer toasts={toast.toasts}/></>;
+  return <><style>{gCSS}</style><ObraApp user={user} obra={obraActiva} tab={tab} setTab={setTab} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} tcModo={tcModo} setTcModo={setTcModo} tcLoading={tcLoading} fetchTCs={fetchTCs} inflData={inflData} fetchIPC={fetchIPC} tcHistData={tcHistData} fetchTCHist={fetchTCHist} cacData={cacData} fetchCAC={fetchCAC} refreshCAC={refreshCAC} toast={toast} onBack={()=>setObraActiva(null)} onLogout={async()=>{await supabase.auth.signOut();setUser(null);setObraActiva(null);}}/><ToastContainer toasts={toast.toasts}/></>;
 }
 
 // ── AUTH ──────────────────────────────────────────────────────────────────────
@@ -562,7 +566,7 @@ function ObrasScreen({user,onSelect,onLogout,toast}){
 
 // ── OBRA APP ──────────────────────────────────────────────────────────────────
 function ObraApp(props){
-  const{user,obra,tab,setTab,tcOficial,tcBlue,tcManual,setTcManual,tcLoading,fetchTCs,inflData,fetchIPC,tcHistData,fetchTCHist,cacData,fetchCAC,refreshCAC,toast,onBack,onLogout}=props;
+  const{user,obra,tab,setTab,tcOficial,tcBlue,tcManual,setTcManual,tcModo,setTcModo,tcLoading,fetchTCs,inflData,fetchIPC,tcHistData,fetchTCHist,cacData,fetchCAC,refreshCAC,toast,onBack,onLogout}=props;
   const [gastos,setGastos]=useState([]);
   const [partic,setPartic]=useState([]);
   const [presup,setPresup]=useState([]);
@@ -622,7 +626,7 @@ function ObraApp(props){
   const TABS_CLIENTE_DEFAULT=["dashboard","gastos","fotos","objetivos","reportes","resumen","ipc","usd","cac"];
   const tabsCliente=miP?.tabs_permitidas||TABS_CLIENTE_DEFAULT;
   const puedeVerEjecutado=miP?.ve_ejecutado!==false;
-  const tcRef=tcOficial||tcManual;
+  const tcRef=tcModo==="oficial"?(tcOficial||tcManual):tcModo==="blue"?(tcBlue||tcOficial||tcManual):tcManual;
   const gastosVis=esAdmin?gastos:miRol==="ayudante"?gastos.filter(g=>g.visibilidad!=="privado"):gastos.filter(g=>g.visibilidad==="publico").map(g=>({...g,monto:g.monto_cliente??g.monto}));
 
   const gastosNuevos=gastosVis.filter(g=>!notifVistas[g.id]).length;
@@ -669,17 +673,22 @@ function ObraApp(props){
       {/* TC BAR */}
       <div style={{display:"flex",alignItems:"center",gap:8,paddingBottom:8,flexWrap:"wrap",borderTop:`1px solid ${C.bg3}`}}>
         <span style={{fontSize:10,color:C.t3,textTransform:"uppercase",letterSpacing:".06em",fontWeight:600}}>TC</span>
-        <div style={{display:"flex",alignItems:"center",gap:5,background:C.bg3,borderRadius:7,padding:"3px 10px",border:`1px solid ${C.bd}`}}>
+        <button onClick={()=>setTcModo("oficial")} style={{display:"flex",alignItems:"center",gap:5,background:tcModo==="oficial"?C.green+"18":C.bg3,borderRadius:7,padding:"3px 10px",border:`1px solid ${tcModo==="oficial"?C.green:C.bd}`,cursor:"pointer"}}>
           <span style={{fontSize:10,color:C.t3}}>Oficial</span>
           <span style={{fontSize:12,fontWeight:700,color:C.green}}>{tcLoading?"···":tcOficial?`$${tcOficial.toLocaleString("es-AR")}`:"—"}</span>
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:5,background:C.limaBg,borderRadius:7,padding:"3px 10px",border:`1px solid ${C.lima}44`}}>
+          {tcModo==="oficial"&&<span style={{fontSize:9,color:C.green}}>✓</span>}
+        </button>
+        <button onClick={()=>setTcModo("blue")} style={{display:"flex",alignItems:"center",gap:5,background:tcModo==="blue"?C.limaBg:C.bg3,borderRadius:7,padding:"3px 10px",border:`1px solid ${tcModo==="blue"?C.lima:C.bd}`,cursor:"pointer"}}>
           <span style={{fontSize:10,color:C.t3}}>Blue</span>
           <span style={{fontSize:12,fontWeight:700,color:C.lima}}>{tcLoading?"···":tcBlue?`$${tcBlue.toLocaleString("es-AR")}`:"—"}</span>
-        </div>
+          {tcModo==="blue"&&<span style={{fontSize:9,color:C.lima}}>✓</span>}
+        </button>
         <button onClick={fetchTCs} style={{background:C.bg3,border:`1px solid ${C.bd2}`,borderRadius:6,padding:"3px 8px",cursor:"pointer",color:C.t2,fontSize:11}}>↻</button>
-        <span className="hide-mobile" style={{fontSize:10,color:C.t3}}>Manual:</span>
-        <input type="number" value={tcManual} onChange={e=>setTcManual(+e.target.value)} style={{...INP,width:82,padding:"3px 7px",fontSize:11}}/>
+        <button onClick={()=>setTcModo("manual")} style={{display:"flex",alignItems:"center",gap:5,background:tcModo==="manual"?C.blue+"18":"transparent",borderRadius:7,padding:"3px 6px",border:tcModo==="manual"?`1px solid ${C.blue}`:"1px solid transparent",cursor:"pointer"}}>
+          <span className="hide-mobile" style={{fontSize:10,color:C.t3}}>Manual:</span>
+          <input type="number" value={tcManual} onClick={e=>e.stopPropagation()} onChange={e=>{setTcManual(+e.target.value);setTcModo("manual");}} style={{...INP,width:82,padding:"3px 7px",fontSize:11}}/>
+          {tcModo==="manual"&&<span style={{fontSize:9,color:C.blue}}>✓</span>}
+        </button>
       </div>
       {/* TABS desktop */}
       <div className="hide-mobile" style={{display:"flex",overflowX:"auto",marginBottom:-1}}>
@@ -798,17 +807,16 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=
             </div>
           </div>
           {/* Subcategorías */}
-          {c.subs.length>0&&<div style={{marginLeft:40,display:"flex",flexDirection:"column",gap:4}}>
+          {c.subs.length>0&&<div style={{marginLeft:15,marginTop:8,paddingLeft:15,borderLeft:`2px solid ${C.bd}`,display:"flex",flexDirection:"column",gap:9}}>
             {c.subs.map(s=>{
               const pSub=c.total>0?Math.round((s.total/c.total)*100):0;
-              return <div key={s.id} style={{display:"flex",alignItems:"center",gap:8}}>
-                <span style={{fontSize:10,color:C.t3,width:14,textAlign:"right",flexShrink:0}}>└</span>
-                <div style={{flex:1,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
-                  <span style={{fontSize:11,color:C.t2,minWidth:80}}>{s.label}</span>
-                  <div style={{flex:1,height:4,borderRadius:2,background:C.bg3,maxWidth:180}}>
-                    <div style={{height:"100%",borderRadius:2,background:(c.color||C.green)+"99",width:`${pSub}%`}}/>
-                  </div>
-                  <span style={{fontSize:11,color:C.t2,whiteSpace:"nowrap",minWidth:80,textAlign:"right"}}>{fmt(s.total)} <span style={{color:C.t3}}>· {pSub}%</span></span>
+              return <div key={s.id}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:3}}>
+                  <span style={{fontSize:12,color:C.t2,fontWeight:500}}>{s.label}</span>
+                  <span style={{fontSize:11,color:C.t3,whiteSpace:"nowrap"}}><b style={{color:C.t2,fontWeight:700}}>{fmt(s.total)}</b> · {pSub}%</span>
+                </div>
+                <div style={{height:5,borderRadius:3,background:C.bg3}}>
+                  <div style={{height:"100%",borderRadius:3,background:(c.color||C.green)+"aa",width:`${pSub}%`,transition:"width .5s"}}/>
                 </div>
               </div>;
             })}
@@ -891,7 +899,7 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
   const [editM,setEditM]=useState(null);
   const [saving,setSaving]=useState(false);
   const [gastoComent,setGastoComent]=useState(null);
-  const tcRef=tcOficial||tcManual;
+  const tcRef=tcBlue||tcOficial||tcManual;
   const tcVal=tcTipo==="oficial"?(tcOficial||tcManual):tcTipo==="blue"?(tcBlue||tcManual):tcManual;
   const enUSD=monedaVista==="USD";
   const conv=g=>enUSD?toUSD(g,tcRef):toARS(g,tcRef);
@@ -1027,7 +1035,7 @@ function GastosTab({user,obra,gastos,esAdmin,miRol,puedoCargar,tcOficial,tcBlue,
 function GastoRapidoModal({user,obra,cats,tcOficial,tcBlue,tcManual,setTcManual,tcHistData,fetchTCHist,esAdmin,toast,reload,onClose}){
   const [modo,setModo]=useState("uno"); // "uno" | "excel"
   const [tcTipo,setTcTipo]=useState("blue");
-  const tcRef=tcOficial||tcManual;
+  const tcRef=tcBlue||tcOficial||tcManual;
   const tcVal=tcTipo==="oficial"?(tcOficial||tcManual):tcTipo==="blue"?(tcBlue||tcManual):tcManual;
   const initD=()=>({fecha:todayISO(),cat_id:cats[0]?.id||"",sub_id:cats[0]?.subs?.[0]?.id||"",monto:"",monto_cliente:"",moneda:"ARS",descripcion:"",visibilidad:esAdmin?"solo_admin":"publico",cuotas:1});
   const [draft,setDraft]=useState(initD);
@@ -2901,49 +2909,84 @@ function CACTab({cacData,fetchCAC,esAdmin,toast,refreshCAC}){
 
 // ── IPC TAB ───────────────────────────────────────────────────────────────────
 function IPCTab({inflData}){
-  const u24=inflData?inflData.filter(x=>x.fecha>=(new Date().getFullYear()-1)+"-01").reduce((s,x)=>s+x.valor,0).toFixed(1):null;
-  const last=inflData?.[inflData.length-1];
   const hoy=new Date();
-  const serie12=[];
-  for(let i=11;i>=0;i--){const d=new Date(hoy.getFullYear(),hoy.getMonth()-i,1);const ym=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");const f=inflData?.find(x=>x.fecha.slice(0,7)===ym);if(f)serie12.push(f);}
+  const serie24=[];
+  for(let i=23;i>=0;i--){
+    const d=new Date(hoy.getFullYear(),hoy.getMonth()-i,1);
+    const ym=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+    const f=inflData?.find(x=>x.fecha.slice(0,7)===ym);
+    if(f)serie24.push(f);
+  }
+  const last=serie24[serie24.length-1];
+  const acum12=serie24.slice(-12).reduce((s,x)=>s*(1+x.valor/100),1);
+  const acum12p=+(((acum12-1)*100).toFixed(1));
+  const acumAnio=inflData?.filter(x=>x.fecha.slice(0,4)===String(hoy.getFullYear())).reduce((s,x)=>s*(1+x.valor/100),1);
+  const acumAnioP=acumAnio?+(((acumAnio-1)*100).toFixed(1)):null;
+  const porAnio={};
+  inflData?.forEach(x=>{const y=x.fecha.slice(0,4);if(!porAnio[y])porAnio[y]=[];porAnio[y].push(x.valor);});
+  const acumAnios=Object.entries(porAnio).map(([y,v])=>({anio:y,pct:+(((v.reduce((f,x)=>f*(1+x/100),1)-1)*100).toFixed(1))})).sort((a,b)=>a.anio>b.anio?1:-1);
 
   const W=500,PL=36,PR=12,PT=20,PB=28,cH=100,H=PT+cH+PB;
-  const maxV=Math.max(...serie12.map(x=>x.valor),1);
-  const bW=Math.max(6,Math.floor((W-PL-PR)/serie12.length)-3);
+  const maxV=Math.max(...serie24.map(x=>x.valor),1);
 
   return <div className="fu">
     <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:4}}>📉 Inflación IPC (INDEC)</div>
-    <div style={{fontSize:12,color:C.t3,marginBottom:16}}>argentinadatos.com</div>
+    <div style={{fontSize:12,color:C.t3,marginBottom:16}}>argentinadatos.com · Variación % mensual</div>
     {!inflData&&<Card><div style={{textAlign:"center",padding:"32px 0",color:C.t3}}>Cargando datos IPC...</div></Card>}
     {inflData&&<>
       <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
         <StatCard label="Último mes" value={last?`${last.valor}%`:"—"} color={C.amber} icon="📅" sub={last?.fecha?.slice(0,7)}/>
-        <StatCard label="Acum. últimos 12m" value={u24?`${u24}%`:"—"} color={C.red} icon="📈"/>
+        <StatCard label="Acum. 12 meses" value={`${acum12p}%`} color={C.red} icon="📈"/>
+        {acumAnioP!==null&&<StatCard label={`Acum. ${hoy.getFullYear()}`} value={`${acumAnioP}%`} color={C.blue} icon="📆"/>}
       </div>
+
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
+        {acumAnios.slice(-6).map(a=><div key={a.anio} style={{flex:"1 1 80px",background:C.bg2,border:`1px solid ${C.amber}33`,borderRadius:10,padding:"10px 12px",textAlign:"center"}}>
+          <div style={{fontSize:11,color:C.t3,marginBottom:4,fontWeight:600}}>{a.anio}</div>
+          <div style={{fontSize:18,fontWeight:700,color:a.pct>80?C.red:a.pct>30?C.amber:C.green}}>{a.pct}%</div>
+          <div style={{fontSize:10,color:C.t3}}>acumulado</div>
+        </div>)}
+      </div>
+
       <Card style={{marginBottom:14}}>
-        <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:10,fontWeight:600}}>Inflación mensual (últimos 12 meses)</div>
+        <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:10,fontWeight:600}}>Inflación mensual — últimos 24 meses</div>
         <svg width="100%" viewBox={`0 0 ${W} ${H}`}>
           {[2,4,6,8,10].map(v=>{const y=PT+(1-v/maxV)*cH;return <line key={v} x1={PL} y1={y} x2={W-PR} y2={y} stroke={C.bd} strokeWidth=".5"/>;})}
-          {serie12.map((d,i)=>{
-            const x=PL+(i*(W-PL-PR)/serie12.length)+(W-PL-PR)/serie12.length/2-bW/2;
+          {serie24.map((d,i)=>{
+            const bW=Math.max(6,(W-PL-PR)/serie24.length-3);
+            const x=PL+(i/serie24.length)*(W-PL-PR)+(W-PL-PR)/serie24.length/2-bW/2;
             const bH=Math.max(2,(d.valor/maxV)*cH);
+            const show=i===0||i===serie24.length-1||i%4===0;
             return <g key={i}>
-              <rect x={x} y={PT+cH-bH} width={bW} height={bH} rx={2} fill={d.valor>6?C.red:d.valor>4?C.amber:C.green} opacity={.85}/>
-              {serie12.length<=14&&<text x={x+bW/2} y={H-4} textAnchor="middle" fill={C.t3} fontSize="7" fontFamily="sans-serif">{d.fecha.slice(5,7)}/{d.fecha.slice(2,4)}</text>}
+              <rect x={x} y={PT+cH-bH} width={bW} height={bH} rx="2" fill={d.valor>6?C.red:d.valor>4?C.amber:C.green} opacity=".85"/>
+              {show&&<text x={x+bW/2} y={H-4} textAnchor="middle" fill={C.t3} fontSize="7" fontFamily="sans-serif">{d.fecha.slice(2,7)}</text>}
             </g>;
           })}
         </svg>
       </Card>
+
       <Card style={{padding:0,overflow:"hidden"}}>
-        {[...inflData].reverse().slice(0,24).map(x=><div key={x.fecha} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 16px",borderBottom:`1px solid ${C.bd}`}}>
-          <span style={{fontSize:12,color:C.t2}}>{x.fecha?.slice(0,7)}</span>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <div style={{width:80,height:4,borderRadius:2,background:C.bg3}}>
-              <div style={{height:"100%",borderRadius:2,background:x.valor>6?C.red:x.valor>4?C.amber:C.green,width:`${Math.min((x.valor/15)*100,100)}%`}}/>
-            </div>
-            <span style={{fontSize:13,fontWeight:700,color:x.valor>6?C.red:x.valor>4?C.amber:C.green,minWidth:44,textAlign:"right"}}>{x.valor?.toFixed(1)}%</span>
-          </div>
-        </div>)}
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+          <thead><tr style={{borderBottom:`2px solid ${C.bd2}`}}>
+            {["Mes","IPC %","Barra","Acum. 12m"].map((h,i)=><th key={i} style={{padding:"8px 12px",textAlign:i>=1?"right":"left",color:C.t3,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {[...serie24].reverse().map((d,i,arr)=>{
+              const slice=arr.slice(i).reverse();
+              const a12=slice.slice(-12).reduce((s,x)=>s*(1+x.valor/100),1);
+              return <tr key={d.fecha} style={{borderBottom:`1px solid ${C.bd}`}}>
+                <td style={{padding:"8px 12px",color:C.t2,fontWeight:500}}>{d.fecha.slice(0,7)}</td>
+                <td style={{padding:"8px 12px",textAlign:"right",fontWeight:700,color:d.valor>6?C.red:d.valor>4?C.amber:C.green}}>{d.valor?.toFixed(1)}%</td>
+                <td style={{padding:"8px 12px",textAlign:"right"}}>
+                  <div style={{width:80,height:5,background:C.bg3,borderRadius:2,marginLeft:"auto"}}>
+                    <div style={{height:"100%",borderRadius:2,background:d.valor>6?C.red:d.valor>4?C.amber:C.green,width:`${Math.min((d.valor/15)*100,100)}%`}}/>
+                  </div>
+                </td>
+                <td style={{padding:"8px 12px",textAlign:"right",color:C.red,fontWeight:600}}>{+(((a12-1)*100).toFixed(1))}%</td>
+              </tr>;
+            })}
+          </tbody>
+        </table>
       </Card>
     </>}
   </div>;
@@ -2957,25 +3000,61 @@ function USDTab({tcHistData,inflData,tcOficial,tcBlue}){
   const hoy=new Date(),serie=[];
   for(let i=23;i>=0;i--){const d=new Date(hoy.getFullYear(),hoy.getMonth()-i,1);serie.push(d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"));}
   const sF=serie.filter(ym=>ofM[ym]||blM[ym]);
-  const br=sF.map(ym=>({ym,of:ofM[ym]?.avg||null,bl:blM[ym]?.avg||null,gap:ofM[ym]?.avg&&blM[ym]?.avg?Math.round(((blM[ym].avg-ofM[ym].avg)/ofM[ym].avg)*100):null,ipc:ipcM[ym]||null,label:ym.slice(5,7)+"/"+ym.slice(2,4)}));
+  const br=sF.map((ym,i)=>{
+    const of=ofM[ym]?.avg||null,bl=blM[ym]?.avg||null;
+    const prevYm=sF[i-1],ofPrev=prevYm?ofM[prevYm]?.avg:null,blPrev=prevYm?blM[prevYm]?.avg:null;
+    return{
+      ym,of,bl,
+      varOf:of&&ofPrev?+(((of-ofPrev)/ofPrev)*100).toFixed(1):null,
+      varBl:bl&&blPrev?+(((bl-blPrev)/blPrev)*100).toFixed(1):null,
+      gap:of&&bl?Math.round(((bl-of)/of)*100):null,
+      ipc:ipcM[ym]||null,
+      label:ym.slice(5,7)+"/"+ym.slice(2,4),
+    };
+  });
   const last=br[br.length-1];
+
+  // Acumulado anual (compuesto de las variaciones mes a mes) — mismo patrón que CAC
+  const porAnioOf={},porAnioBl={};
+  br.forEach(b=>{
+    const y=b.ym.slice(0,4);
+    if(b.varOf!=null){(porAnioOf[y]=porAnioOf[y]||[]).push(b.varOf);}
+    if(b.varBl!=null){(porAnioBl[y]=porAnioBl[y]||[]).push(b.varBl);}
+  });
+  const acumAnual=obj=>Object.entries(obj).map(([y,v])=>({anio:y,pct:+(((v.reduce((f,x)=>f*(1+x/100),1)-1)*100).toFixed(1))})).sort((a,b)=>a.anio>b.anio?1:-1);
+  const acumAniosBl=acumAnual(porAnioBl);
+  const acumAnioActualBl=acumAniosBl.find(a=>a.anio===String(hoy.getFullYear()))?.pct??null;
+  const acum12Bl=br.slice(-12).filter(b=>b.varBl!=null).reduce((s,b)=>s*(1+b.varBl/100),1);
+  const acum12BlP=+(((acum12Bl-1)*100).toFixed(1));
+
   const W=540,PL=50,PR=12,PT=20,PB=26,cH=96,H=PT+cH+PB;
   const brechaColor=last?.gap>100?C.red:last?.gap>50?C.amber:C.green;
   const maxBl=Math.max(...br.map(b=>b.bl||0),1);
 
   return <div className="fu">
     <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:4}}>💵 Dólar & Tipo de Cambio</div>
-    <div style={{fontSize:12,color:C.t3,marginBottom:16}}>dolarapi.com & argentinadatos.com</div>
+    <div style={{fontSize:12,color:C.t3,marginBottom:16}}>dolarapi.com & argentinadatos.com · Variación % mensual</div>
     {!tcHistData&&<Card><div style={{textAlign:"center",padding:"32px 0",color:C.t3}}>Cargando cotizaciones...</div></Card>}
     {tcHistData&&<>
       <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
         <StatCard label="Oficial hoy" value={tcOficial?("$"+tcOficial.toLocaleString("es-AR")):last?.of?("$"+last.of.toLocaleString("es-AR")):"—"} color={C.green} icon="🏛️"/>
         <StatCard label="Blue hoy" value={tcBlue?("$"+tcBlue.toLocaleString("es-AR")):last?.bl?("$"+last.bl.toLocaleString("es-AR")):"—"} color={C.lima} icon="💵"/>
+        <StatCard label="Blue var. último mes" value={last?.varBl!=null?`${last.varBl>0?"+":""}${last.varBl}%`:"—"} color={last?.varBl>10?C.red:last?.varBl>5?C.amber:C.lima} icon="📅"/>
+        <StatCard label="Blue acum. 12m" value={`${acum12BlP>0?"+":""}${acum12BlP}%`} color={C.lima} icon="📈"/>
+        {acumAnioActualBl!=null&&<StatCard label={`Blue acum. ${hoy.getFullYear()}`} value={`${acumAnioActualBl>0?"+":""}${acumAnioActualBl}%`} color={C.blue} icon="📆"/>}
         <StatCard label="Brecha" value={last?.gap!=null?(last.gap+"%"):"—"} color={brechaColor} icon="📊"/>
-        <StatCard label="IPC último mes" value={last?.ipc!=null?(last.ipc+"%"):"—"} color={C.amber} icon="📉"/>
       </div>
+
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
+        {acumAniosBl.slice(-6).map(a=><div key={a.anio} style={{flex:"1 1 80px",background:C.bg2,border:`1px solid ${C.lima}33`,borderRadius:10,padding:"10px 12px",textAlign:"center"}}>
+          <div style={{fontSize:11,color:C.t3,marginBottom:4,fontWeight:600}}>{a.anio}</div>
+          <div style={{fontSize:18,fontWeight:700,color:a.pct>100?C.red:a.pct>40?C.amber:C.lima}}>{a.pct>0?"+":""}{a.pct}%</div>
+          <div style={{fontSize:10,color:C.t3}}>Blue acumulado</div>
+        </div>)}
+      </div>
+
       <Card style={{marginBottom:14}}>
-        <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:10,fontWeight:600}}>Evolución dólar (24 meses)</div>
+        <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:10,fontWeight:600}}>Evolución dólar — últimos 24 meses</div>
         <svg width="100%" viewBox={`0 0 ${W} ${H}`}>
           {[25,50,75,100].map(p=>{const v=maxBl*(p/100);const y=PT+(1-p/100)*cH;return <g key={p}><line x1={PL} y1={y} x2={W-PR} y2={y} stroke={C.bd} strokeWidth=".5"/><text x={PL-4} y={y+4} textAnchor="end" fill={C.t3} fontSize="8" fontFamily="sans-serif">{Math.round(v/1000)}k</text></g>;})}
           {br.length>1&&<>
@@ -2989,13 +3068,15 @@ function USDTab({tcHistData,inflData,tcOficial,tcBlue}){
           <span><span style={{display:"inline-block",width:14,height:2,background:C.lima,borderRadius:2,marginRight:5,verticalAlign:"middle"}}/>Blue</span>
         </div>
       </Card>
-      <Card style={{padding:0,overflow:"hidden"}}>
+      <Card style={{padding:0,overflow:"hidden",overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-          <thead><tr style={{borderBottom:`2px solid ${C.bd2}`}}>{["Mes","Oficial","Blue","Brecha","IPC"].map((h,i)=><th key={i} style={{padding:"8px 12px",textAlign:i===0?"left":"right",color:C.t3,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>{h}</th>)}</tr></thead>
-          <tbody>{[...br].reverse().slice(0,18).map(b=><tr key={b.ym} style={{borderBottom:`1px solid ${C.bd}`}}>
-            <td style={{padding:"8px 12px",color:C.t2,fontWeight:500}}>{b.label}</td>
-            <td style={{padding:"8px 12px",textAlign:"right",color:C.green,fontWeight:600}}>{b.of?`$${b.of.toLocaleString("es-AR")}`:"—"}</td>
-            <td style={{padding:"8px 12px",textAlign:"right",color:C.lima,fontWeight:600}}>{b.bl?`$${b.bl.toLocaleString("es-AR")}`:"—"}</td>
+          <thead><tr style={{borderBottom:`2px solid ${C.bd2}`}}>{["Mes","Oficial","Var. Ofic.","Blue","Var. Blue","Brecha","IPC"].map((h,i)=><th key={i} style={{padding:"8px 12px",textAlign:i===0?"left":"right",color:C.t3,fontWeight:600,fontSize:10,textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
+          <tbody>{[...br].reverse().map(b=><tr key={b.ym} style={{borderBottom:`1px solid ${C.bd}`}}>
+            <td style={{padding:"8px 12px",color:C.t2,fontWeight:500,whiteSpace:"nowrap"}}>{b.ym}</td>
+            <td style={{padding:"8px 12px",textAlign:"right",color:C.green,fontWeight:600,whiteSpace:"nowrap"}}>{b.of?`$${b.of.toLocaleString("es-AR")}`:"—"}</td>
+            <td style={{padding:"8px 12px",textAlign:"right",color:b.varOf>0?C.red:C.green,fontWeight:600}}>{b.varOf!=null?`${b.varOf>0?"+":""}${b.varOf}%`:"—"}</td>
+            <td style={{padding:"8px 12px",textAlign:"right",color:C.lima,fontWeight:600,whiteSpace:"nowrap"}}>{b.bl?`$${b.bl.toLocaleString("es-AR")}`:"—"}</td>
+            <td style={{padding:"8px 12px",textAlign:"right",color:b.varBl>0?C.red:C.green,fontWeight:600}}>{b.varBl!=null?`${b.varBl>0?"+":""}${b.varBl}%`:"—"}</td>
             <td style={{padding:"8px 12px",textAlign:"right",fontWeight:700,color:b.gap>100?C.red:b.gap>50?C.amber:C.green}}>{b.gap!=null?`${b.gap}%`:"—"}</td>
             <td style={{padding:"8px 12px",textAlign:"right",color:C.amber,fontWeight:600}}>{b.ipc!=null?`${b.ipc}%`:"—"}</td>
           </tr>)}
