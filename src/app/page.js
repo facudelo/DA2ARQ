@@ -43,7 +43,17 @@ const calcGanancia=({presup,pagosCliente,gastos,retirosGanancia,tcRef,cacData})=
   const totalRetirosARS=retirosGanancia.reduce((s,r)=>s+toARS(r,tcRef),0);
   const gananciaDisponibleHoy=totalPagadoNominalARS-totalGastosARS-totalRetirosARS;
   const gananciaTeoricaTotal=totalPactadoAjustadoARS!=null?totalPactadoAjustadoARS-totalGastosARS:null;
-  return{hayCAC,totalPactadoAjustadoARS,totalPagadoNominalARS,totalGastosARS,totalRetirosARS,gananciaDisponibleHoy,gananciaTeoricaTotal};
+  // Ganancia ESTIMADA: pactado con el cliente vs. presupuesto REAL de costos (lo presupuestado en la
+  // solapa Presupuesto, no lo gastado hasta ahora) — el margen que el arquitecto proyectó al armar el
+  // presupuesto. Distinta de gananciaTeoricaTotal (que usa gastos ya ejecutados): esta se recalcula sola
+  // cada vez que se carga/edita un renglón de presupuesto, y puede no ser exacta hasta el final de la
+  // obra si el presupuesto real se ajusta respecto del indicado al inicio.
+  const presupuestoRealARS=presup.reduce((s,p)=>s+(p.moneda==="USD"?p.monto*tcRef:p.monto),0);
+  const presupuestoPactadoARS=cargos.reduce((s,c)=>s+c.montoARS,0);
+  const gananciaEstimadaARS=presupuestoPactadoARS-presupuestoRealARS;
+  const pctRetiradoVsEstimada=gananciaEstimadaARS>0?Math.min(Math.round((totalRetirosARS/gananciaEstimadaARS)*100),999):null;
+  const restanteEstimadoARS=gananciaEstimadaARS-totalRetirosARS;
+  return{hayCAC,totalPactadoAjustadoARS,totalPagadoNominalARS,totalGastosARS,totalRetirosARS,gananciaDisponibleHoy,gananciaTeoricaTotal,presupuestoRealARS,presupuestoPactadoARS,gananciaEstimadaARS,pctRetiradoVsEstimada,restanteEstimadoARS};
 };
 const addMonths=(fechaISO,n)=>{const[y,m,d]=fechaISO.split("-").map(Number);const total=(m-1)+n;const ny=y+Math.floor(total/12);const nm=((total%12)+12)%12;const lastDay=new Date(ny,nm+1,0).getDate();const nd=Math.min(d,lastDay);return`${ny}-${String(nm+1).padStart(2,"0")}-${String(nd).padStart(2,"0")}`;};
 // Reparte `total` en `n` cuotas cuya suma da EXACTO total (evita errores de redondeo): la diferencia en centavos se distribuye entre las primeras cuotas.
@@ -814,6 +824,8 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=
       <StatCard label={`Cobrado del cliente (${monedaVista})`} value={fmt(toMV(gan.totalPagadoNominalARS))} color={C.blue} icon="🌐"/>
       <StatCard label={`Ya retirado — ganancia (${monedaVista})`} value={fmt(toMV(gan.totalRetirosARS))} color={C.t2} icon="🏦"/>
       <StatCard label={`Disponible para retirar (${monedaVista})`} value={fmt(toMV(gan.gananciaDisponibleHoy))} color={gan.gananciaDisponibleHoy<0?C.red:C.green} icon="💰"/>
+      <StatCard label={`Ganancia estimada (${monedaVista})`} value={fmt(toMV(gan.gananciaEstimadaARS))} color={gan.gananciaEstimadaARS<0?C.red:C.lima} icon="🎯"/>
+      <StatCard label="Retirado vs. estimada" value={gan.pctRetiradoVsEstimada!==null?`${gan.pctRetiradoVsEstimada}%`:"—"} color={gan.pctRetiradoVsEstimada>100?C.red:gan.pctRetiradoVsEstimada>85?C.amber:C.green} icon="📈"/>
     </div>}
 
     {/* FILA 2: Gastos por categoría / subcategoría */}
@@ -1556,7 +1568,7 @@ function GananciaTab({obra,gastos,presup,pagosCliente,retirosGanancia,cats,cacDa
   const [draft,setDraft]=useState({fecha:todayISO(),monto:"",moneda:"ARS",descripcion:""});
   const [saving,setSaving]=useState(false);
 
-  const{hayCAC,totalPagadoNominalARS,totalGastosARS,totalRetirosARS,gananciaDisponibleHoy,gananciaTeoricaTotal}=calcGanancia({presup,pagosCliente,gastos,retirosGanancia,tcRef,cacData});
+  const{hayCAC,totalPagadoNominalARS,totalGastosARS,totalRetirosARS,gananciaDisponibleHoy,gananciaTeoricaTotal,presupuestoRealARS,presupuestoPactadoARS,gananciaEstimadaARS,pctRetiradoVsEstimada,restanteEstimadoARS}=calcGanancia({presup,pagosCliente,gastos,retirosGanancia,tcRef,cacData});
 
   const montoNum=parseFloat(draft.monto)||0;
   const save=async()=>{
@@ -1595,6 +1607,24 @@ function GananciaTab({obra,gastos,presup,pagosCliente,retirosGanancia,cats,cacDa
       {gananciaTeoricaTotal!=null&&<>Ganancia total estimada del proyecto si se cobrara hoy todo lo pactado (ajustado): <b style={{color:C.t2}}>{fmt(toMV(gananciaTeoricaTotal))}</b></>}
       {gananciaDisponibleHoy<0&&<span style={{color:C.red,fontWeight:600}}> · Retiraste más de lo que el cliente pagó hasta ahora</span>}
     </div>
+
+    <Card style={{marginBottom:16,border:`1px solid ${C.lima}44`}}>
+      <div style={{fontSize:13,fontWeight:700,color:C.t,marginBottom:2}}>🎯 Ganancia estimada del proyecto</div>
+      <div style={{fontSize:11,color:C.t3,marginBottom:14}}>Pactado con el cliente ({fmt(toMV(presupuestoPactadoARS))}) − presupuesto real de costos ({fmt(toMV(presupuestoRealARS))}). Se recalcula sola si ajustás el presupuesto — puede no ser exacta hasta el final de la obra.</div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:6,flexWrap:"wrap",gap:8}}>
+        <span style={{fontSize:20,fontWeight:700,color:gananciaEstimadaARS<0?C.red:C.t}}>{fmt(toMV(gananciaEstimadaARS))}</span>
+        <span style={{fontSize:11,color:C.t3}}>Retirado <b style={{color:C.t2}}>{fmt(toMV(totalRetirosARS))}</b> {pctRetiradoVsEstimada!==null&&<>({pctRetiradoVsEstimada}%)</>}</span>
+      </div>
+      {gananciaEstimadaARS>0?<>
+        <div style={{height:8,borderRadius:4,background:C.bg3}}>
+          <div style={{height:"100%",borderRadius:4,background:pctRetiradoVsEstimada>100?C.red:pctRetiradoVsEstimada>85?C.amber:C.lima,width:`${Math.min(pctRetiradoVsEstimada,100)}%`,transition:"width .5s"}}/>
+        </div>
+        <div style={{fontSize:11,color:C.t3,marginTop:6}}>
+          {restanteEstimadoARS>=0?<>Te queda por retirar, según la estimación: <b style={{color:C.green}}>{fmt(toMV(restanteEstimadoARS))}</b></>
+            :<span style={{color:C.red,fontWeight:600}}>Retiraste {fmt(toMV(-restanteEstimadoARS))} por encima de la ganancia estimada</span>}
+        </div>
+      </>:<div style={{fontSize:11,color:C.t3,fontStyle:"italic"}}>{gananciaEstimadaARS<0?"El presupuesto real de costos supera lo pactado con el cliente — revisá los montos.":"Cargá presupuesto (costo y monto al cliente) para ver la estimación."}</div>}
+    </Card>
 
     <Card style={{marginBottom:16}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
@@ -1727,7 +1757,7 @@ function GananciaResumenCard({presup,pagosCliente,gastos,retirosGanancia,tcRef,c
   const enUSD=monedaVista==="USD";
   const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
   const toMV=ars=>enUSD?(tcRef>0?ars/tcRef:0):ars;
-  const{totalPagadoNominalARS,totalGastosARS,totalRetirosARS,gananciaDisponibleHoy}=calcGanancia({presup,pagosCliente,gastos,retirosGanancia,tcRef,cacData});
+  const{totalPagadoNominalARS,totalGastosARS,totalRetirosARS,gananciaDisponibleHoy,gananciaEstimadaARS,pctRetiradoVsEstimada}=calcGanancia({presup,pagosCliente,gastos,retirosGanancia,tcRef,cacData});
   return <Card style={{marginTop:14,border:`1px solid ${C.green}33`}}>
     <div style={{fontSize:14,fontWeight:700,color:C.t,marginBottom:2}}>💰 Ganancia</div>
     <div style={{fontSize:11,color:C.t3,marginBottom:14}}>Cobrado, gastado y retirado, en pesos reales ya movidos (sin ajustar) — vista completa en la solapa "Ganancia"</div>
@@ -1737,6 +1767,15 @@ function GananciaResumenCard({presup,pagosCliente,gastos,retirosGanancia,tcRef,c
       <StatCard label={`Ya retirado (${monedaVista})`} value={fmt(toMV(totalRetirosARS))} color={C.t2} icon="🏦"/>
       <StatCard label={`Disponible para retirar (${monedaVista})`} value={fmt(toMV(gananciaDisponibleHoy))} color={gananciaDisponibleHoy<0?C.red:C.green} icon="💰"/>
     </div>
+    {gananciaEstimadaARS>0&&<div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${C.bd}`}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:5,flexWrap:"wrap",gap:6}}>
+        <span style={{fontSize:11,color:C.t3}}>🎯 Ganancia estimada: <b style={{color:C.t}}>{fmt(toMV(gananciaEstimadaARS))}</b></span>
+        <span style={{fontSize:11,color:C.t3}}>Retirado: <b style={{color:C.t2}}>{pctRetiradoVsEstimada}%</b></span>
+      </div>
+      <div style={{height:6,borderRadius:3,background:C.bg3}}>
+        <div style={{height:"100%",borderRadius:3,background:pctRetiradoVsEstimada>100?C.red:pctRetiradoVsEstimada>85?C.amber:C.lima,width:`${Math.min(pctRetiradoVsEstimada,100)}%`,transition:"width .5s"}}/>
+      </div>
+    </div>}
   </Card>;
 }
 
