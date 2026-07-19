@@ -53,7 +53,8 @@ const calcGanancia=({presup,pagosCliente,gastos,retirosGanancia,tcRef,cacData})=
   const gananciaEstimadaARS=presupuestoPactadoARS-presupuestoRealARS;
   const pctRetiradoVsEstimada=gananciaEstimadaARS>0?Math.min(Math.round((totalRetirosARS/gananciaEstimadaARS)*100),999):null;
   const restanteEstimadoARS=gananciaEstimadaARS-totalRetirosARS;
-  return{hayCAC,totalPactadoAjustadoARS,totalPagadoNominalARS,totalGastosARS,totalRetirosARS,gananciaDisponibleHoy,gananciaTeoricaTotal,presupuestoRealARS,presupuestoPactadoARS,gananciaEstimadaARS,pctRetiradoVsEstimada,restanteEstimadoARS};
+  const pctPresupuestoUtilizado=presupuestoRealARS>0?Math.round((totalGastosARS/presupuestoRealARS)*100):null;
+  return{hayCAC,totalPactadoAjustadoARS,totalPagadoNominalARS,totalGastosARS,totalRetirosARS,gananciaDisponibleHoy,gananciaTeoricaTotal,presupuestoRealARS,presupuestoPactadoARS,gananciaEstimadaARS,pctRetiradoVsEstimada,restanteEstimadoARS,pctPresupuestoUtilizado};
 };
 const addMonths=(fechaISO,n)=>{const[y,m,d]=fechaISO.split("-").map(Number);const total=(m-1)+n;const ny=y+Math.floor(total/12);const nm=((total%12)+12)%12;const lastDay=new Date(ny,nm+1,0).getDate();const nd=Math.min(d,lastDay);return`${ny}-${String(nm+1).padStart(2,"0")}-${String(nd).padStart(2,"0")}`;};
 // Reparte `total` en `n` cuotas cuya suma da EXACTO total (evita errores de redondeo): la diferencia en centavos se distribuye entre las primeras cuotas.
@@ -515,23 +516,9 @@ function ObrasScreen({user,onSelect,onLogout,toast}){
   const [modal,setModal]=useState(false);
   const [showPw,setShowPw]=useState(false);
   const [saving,setSaving]=useState(false);
-  const [miLogo,setMiLogo]=useState(null);
-  const [uploadingLogo,setUploadingLogo]=useState(false);
   const [draft,setDraft]=useState({nombre:"",direccion:"",estado:"En ejecución",presupuesto_total:"",moneda_presupuesto:"ARS",presup_tipo:"total"});
   const loadObras=useCallback(async()=>{setLoading(true);const{data,error}=await supabase.from("obras").select("*, participantes!inner(rol,puede_cargar,user_id), creador:profiles!obras_created_by_fkey(logo_url)").eq("participantes.user_id",user.id).order("created_at",{ascending:false});if(!error)setObras(data||[]);setLoading(false);},[user.id]);
   useEffect(()=>{loadObras();},[loadObras]);
-  useEffect(()=>{supabase.from("profiles").select("logo_url").eq("id",user.id).single().then(({data})=>setMiLogo(data?.logo_url||null));},[user.id]);
-  const uploadMiLogo=async file=>{
-    setUploadingLogo(true);
-    const ext=file.name.split(".").pop();
-    const path=`logos/perfil/${user.id}_${Date.now()}.${ext}`;
-    const{error:upErr}=await supabase.storage.from("obra-fotos").upload(path,file);
-    if(upErr){toast.error("Error al subir: "+upErr.message);setUploadingLogo(false);return;}
-    const{data:{publicUrl}}=supabase.storage.from("obra-fotos").getPublicUrl(path);
-    const{error}=await supabase.from("profiles").update({logo_url:publicUrl}).eq("id",user.id);
-    if(error){toast.error("Error: "+error.message);setUploadingLogo(false);return;}
-    setMiLogo(publicUrl);toast.success("Logo actualizado");setUploadingLogo(false);
-  };
   const save=async()=>{
     if(!draft.nombre.trim())return;setSaving(true);
     const{data:obra,error:obraErr}=await supabase.from("obras").insert({nombre:draft.nombre.trim(),direccion:draft.direccion,estado:draft.estado,presupuesto_total:parseFloat(draft.presupuesto_total)||0,moneda_presupuesto:draft.moneda_presupuesto,created_by:user.id}).select().single();
@@ -542,15 +529,19 @@ function ObrasScreen({user,onSelect,onLogout,toast}){
     toast.success("Obra creada");setDraft({nombre:"",direccion:"",estado:"En ejecución",presupuesto_total:"",moneda_presupuesto:"ARS"});setModal(false);loadObras();setSaving(false);
   };
   const miRol=obra=>obra.participantes?.find(p=>p.user_id===user.id)?.rol||"cliente";
+  // Solo mostramos "+ Nueva obra" si el usuario es arquitecto/ayudante en alguna obra, o si todavía
+  // no tiene ninguna (caso de un arquitecto recién registrado creando su primera obra). Si ya tiene
+  // obras y en TODAS es cliente, nunca vio la opción de crear una — no tiene sentido para ese uso.
+  const puedeCrearObras=obras.length===0||obras.some(o=>miRol(o)!=="cliente");
   return <div style={{minHeight:"100vh",background:C.bg}}>
     <div style={{background:C.bg2,borderBottom:`1px solid ${C.bd}`,padding:"0 20px",display:"flex",alignItems:"center",justifyContent:"space-between",height:54}}>
-      <div style={{display:"flex",alignItems:"center",gap:10}}><EditableLogo size={40} src={miLogo} editable onUpload={uploadMiLogo} uploading={uploadingLogo}/><div><div style={{fontWeight:800,fontSize:15,color:C.t}}>DA2ARQ</div><div style={{fontSize:10,color:C.t3}}>Gestión de obra</div></div></div>
+      <div style={{display:"flex",alignItems:"center",gap:10}}><Logo size={40}/><div><div style={{fontWeight:800,fontSize:15,color:C.t}}>DA2ARQ</div><div style={{fontSize:10,color:C.t3}}>Gestión de obra</div></div></div>
       <div style={{display:"flex",alignItems:"center",gap:10}}><span className="hide-mobile" style={{fontSize:12,color:C.t2}}>{user.email}</span><Btn small onClick={()=>setShowPw(true)}>🔒 Contraseña</Btn><Btn small onClick={onLogout}>Salir</Btn></div>
     </div>
     <div style={{padding:24,maxWidth:960,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:22}}>
         <div><div style={{fontSize:20,fontWeight:700,color:C.t}}>Mis Obras</div><div style={{fontSize:12,color:C.t3,marginTop:2}}>{obras.length} obra{obras.length!==1?"s":""}</div></div>
-        <Btn primary onClick={()=>setModal(true)}>+ Nueva obra</Btn>
+        {puedeCrearObras&&<Btn primary onClick={()=>setModal(true)}>+ Nueva obra</Btn>}
       </div>
       {loading&&<Spinner/>}
       {!loading&&obras.length===0&&<Card><div style={{textAlign:"center",padding:"40px 0",color:C.t3}}>No tenés obras asignadas todavía.</div></Card>}
@@ -811,22 +802,29 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=
   }).filter(c=>c.total>0).sort((a,b)=>b.total-a.total);
 
   return <div className="fu">
-    {/* FILA 1: KPIs */}
-    <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:esAdmin?10:20}}>
+    {/* FILA 1: KPIs generales — igual para todos los roles */}
+    {!esAdmin&&<div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:20}}>
       <StatCard label={`Total gastado (${monedaVista})`} value={fmt(totalMV)} color={C.green} icon="💸"/>
       {presupMV>0&&<StatCard label={`Presupuesto (${monedaVista})`} value={fmt(presupMV)} color={C.blue} icon="📐"/>}
       {presupMV>0&&<StatCard label="Avance presupuesto" value={pct!==null?`${pct}%`:"—"} color={pct>100?C.red:pct>80?C.amber:C.green} icon="📊"/>}
       <StatCard label="Participantes" value={partic.length} color={C.lima} icon="👥"/>
-    </div>
-
-    {/* FILA 1B: Ganancia — solo arquitecto/ayudante, el cliente nunca ve esto */}
-    {esAdmin&&<div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:20}}>
-      <StatCard label={`Cobrado del cliente (${monedaVista})`} value={fmt(toMV(gan.totalPagadoNominalARS))} color={C.blue} icon="🌐"/>
-      <StatCard label={`Ya retirado — ganancia (${monedaVista})`} value={fmt(toMV(gan.totalRetirosARS))} color={C.t2} icon="🏦"/>
-      <StatCard label={`Disponible (${monedaVista})`} value={fmt(toMV(gan.gananciaDisponibleHoy))} color={gan.gananciaDisponibleHoy<0?C.red:C.green} icon="💰"/>
-      <StatCard label={`Ganancia estimada (${monedaVista})`} value={fmt(toMV(gan.gananciaEstimadaARS))} color={gan.gananciaEstimadaARS<0?C.red:C.lima} icon="🎯"/>
-      <StatCard label="Retirado vs. estimada" value={gan.pctRetiradoVsEstimada!==null?`${gan.pctRetiradoVsEstimada}%`:"—"} color={gan.pctRetiradoVsEstimada>100?C.red:gan.pctRetiradoVsEstimada>85?C.amber:C.green} icon="📈"/>
     </div>}
+
+    {/* FILA 1B: Presupuesto + Ganancia — solo arquitecto/ayudante, el cliente nunca ve esto */}
+    {esAdmin&&<>
+    <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:10}}>
+      <StatCard label={`Presupuesto real (${monedaVista})`} value={fmt(toMV(gan.presupuestoRealARS))} color={C.blue} icon="📐"/>
+      <StatCard label={`Total gastado (${monedaVista})`} value={fmt(toMV(gan.totalGastosARS))} color={C.amber} icon="🧾"/>
+      <StatCard label={`Total retirado (${monedaVista})`} value={fmt(toMV(gan.totalRetirosARS))} color={C.t2} icon="🏦"/>
+      <StatCard label={`Disponible (${monedaVista})`} value={fmt(toMV(gan.gananciaDisponibleHoy))} color={gan.gananciaDisponibleHoy<0?C.red:C.green} icon="💰"/>
+    </div>
+    <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:20}}>
+      <StatCard label="% presupuesto utilizado" value={gan.pctPresupuestoUtilizado!==null?`${gan.pctPresupuestoUtilizado}%`:"—"} color={gan.pctPresupuestoUtilizado>100?C.red:gan.pctPresupuestoUtilizado>85?C.amber:C.green} icon="📊"/>
+      <StatCard label={`Ganancia estimada (${monedaVista})`} value={fmt(toMV(gan.gananciaEstimadaARS))} color={gan.gananciaEstimadaARS<0?C.red:C.lima} icon="🎯"/>
+      <StatCard label={`Estimada disponible por retirar (${monedaVista})`} value={fmt(toMV(gan.restanteEstimadoARS))} color={gan.restanteEstimadoARS<0?C.red:C.green} icon="💸"/>
+      <StatCard label="% retiro vs. ganancia estimada" value={gan.pctRetiradoVsEstimada!==null?`${gan.pctRetiradoVsEstimada}%`:"—"} color={gan.pctRetiradoVsEstimada>100?C.red:gan.pctRetiradoVsEstimada>85?C.amber:C.green} icon="📈"/>
+    </div>
+    </>}
 
     {/* FILA 2: Gastos por categoría / subcategoría */}
     <Card style={{marginBottom:16}}>
