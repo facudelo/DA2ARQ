@@ -2568,7 +2568,7 @@ function HitosTab({obra,hitos,esAdmin,user,partic,comentariosHitos,toast,reload}
                   {esAdmin?<select value={h.estado} onChange={e=>updateEstado(h.id,e.target.value)} style={{...SEL,width:"auto",padding:"5px 8px",fontSize:11,borderColor:ec.color+"66"}}>
                     {Object.entries(EC).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
                   </select>:<Tag label={ec.label} color={ec.color}/>}
-                  {(esAdmin||h.creado_por===user.id)&&<button onClick={()=>deleteH(h.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.t3,fontSize:18}}>×</button>}
+                  {esAdmin&&<button onClick={()=>deleteH(h.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.t3,fontSize:18}}>×</button>}
                 </div>
               </div>
               <div style={{borderTop:`1px solid ${C.bd}`,marginTop:10,paddingTop:8}}>
@@ -2620,7 +2620,7 @@ function HitoComentarios({hito,comentarios,user,nombreDe,rolDe,esAdmin,obra,toas
     <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:8}}>
       {comentarios.map(c=>{
         const rol=rolDe(c.user_id);
-        const puedeBorrar=esAdmin||c.user_id===user.id;
+        const puedeBorrar=esAdmin;
         return <div key={c.id} style={{display:"flex",gap:8}}>
           <div style={{width:26,height:26,borderRadius:"50%",background:ROL_COLOR[rol]+"22",color:ROL_COLOR[rol],display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,flexShrink:0}}>{(c.autor||"?").slice(0,2).toUpperCase()}</div>
           <div style={{background:C.bg3,borderRadius:8,padding:"7px 10px",fontSize:12,flex:1}}>
