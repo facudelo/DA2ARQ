@@ -595,6 +595,7 @@ function ObraApp(props){
   const [obraEtapas,setObraEtapas]=useState([]);
   const [pagosCliente,setPagosCliente]=useState([]);
   const [retirosGanancia,setRetirosGanancia]=useState([]);
+  const [comentariosHitos,setComentariosHitos]=useState([]);
   const [loadingData,setLoadingData]=useState(true);
   const [mobileMenu,setMobileMenu]=useState(false);
   const [showGastoModal,setShowGastoModal]=useState(false);
@@ -617,7 +618,7 @@ function ObraApp(props){
 
   const loadAll=useCallback(async()=>{
     setLoadingData(true);
-    const[gRes,prRes,cRes,fRes,partRes,hRes,cRes2,etRes,pgRes,rgRes]=await Promise.all([
+    const[gRes,prRes,cRes,fRes,partRes,hRes,cRes2,etRes,pgRes,rgRes,chRes]=await Promise.all([
       supabase.from("gastos").select("*").eq("obra_id",obra.id).order("fecha",{ascending:false}),
       supabase.from("presupuestos").select("*").eq("obra_id",obra.id).order("fecha",{ascending:true}),
       supabase.from("categorias").select("*, subcategorias(*)").eq("obra_id",obra.id).order("orden"),
@@ -628,6 +629,7 @@ function ObraApp(props){
       supabase.from("obra_etapas").select("*").eq("obra_id",obra.id).order("orden"),
       supabase.from("pagos_cliente").select("*").eq("obra_id",obra.id).order("fecha",{ascending:true}),
       supabase.from("retiros_ganancia").select("*").eq("obra_id",obra.id).order("fecha",{ascending:true}),
+      supabase.from("comentarios_hito").select("*").eq("obra_id",obra.id).order("created_at"),
     ]);
     setGastos(gRes.data||[]);setPresup(prRes.data||[]);
     setCats((cRes.data||[]).map(c=>({...c,subs:c.subcategorias||[]})));
@@ -636,6 +638,7 @@ function ObraApp(props){
     setObraEtapas(etRes.data||[]);
     setPagosCliente(pgRes.data||[]);
     setRetirosGanancia(rgRes.data||[]);
+    setComentariosHitos(chRes.data||[]);
     setLoadingData(false);
   },[obra.id]);
   useEffect(()=>{loadAll();},[loadAll]);
@@ -744,7 +747,7 @@ function ObraApp(props){
         {tab==="contratistas"&&esAdmin&&<ContratistasTab gastos={gastos} presup={presup} cats={cats} tcRef={tcRef} monedaVista={monedaVista}/>}
         {tab==="ganancia"&&esAdmin&&<GananciaTab obra={obra} gastos={gastos} presup={presup} pagosCliente={pagosCliente} retirosGanancia={retirosGanancia} cats={cats} cacData={cacData} fetchCAC={fetchCAC} tcRef={tcRef} monedaVista={monedaVista} toast={toast} reload={loadAll}/>}
         {tab==="fotos"&&<FotosTab obra={obra} fotos={fotos} puedoCargar={true} esAdmin={esAdmin} user={user} toast={toast} reload={loadAll} obraEtapas={obraEtapas}/>}
-        {tab==="objetivos"&&<HitosTab obra={obra} hitos={hitos} esAdmin={esAdmin} toast={toast} reload={loadAll}/>}
+        {tab==="objetivos"&&<HitosTab obra={obra} hitos={hitos} esAdmin={esAdmin} user={user} partic={partic} comentariosHitos={comentariosHitos} toast={toast} reload={loadAll}/>}
         {tab==="reportes"&&<ReportesTab obra={obra} gastos={gastosVis} presup={presup} tcRef={tcRef} cats={cats} esAdmin={esAdmin} monedaVista={monedaVista}/>}
         {tab==="resumen"&&!esAdmin&&<ResumenClienteTab obra={obra} gastos={gastosVis} presup={presup} tcRef={tcRef} cats={cats} fotos={fotos} hitos={hitos} monedaVista={monedaVista}/>}
         {tab==="categorias"&&esAdmin&&<CategoriasTab cats={cats} obra={obra} toast={toast} reload={loadAll}/>}
@@ -2505,23 +2508,31 @@ function ComentariosModal({gasto,comentarios,obra,user,esAdmin,toast,reload,onCl
 }
 
 // ── HITOS ─────────────────────────────────────────────────────────────────────
-function HitosTab({obra,hitos,esAdmin,toast,reload}){
+function HitosTab({obra,hitos,esAdmin,user,partic,comentariosHitos,toast,reload}){
   const [modal,setModal]=useState(false);
   const [saving,setSaving]=useState(false);
   const [draft,setDraft]=useState({titulo:"",descripcion:"",fecha_estimada:"",estado:"pendiente"});
+  const [expandido,setExpandido]=useState(null);
+
+  const rolDe=userId=>partic.find(p=>p.user_id===userId)?.rol||"cliente";
+  const nombreDe=userId=>partic.find(p=>p.user_id===userId)?.nombre||"—";
 
   const save=async()=>{
-    if(!draft.titulo.trim()||!draft.fecha_estimada)return;setSaving(true);
-    const{error}=await supabase.from("hitos").insert({obra_id:obra.id,...draft,titulo:draft.titulo.trim()});
+    if(!draft.titulo.trim())return;setSaving(true);
+    const{error}=await supabase.from("hitos").insert({
+      obra_id:obra.id,titulo:draft.titulo.trim(),descripcion:draft.descripcion,
+      fecha_estimada:draft.fecha_estimada||null,estado:esAdmin?draft.estado:"pendiente",
+      creado_por:user.id,
+    });
     if(error)toast.error("Error: "+error.message);
-    else{toast.success("Hito creado");await reload();}
+    else{toast.success("Guardado");await reload();}
     setDraft({titulo:"",descripcion:"",fecha_estimada:"",estado:"pendiente"});setModal(false);setSaving(false);
   };
   const updateEstado=async(id,estado)=>{
     const{error}=await supabase.from("hitos").update({estado}).eq("id",id);
     if(error)toast.error("Error");else await reload();
   };
-  const deleteH=async(id)=>{
+  const deleteH=async id=>{
     const{error}=await supabase.from("hitos").delete().eq("id",id);
     if(error)toast.error("Error");else{toast.success("Eliminado");await reload();}
   };
@@ -2537,10 +2548,10 @@ function HitosTab({obra,hitos,esAdmin,toast,reload}){
   return <div className="fu">
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
       <div>
-        <div style={{fontSize:16,fontWeight:700,color:C.t}}>Objetivos de Obra</div>
+        <div style={{fontSize:16,fontWeight:700,color:C.t}}>Objetivos y cambios</div>
         <div style={{fontSize:12,color:C.t3}}>{completados}/{hitos.length} completados · {pct}% avanzado</div>
       </div>
-      {esAdmin&&<Btn primary onClick={()=>setModal(true)}>+ Nuevo hito</Btn>}
+      <Btn primary onClick={()=>setModal(true)}>+ Nuevo objetivo / cambio</Btn>
     </div>
 
     {hitos.length>0&&<Card style={{marginBottom:16}}>
@@ -2551,7 +2562,7 @@ function HitosTab({obra,hitos,esAdmin,toast,reload}){
       <div style={{fontSize:11,textAlign:"right",fontWeight:600,color:pct===100?C.green:C.t3}}>{pct}%{pct===100?" ✓ Completado":""}</div>
     </Card>}
 
-    {hitos.length===0&&<Card><div style={{textAlign:"center",padding:"40px 0",color:C.t3}}>Sin objetivos todavía.</div></Card>}
+    {hitos.length===0&&<Card><div style={{textAlign:"center",padding:"40px 0",color:C.t3}}>Sin objetivos ni cambios todavía.</div></Card>}
 
     <div style={{display:"flex",flexDirection:"column",gap:10}}>
       {Object.entries(EC).map(([estado,ec])=>{
@@ -2559,42 +2570,97 @@ function HitosTab({obra,hitos,esAdmin,toast,reload}){
         if(grupo.length===0)return null;
         return <div key={estado}>
           <div style={{fontSize:11,color:ec.color,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",marginBottom:6}}>{ec.dot} {ec.label} ({grupo.length})</div>
-          {grupo.map(h=>(
-            <Card key={h.id} style={{marginBottom:8,borderLeft:`3px solid ${ec.color}`,padding:"12px 16px"}}>
+          {grupo.map(h=>{
+            const rolCreador=h.creado_por?rolDe(h.creado_por):"arquitecto";
+            const esCambioCliente=rolCreador==="cliente";
+            const nComentarios=comentariosHitos.filter(c=>c.hito_id===h.id).length;
+            return <Card key={h.id} style={{marginBottom:8,borderLeft:`3px solid ${ec.color}`,padding:"12px 16px"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
                 <div style={{flex:1}}>
                   <div style={{fontSize:13,fontWeight:600,color:C.t,textDecoration:h.estado==="completado"?"line-through":"none"}}>{h.titulo}</div>
-                  {h.descripcion&&<div style={{fontSize:12,color:C.t3,marginTop:3}}>{h.descripcion}</div>}
-                  <div style={{fontSize:11,color:C.t3,marginTop:5}}>📅 Estimado: {h.fecha_estimada}</div>
+                  <div style={{fontSize:11,color:C.t3,marginTop:2}}>{esCambioCliente?"Cambio solicitado":"Objetivo"}{h.descripcion?" · "+h.descripcion:""}</div>
+                  <div style={{fontSize:11,color:C.t3,marginTop:5}}>{h.fecha_estimada?`📅 Estimado: ${h.fecha_estimada}`:"Sin fecha estimada"}</div>
                 </div>
                 <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                  <Tag label={ROL_LABEL[rolCreador]} color={ROL_COLOR[rolCreador]}/>
                   {esAdmin?<select value={h.estado} onChange={e=>updateEstado(h.id,e.target.value)} style={{...SEL,width:"auto",padding:"5px 8px",fontSize:11,borderColor:ec.color+"66"}}>
                     {Object.entries(EC).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
                   </select>:<Tag label={ec.label} color={ec.color}/>}
-                  {esAdmin&&<button onClick={()=>deleteH(h.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.t3,fontSize:18}}>×</button>}
+                  {(esAdmin||h.creado_por===user.id)&&<button onClick={()=>deleteH(h.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.t3,fontSize:18}}>×</button>}
                 </div>
               </div>
-            </Card>
-          ))}
+              <div style={{borderTop:`1px solid ${C.bd}`,marginTop:10,paddingTop:8}}>
+                <div style={{fontSize:11,color:C.t3,cursor:"pointer",fontWeight:600}} onClick={()=>setExpandido(expandido===h.id?null:h.id)}>
+                  💬 {nComentarios>0?`${nComentarios} comentario${nComentarios===1?"":"s"}`:"Agregar el primer comentario"} {expandido===h.id?"▲":"▼"}
+                </div>
+                {expandido===h.id&&<HitoComentarios hito={h} comentarios={comentariosHitos.filter(c=>c.hito_id===h.id)} user={user} nombreDe={nombreDe} rolDe={rolDe} esAdmin={esAdmin} obra={obra} toast={toast} reload={reload}/>}
+              </div>
+            </Card>;
+          })}
         </div>;
       })}
     </div>
 
-    {modal&&<Modal title="Nuevo hito" onClose={()=>setModal(false)}>
+    {modal&&<Modal title="Nuevo objetivo / cambio" onClose={()=>setModal(false)}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
-        <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Título *</div><input style={INP} placeholder="Ej: Losa planta alta terminada" value={draft.titulo} onChange={e=>setDraft(d=>({...d,titulo:e.target.value}))}/></div>
+        <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Título *</div><input style={INP} placeholder="Ej: Losa planta alta terminada / Cambiar ubicación de tomas" value={draft.titulo} onChange={e=>setDraft(d=>({...d,titulo:e.target.value}))}/></div>
         <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Descripción</div><input style={INP} placeholder="Detalle opcional..." value={draft.descripcion} onChange={e=>setDraft(d=>({...d,descripcion:e.target.value}))}/></div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-          <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Fecha estimada *</div><input style={INP} type="date" value={draft.fecha_estimada} onChange={e=>setDraft(d=>({...d,fecha_estimada:e.target.value}))}/></div>
-          <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Estado inicial</div>
+          <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Fecha estimada</div><input style={INP} type="date" value={draft.fecha_estimada} onChange={e=>setDraft(d=>({...d,fecha_estimada:e.target.value}))}/></div>
+          {esAdmin&&<div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Estado inicial</div>
             <select style={SEL} value={draft.estado} onChange={e=>setDraft(d=>({...d,estado:e.target.value}))}>
               {Object.entries(EC).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
             </select>
-          </div>
+          </div>}
         </div>
-        <div style={{display:"flex",gap:8}}><Btn primary onClick={save} loading={saving}>Crear</Btn><Btn onClick={()=>setModal(false)}>Cancelar</Btn></div>
+        <div style={{display:"flex",gap:8}}><Btn primary onClick={save} loading={saving} disabled={!draft.titulo.trim()}>Crear</Btn><Btn onClick={()=>setModal(false)}>Cancelar</Btn></div>
       </div>
     </Modal>}
+  </div>;
+}
+
+// Hilo de comentarios dentro de cada objetivo/cambio — cualquier participante comenta, sin niveles de privacidad.
+function HitoComentarios({hito,comentarios,user,nombreDe,rolDe,esAdmin,obra,toast,reload}){
+  const [texto,setTexto]=useState("");
+  const [saving,setSaving]=useState(false);
+  const save=async()=>{
+    if(!texto.trim())return;setSaving(true);
+    const{error}=await supabase.from("comentarios_hito").insert({
+      obra_id:obra.id,hito_id:hito.id,texto:texto.trim(),
+      autor:nombreDe(user.id),user_id:user.id,
+    });
+    if(error)toast.error("Error: "+error.message);
+    else await reload();
+    setTexto("");setSaving(false);
+  };
+  const del=async id=>{
+    const{error}=await supabase.from("comentarios_hito").delete().eq("id",id);
+    if(error)toast.error("Error");else await reload();
+  };
+  return <div style={{marginTop:8}}>
+    <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:8}}>
+      {comentarios.map(c=>{
+        const rol=rolDe(c.user_id);
+        const puedeBorrar=esAdmin||c.user_id===user.id;
+        return <div key={c.id} style={{display:"flex",gap:8}}>
+          <div style={{width:26,height:26,borderRadius:"50%",background:ROL_COLOR[rol]+"22",color:ROL_COLOR[rol],display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,flexShrink:0}}>{(c.autor||"?").slice(0,2).toUpperCase()}</div>
+          <div style={{background:C.bg3,borderRadius:8,padding:"7px 10px",fontSize:12,flex:1}}>
+            <div style={{display:"flex",justifyContent:"space-between",gap:8,marginBottom:2}}>
+              <span style={{fontWeight:600,color:C.t}}>{c.autor} <span style={{fontWeight:400,color:C.t3}}>({ROL_LABEL[rol]})</span></span>
+              <span style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
+                <span style={{color:C.t3,fontSize:11}}>{c.created_at?.slice(0,10)}</span>
+                {puedeBorrar&&<button onClick={()=>del(c.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.t3,fontSize:14,padding:0}}>×</button>}
+              </span>
+            </div>
+            <div style={{color:C.t2}}>{c.texto}</div>
+          </div>
+        </div>;
+      })}
+    </div>
+    <div style={{display:"flex",gap:8}}>
+      <input style={{...INP,flex:1}} placeholder="Agregar comentario..." value={texto} onChange={e=>setTexto(e.target.value)} onKeyDown={e=>e.key==="Enter"&&save()}/>
+      <Btn primary small onClick={save} loading={saving} disabled={!texto.trim()}>Enviar</Btn>
+    </div>
   </div>;
 }
 
