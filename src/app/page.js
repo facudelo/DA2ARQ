@@ -665,7 +665,7 @@ function ObraApp(props){
     ...(esAdmin?[{id:"contratistas",label:"Contratistas",icon:"👷"}]:[]),
     ...(esAdmin?[{id:"ganancia",label:"Ganancia",icon:"💰"}]:[]),
     ...(esAdmin||tabsCliente.includes("fotos")?[{id:"fotos",label:"Fotos",icon:"📷"}]:[]),
-    ...(esAdmin||tabsCliente.includes("objetivos")?[{id:"objetivos",label:"Objetivos",icon:"🏁"}]:[]),
+    ...(esAdmin||tabsCliente.includes("objetivos")?[{id:"objetivos",label:"Cambios/Pedidos",icon:"🔄"}]:[]),
     ...(esAdmin||tabsCliente.includes("reportes")?[{id:"reportes",label:"Reportes",icon:"📈"}]:[]),
     ...(!esAdmin&&tabsCliente.includes("resumen")?[{id:"resumen",label:"Mi Resumen",icon:"📋"}]:[]),
     ...(esAdmin?[{id:"categorias",label:"Categorías",icon:"🏷️"}]:[]),
@@ -910,12 +910,9 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=
       </Card>
     </div>
 
-    {/* FILA 4: Objetivos */}
+    {/* FILA 4: Cambios/Pedidos */}
     {hitos.length>0&&<Card>
-      <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:12,fontWeight:600,display:"flex",justifyContent:"space-between"}}>
-        <span>Objetivos de obra</span>
-        <span>{hitos.filter(h=>h.estado==="completado").length}/{hitos.length} completados</span>
-      </div>
+      <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:12,fontWeight:600}}>Cambios / Pedidos</div>
       <div style={{display:"flex",flexDirection:"column",gap:8}}>
         {hitos.slice(0,6).map(h=>{
           const EC={pendiente:{color:C.t3,dot:"○"},en_progreso:{color:C.amber,dot:"◑"},completado:{color:C.green,dot:"●"}};
@@ -925,7 +922,6 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=
             <div style={{flex:1,minWidth:0}}>
               <span style={{fontSize:12,fontWeight:600,color:h.estado==="completado"?C.t3:C.t,textDecoration:h.estado==="completado"?"line-through":"none"}}>{h.titulo}</span>
             </div>
-            <span style={{fontSize:10,color:C.t3,flexShrink:0}}>📅 {h.fecha_estimada}</span>
             <Tag label={h.estado==="completado"?"✓ Listo":h.estado==="en_progreso"?"En curso":"Pendiente"} color={ec.color}/>
           </div>;
         })}
@@ -2511,7 +2507,7 @@ function ComentariosModal({gasto,comentarios,obra,user,esAdmin,toast,reload,onCl
 function HitosTab({obra,hitos,esAdmin,user,partic,comentariosHitos,toast,reload}){
   const [modal,setModal]=useState(false);
   const [saving,setSaving]=useState(false);
-  const [draft,setDraft]=useState({titulo:"",descripcion:"",fecha_estimada:"",estado:"pendiente"});
+  const [draft,setDraft]=useState({titulo:"",descripcion:"",estado:"pendiente"});
   const [expandido,setExpandido]=useState(null);
 
   const rolDe=userId=>partic.find(p=>p.user_id===userId)?.rol||"cliente";
@@ -2521,12 +2517,12 @@ function HitosTab({obra,hitos,esAdmin,user,partic,comentariosHitos,toast,reload}
     if(!draft.titulo.trim())return;setSaving(true);
     const{error}=await supabase.from("hitos").insert({
       obra_id:obra.id,titulo:draft.titulo.trim(),descripcion:draft.descripcion,
-      fecha_estimada:draft.fecha_estimada||null,estado:esAdmin?draft.estado:"pendiente",
+      fecha_estimada:null,estado:esAdmin?draft.estado:"pendiente",
       creado_por:user.id,
     });
     if(error)toast.error("Error: "+error.message);
     else{toast.success("Guardado");await reload();}
-    setDraft({titulo:"",descripcion:"",fecha_estimada:"",estado:"pendiente"});setModal(false);setSaving(false);
+    setDraft({titulo:"",descripcion:"",estado:"pendiente"});setModal(false);setSaving(false);
   };
   const updateEstado=async(id,estado)=>{
     const{error}=await supabase.from("hitos").update({estado}).eq("id",id);
@@ -2540,29 +2536,16 @@ function HitosTab({obra,hitos,esAdmin,user,partic,comentariosHitos,toast,reload}
   const EC={
     pendiente:{color:C.t3,label:"Pendiente",dot:"○"},
     en_progreso:{color:C.amber,label:"En progreso",dot:"◑"},
-    completado:{color:C.green,label:"Completado",dot:"●"},
+    completado:{color:C.green,label:"Resuelto",dot:"●"},
   };
-  const completados=hitos.filter(h=>h.estado==="completado").length;
-  const pct=hitos.length>0?Math.round((completados/hitos.length)*100):0;
 
   return <div className="fu">
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
-      <div>
-        <div style={{fontSize:16,fontWeight:700,color:C.t}}>Objetivos y cambios</div>
-        <div style={{fontSize:12,color:C.t3}}>{completados}/{hitos.length} completados · {pct}% avanzado</div>
-      </div>
-      <Btn primary onClick={()=>setModal(true)}>+ Nuevo objetivo / cambio</Btn>
+      <div style={{fontSize:16,fontWeight:700,color:C.t}}>Cambios / Pedidos</div>
+      <Btn primary onClick={()=>setModal(true)}>+ Nuevo cambio / pedido</Btn>
     </div>
 
-    {hitos.length>0&&<Card style={{marginBottom:16}}>
-      <div style={{fontSize:11,color:C.t3,textTransform:"uppercase",letterSpacing:".07em",marginBottom:8,fontWeight:600}}>Avance general de obra</div>
-      <div style={{height:10,borderRadius:5,background:C.bg3,overflow:"hidden",marginBottom:6}}>
-        <div style={{height:"100%",borderRadius:5,background:pct===100?C.green:C.lima,width:`${pct}%`,transition:"width .6s ease"}}/>
-      </div>
-      <div style={{fontSize:11,textAlign:"right",fontWeight:600,color:pct===100?C.green:C.t3}}>{pct}%{pct===100?" ✓ Completado":""}</div>
-    </Card>}
-
-    {hitos.length===0&&<Card><div style={{textAlign:"center",padding:"40px 0",color:C.t3}}>Sin objetivos ni cambios todavía.</div></Card>}
+    {hitos.length===0&&<Card><div style={{textAlign:"center",padding:"40px 0",color:C.t3}}>Sin cambios ni pedidos todavía.</div></Card>}
 
     <div style={{display:"flex",flexDirection:"column",gap:10}}>
       {Object.entries(EC).map(([estado,ec])=>{
@@ -2578,8 +2561,7 @@ function HitosTab({obra,hitos,esAdmin,user,partic,comentariosHitos,toast,reload}
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
                 <div style={{flex:1}}>
                   <div style={{fontSize:13,fontWeight:600,color:C.t,textDecoration:h.estado==="completado"?"line-through":"none"}}>{h.titulo}</div>
-                  <div style={{fontSize:11,color:C.t3,marginTop:2}}>{esCambioCliente?"Cambio solicitado":"Objetivo"}{h.descripcion?" · "+h.descripcion:""}</div>
-                  <div style={{fontSize:11,color:C.t3,marginTop:5}}>{h.fecha_estimada?`📅 Estimado: ${h.fecha_estimada}`:"Sin fecha estimada"}</div>
+                  <div style={{fontSize:11,color:C.t3,marginTop:2}}>{esCambioCliente?"Pedido del cliente":"Cambio"}{h.descripcion?" · "+h.descripcion:""}</div>
                 </div>
                 <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
                   <Tag label={ROL_LABEL[rolCreador]} color={ROL_COLOR[rolCreador]}/>
@@ -2601,18 +2583,15 @@ function HitosTab({obra,hitos,esAdmin,user,partic,comentariosHitos,toast,reload}
       })}
     </div>
 
-    {modal&&<Modal title="Nuevo objetivo / cambio" onClose={()=>setModal(false)}>
+    {modal&&<Modal title="Nuevo cambio / pedido" onClose={()=>setModal(false)}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
-        <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Título *</div><input style={INP} placeholder="Ej: Losa planta alta terminada / Cambiar ubicación de tomas" value={draft.titulo} onChange={e=>setDraft(d=>({...d,titulo:e.target.value}))}/></div>
+        <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Título *</div><input style={INP} placeholder="Ej: Cambiar ubicación de tomas en cocina" value={draft.titulo} onChange={e=>setDraft(d=>({...d,titulo:e.target.value}))}/></div>
         <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Descripción</div><input style={INP} placeholder="Detalle opcional..." value={draft.descripcion} onChange={e=>setDraft(d=>({...d,descripcion:e.target.value}))}/></div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-          <div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Fecha estimada</div><input style={INP} type="date" value={draft.fecha_estimada} onChange={e=>setDraft(d=>({...d,fecha_estimada:e.target.value}))}/></div>
-          {esAdmin&&<div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Estado inicial</div>
-            <select style={SEL} value={draft.estado} onChange={e=>setDraft(d=>({...d,estado:e.target.value}))}>
-              {Object.entries(EC).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
-            </select>
-          </div>}
-        </div>
+        {esAdmin&&<div><div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Estado inicial</div>
+          <select style={SEL} value={draft.estado} onChange={e=>setDraft(d=>({...d,estado:e.target.value}))}>
+            {Object.entries(EC).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+          </select>
+        </div>}
         <div style={{display:"flex",gap:8}}><Btn primary onClick={save} loading={saving} disabled={!draft.titulo.trim()}>Crear</Btn><Btn onClick={()=>setModal(false)}>Cancelar</Btn></div>
       </div>
     </Modal>}
@@ -2675,8 +2654,6 @@ function ResumenClienteTab({obra,gastos,presup,tcRef,cats,fotos,hitos=[],monedaV
   const presupBaseARS=presupCatARS>0?presupCatARS:presupTotalARS;
   const presupMV=enUSD?(tcRef>0?presupBaseARS/tcRef:0):presupBaseARS;
   const pct=presupMV>0?Math.min(Math.round((totalGastado/presupMV)*100),999):null;
-  const completados=hitos.filter(h=>h.estado==="completado").length;
-  const pctHitos=hitos.length>0?Math.round((completados/hitos.length)*100):0;
   const porCat=cats.map(c=>({...c,total:gastos.filter(g=>g.cat_id===c.id).reduce((s,g)=>s+conv(g),0)})).filter(c=>c.total>0).sort((a,b)=>b.total-a.total);
 
   return <div className="fu">
@@ -2684,7 +2661,6 @@ function ResumenClienteTab({obra,gastos,presup,tcRef,cats,fotos,hitos=[],monedaV
       <StatCard label={`Total gastado (${monedaVista})`} value={fmt(totalGastado)} color={C.green} icon="💸"/>
       {presupMV>0&&<StatCard label={`Presupuesto (${monedaVista})`} value={fmt(presupMV)} color={C.blue} icon="📐"/>}
       {pct!==null&&<StatCard label="Avance presupuesto" value={`${pct}%`} color={pct>100?C.red:pct>80?C.amber:C.green} icon="📊"/>}
-      {hitos.length>0&&<StatCard label="Avance objetivos" value={`${pctHitos}%`} color={pctHitos===100?C.green:C.lima} icon="🏁"/>}
     </div>
 
     {presupMV>0&&<Card style={{marginBottom:14}}>
@@ -2981,7 +2957,7 @@ function AccesosTab({obra,partic,toast,reload}){
     {id:"gastos",label:"Gastos",icon:"💸",desc:"Lista de gastos (solo los marcados como públicos)"},
     {id:"presupuesto",label:"Presupuesto",icon:"📐",desc:"Presupuesto por categoría y ajustes por índice"},
     {id:"fotos",label:"Fotos",icon:"📷",desc:"Galería de fotos de avance"},
-    {id:"objetivos",label:"Objetivos",icon:"🏁",desc:"Hitos y avance de obra"},
+    {id:"objetivos",label:"Cambios/Pedidos",icon:"🔄",desc:"Cambios y pedidos entre cliente y arquitecto"},
     {id:"reportes",label:"Reportes",icon:"📈",desc:"Gráficos y reportes de gastos"},
     {id:"resumen",label:"Mi Resumen",icon:"📋",desc:"Vista simplificada del cliente"},
     {id:"ipc",label:"IPC",icon:"📉",desc:"Índice de inflación (INDEC)"},
