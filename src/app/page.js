@@ -397,7 +397,7 @@ function ToastContainer({toasts}){
 }
 
 // ── COMPONENTS ────────────────────────────────────────────────────────────────
-function Logo({size=44,src}){return <img src={src||LOGO_IMG} alt="DA2ARQ" style={{width:size,height:size,borderRadius:size*.22,objectFit:"cover",flexShrink:0}}/>;}
+function Logo({size=44,src}){return <div style={{width:size,height:size,borderRadius:size*.22,background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,overflow:"hidden",border:"1px solid rgba(0,0,0,.06)"}}><img src={src||LOGO_IMG} alt="DA2ARQ" style={{width:"84%",height:"84%",objectFit:"contain"}}/></div>;}
 function EditableLogo({size=44,src,editable,onUpload,uploading}){
   const fileRef=useRef();
   const handle=e=>{const f=e.target.files?.[0];if(f)onUpload(f);e.target.value="";};
