@@ -29,7 +29,8 @@ const fmtUSD=n=>new Intl.NumberFormat("es-AR",{style:"currency",currency:"USD",m
 const fmtM=(n,m)=>m==="USD"?fmtUSD(n):fmtARS(n);
 const toARS=(g,tcRef)=>g.moneda==="USD"?g.monto*(g.tc_valor||tcRef):g.monto;
 const toUSD=(g,tcRef)=>g.moneda==="ARS"?g.monto/(g.tc_valor||tcRef):g.monto;
-const calcFactorIndice=(fechaDesde,data)=>{if(!fechaDesde||!data||!data.length)return 1;const desde=fechaDesde.slice(0,7);const serie=data.filter(x=>x.fecha.slice(0,7)>=desde).sort((a,b)=>a.fecha<b.fecha?-1:1);return serie.length>0?serie.reduce((f,x)=>f*(1+x.valor/100),1):1;};
+const calcFactorIndice=(fechaDesde,data,tipo="general")=>{if(!fechaDesde||!data||!data.length)return 1;const campo=tipo==="materiales"?"valor_materiales":tipo==="mano_obra"?"valor_mano_obra":"valor";const desde=fechaDesde.slice(0,7);const serie=data.filter(x=>x.fecha.slice(0,7)>=desde).sort((a,b)=>a.fecha<b.fecha?-1:1);return serie.length>0?serie.reduce((f,x)=>f*(1+(x[campo]??x.valor)/100),1):1;};
+const CAC_TIPOS=[{v:"general",label:"Combinado"},{v:"materiales",label:"Materiales"},{v:"mano_obra",label:"Mano de obra"}];
 // Única fuente de verdad para "Ganancia" — la usan GananciaTab, DashboardTab (esAdmin) y PresupuestoTab (esAdmin).
 // Cobrado/Gastado/Retirado son plata real ya movida: nominales, sin ajustar. Solo el pactado total (el
 // "techo teórico") se ajusta por CAC — mismo criterio que "Deuda del cliente" (el índice ajusta lo que
@@ -343,27 +344,43 @@ export default function App(){
   const [inflData,setInflData]=useState(null);
   const [tcHistData,setTcHistData]=useState(null);
   // Índice CAMARCO (costo de la construcción, edificio tipo CABA) — variación % mensual.
-  // Verificado UNO POR UNO contra el posteo oficial de camarco.org.ar (18/jul/2026). Fuente: no existe
-  // API pública de CAC; CAMARCO publica un posteo separado por mes, sin serie histórica consolidada.
-  // IMPORTANTE — hueco enero/2022 a julio/2024: NO hay posteo público de CAMARCO con el dato (queda
-  // detrás de un muro de "solo socios"). A propósito NO se cargan valores estimados/inventados acá:
-  // mejor un hueco visible que un número falso en un cálculo de plata real. Si tenés obras con
-  // presupuesto pactado ANTES de agosto/2024, esos meses van a quedar sin ajuste hasta que consigas
-  // el dato real (área de socios de CAMARCO, o el .xls "Indicador-CAC serie histórica" de
-  // cifrasonline.com.ar) y lo cargues a mano desde la solapa CAC → Agregar/editar.
-  // Mayo/2026 figura como PROVISORIO en el posteo de CAMARCO (puede revisarse). Junio/2026 en
-  // adelante: todavía no estaba publicado al momento de esta verificación — cargalo desde la solapa
-  // CAC cuando CAMARCO lo publique (suele ser entre el 20 y 25 del mes siguiente).
+  // Fuente: tabla completa provista por el arquitecto (2020-01 a 2026-05), con índice general,
+  // materiales y mano de obra por separado. "valor" = % de variación mensual del índice GENERAL
+  // (combinado), igual convención que antes. "valor_materiales" y "valor_mano_obra" = % de variación
+  // mensual derivado matemáticamente de los niveles absolutos de cada columna de esa tabla (validado:
+  // el % general derivado coincide EXACTO con el que traía la tabla en los 77 meses, sin ninguna
+  // diferencia). Enero/2020 es la única excepción: al no haber mes anterior para calcular la variación,
+  // se usa el mismo % general para los 3 campos ese único mes.
+  // Reemplaza la serie parcial anterior (22 meses, ago-2024 a may-2026, solo índice general).
   const CAC_BASE=[
-    {fecha:"2024-08",valor:3.3},{fecha:"2024-09",valor:2.5},{fecha:"2024-10",valor:1.7},
-    {fecha:"2024-11",valor:2.9},{fecha:"2024-12",valor:2.1},
-    {fecha:"2025-01",valor:1.0},{fecha:"2025-02",valor:1.7},{fecha:"2025-03",valor:0.9},
-    {fecha:"2025-04",valor:1.6},{fecha:"2025-05",valor:1.6},{fecha:"2025-06",valor:0.7},
-    {fecha:"2025-07",valor:1.8},{fecha:"2025-08",valor:1.5},{fecha:"2025-09",valor:3.3},
-    {fecha:"2025-10",valor:2.3},{fecha:"2025-11",valor:2.0},{fecha:"2025-12",valor:1.3},
-    {fecha:"2026-01",valor:2.3},{fecha:"2026-02",valor:1.3},{fecha:"2026-03",valor:1.6},
-    {fecha:"2026-04",valor:3.7},{fecha:"2026-05",valor:2.6},
+    {fecha:"2020-01",valor:5.16,valor_materiales:5.16,valor_mano_obra:5.16},{fecha:"2020-02",valor:3.82,valor_materiales:2.21,valor_mano_obra:6.34},{fecha:"2020-03",valor:0.91,valor_materiales:2.0,valor_mano_obra:0.07},
+    {fecha:"2020-04",valor:1.36,valor_materiales:1.51,valor_mano_obra:0.34},{fecha:"2020-05",valor:2.64,valor_materiales:3.81,valor_mano_obra:0.81},{fecha:"2020-06",valor:1.79,valor_materiales:2.82,valor_mano_obra:0.14},
+    {fecha:"2020-07",valor:2.77,valor_materiales:4.46,valor_mano_obra:0.05},{fecha:"2020-08",valor:2.65,valor_materiales:4.22,valor_mano_obra:0.0},{fecha:"2020-09",valor:3.85,valor_materiales:5.64,valor_mano_obra:0.64},
+    {fecha:"2020-10",valor:5.99,valor_materiales:8.81,valor_mano_obra:0.81},{fecha:"2020-11",valor:9.83,valor_materiales:6.69,valor_mano_obra:16.08},{fecha:"2020-12",valor:4.06,valor_materiales:6.22,valor_mano_obra:0.09},
+    {fecha:"2021-01",valor:3.84,valor_materiales:5.8,valor_mano_obra:0.0},{fecha:"2021-02",valor:5.79,valor_materiales:5.48,valor_mano_obra:6.45},{fecha:"2021-03",valor:2.75,valor_materiales:4.06,valor_mano_obra:0.03},
+    {fecha:"2021-04",valor:6.96,valor_materiales:4.55,valor_mano_obra:12.12},{fecha:"2021-05",valor:3.05,valor_materiales:4.48,valor_mano_obra:0.24},{fecha:"2021-06",valor:2.32,valor_materiales:3.43,valor_mano_obra:0.01},
+    {fecha:"2021-07",valor:5.39,valor_materiales:3.82,valor_mano_obra:8.72},{fecha:"2021-08",valor:2.25,valor_materiales:3.36,valor_mano_obra:0.0},{fecha:"2021-09",valor:3.8,valor_materiales:3.7,valor_mano_obra:4.01},
+    {fecha:"2021-10",valor:4.33,valor_materiales:3.85,valor_mano_obra:5.32},{fecha:"2021-11",valor:2.52,valor_materiales:3.73,valor_mano_obra:0.0},{fecha:"2021-12",valor:2.01,valor_materiales:2.9,valor_mano_obra:0.14},
+    {fecha:"2022-01",valor:3.82,valor_materiales:3.86,valor_mano_obra:3.74},{fecha:"2022-02",valor:4.92,valor_materiales:3.95,valor_mano_obra:7.06},{fecha:"2022-03",valor:5.33,valor_materiales:5.1,valor_mano_obra:5.84},
+    {fecha:"2022-04",valor:3.6,valor_materiales:5.25,valor_mano_obra:0.07},{fecha:"2022-05",valor:6.59,valor_materiales:5.37,valor_mano_obra:9.33},{fecha:"2022-06",valor:6.8,valor_materiales:5.87,valor_mano_obra:8.84},
+    {fecha:"2022-07",valor:6.81,valor_materiales:10.03,valor_mano_obra:0.0},{fecha:"2022-08",valor:6.83,valor_materiales:7.0,valor_mano_obra:6.45},{fecha:"2022-09",valor:7.66,valor_materiales:6.85,valor_mano_obra:9.52},
+    {fecha:"2022-10",valor:7.8,valor_materiales:7.24,valor_mano_obra:9.13},{fecha:"2022-11",valor:7.13,valor_materiales:6.79,valor_mano_obra:7.91},{fecha:"2022-12",valor:7.71,valor_materiales:6.77,valor_mano_obra:9.79},
+    {fecha:"2023-01",valor:6.3,valor_materiales:6.31,valor_mano_obra:6.63},{fecha:"2023-02",valor:5.61,valor_materiales:5.06,valor_mano_obra:6.45},{fecha:"2023-03",valor:4.66,valor_materiales:6.27,valor_mano_obra:1.22},
+    {fecha:"2023-04",valor:7.66,valor_materiales:7.43,valor_mano_obra:8.18},{fecha:"2023-05",valor:6.81,valor_materiales:6.54,valor_mano_obra:7.4},{fecha:"2023-06",valor:6.2,valor_materiales:7.45,valor_mano_obra:3.45},
+    {fecha:"2023-07",valor:9.28,valor_materiales:9.24,valor_mano_obra:9.36},{fecha:"2023-08",valor:19.69,valor_materiales:22.01,valor_mano_obra:14.4},{fecha:"2023-09",valor:8.9,valor_materiales:8.96,valor_mano_obra:8.73},
+    {fecha:"2023-10",valor:11.01,valor_materiales:12.22,valor_mano_obra:8.05},{fecha:"2023-11",valor:17.19,valor_materiales:19.57,valor_mano_obra:11.16},{fecha:"2023-12",valor:33.38,valor_materiales:41.47,valor_mano_obra:11.36},
+    {fecha:"2024-01",valor:14.16,valor_materiales:12.46,valor_mano_obra:20.02},{fecha:"2024-02",valor:8.69,valor_materiales:7.05,valor_mano_obra:13.97},{fecha:"2024-03",valor:3.92,valor_materiales:5.22,valor_mano_obra:0.0},
+    {fecha:"2024-04",valor:4.69,valor_materiales:1.81,valor_mano_obra:13.89},{fecha:"2024-05",valor:4.35,valor_materiales:2.04,valor_mano_obra:10.95},{fecha:"2024-06",valor:4.3,valor_materiales:1.76,valor_mano_obra:10.98},
+    {fecha:"2024-07",valor:2.1,valor_materiales:2.97,valor_mano_obra:0.0},{fecha:"2024-08",valor:3.26,valor_materiales:2.58,valor_mano_obra:4.96},{fecha:"2024-09",valor:2.49,valor_materiales:1.89,valor_mano_obra:3.95},
+    {fecha:"2024-10",valor:1.73,valor_materiales:0.78,valor_mano_obra:3.97},{fecha:"2024-11",valor:2.93,valor_materiales:1.32,valor_mano_obra:6.65},{fecha:"2024-12",valor:2.08,valor_materiales:1.21,valor_mano_obra:4.01},
+    {fecha:"2025-01",valor:1.54,valor_materiales:1.37,valor_mano_obra:1.9},{fecha:"2025-02",valor:1.67,valor_materiales:0.8,valor_mano_obra:3.51},{fecha:"2025-03",valor:0.9,valor_materiales:0.86,valor_mano_obra:0.98},
+    {fecha:"2025-04",valor:1.61,valor_materiales:2.86,valor_mano_obra:-0.95},{fecha:"2025-05",valor:1.65,valor_materiales:0.3,valor_mano_obra:4.54},{fecha:"2025-06",valor:0.74,valor_materiales:0.7,valor_mano_obra:0.81},
+    {fecha:"2025-07",valor:1.78,valor_materiales:1.67,valor_mano_obra:2.0},{fecha:"2025-08",valor:1.46,valor_materiales:1.82,valor_mano_obra:0.74},{fecha:"2025-09",valor:3.34,valor_materiales:3.58,valor_mano_obra:2.86},
+    {fecha:"2025-10",valor:2.31,valor_materiales:2.74,valor_mano_obra:1.42},{fecha:"2025-11",valor:1.99,valor_materiales:1.52,valor_mano_obra:2.99},{fecha:"2025-12",valor:1.3,valor_materiales:1.33,valor_mano_obra:1.26},
+    {fecha:"2026-01",valor:2.31,valor_materiales:2.07,valor_mano_obra:2.78},{fecha:"2026-02",valor:1.27,valor_materiales:1.06,valor_mano_obra:1.71},{fecha:"2026-03",valor:1.64,valor_materiales:0.89,valor_mano_obra:3.16},
+    {fecha:"2026-04",valor:3.65,valor_materiales:3.0,valor_mano_obra:4.96},{fecha:"2026-05",valor:2.65,valor_materiales:2.76,valor_mano_obra:2.43},
   ];
+
   const [cacData,setCacData]=useState(CAC_BASE);
   const toast=useToast();
   const [needsPassword,setNeedsPassword]=useState(()=>typeof window!=="undefined"&&(window.location.hash.includes("type=invite")||window.location.hash.includes("type=recovery")));
@@ -388,15 +405,19 @@ export default function App(){
   const fetchTCHist=async()=>{if(tcHistData)return;try{const[rOf,rBl]=await Promise.all([fetch("https://api.argentinadatos.com/v1/cotizaciones/dolares/oficial"),fetch("https://api.argentinadatos.com/v1/cotizaciones/dolares/blue")]);const[jOf,jBl]=await Promise.all([rOf.json(),rBl.json()]);if(Array.isArray(jOf)&&Array.isArray(jBl))setTcHistData({oficial:jOf,blue:jBl});}catch{}};
 
   const mergeCACConBase=(fromDB)=>{
-    const map=new Map(CAC_BASE.map(x=>[x.fecha,x.valor]));
-    (fromDB||[]).forEach(x=>map.set(x.fecha,parseFloat(x.valor)));
-    return [...map.entries()].map(([fecha,valor])=>({fecha,valor})).sort((a,b)=>a.fecha>b.fecha?1:-1);
+    const map=new Map(CAC_BASE.map(x=>[x.fecha,{valor:x.valor,valor_materiales:x.valor_materiales,valor_mano_obra:x.valor_mano_obra}]));
+    (fromDB||[]).forEach(x=>map.set(x.fecha,{
+      valor:parseFloat(x.valor),
+      valor_materiales:x.valor_materiales!=null?parseFloat(x.valor_materiales):map.get(x.fecha)?.valor_materiales,
+      valor_mano_obra:x.valor_mano_obra!=null?parseFloat(x.valor_mano_obra):map.get(x.fecha)?.valor_mano_obra,
+    }));
+    return [...map.entries()].map(([fecha,v])=>({fecha,...v})).sort((a,b)=>a.fecha>b.fecha?1:-1);
   };
   const fetchCAC=async()=>{
-    try{const{data,error}=await supabase.from("cac_historico").select("fecha,valor").order("fecha",{ascending:true});if(!error&&data?.length)setCacData(mergeCACConBase(data));}catch{}
+    try{const{data,error}=await supabase.from("cac_historico").select("fecha,valor,valor_materiales,valor_mano_obra").order("fecha",{ascending:true});if(!error&&data?.length)setCacData(mergeCACConBase(data));}catch{}
   };
   const refreshCAC=async()=>{
-    try{const{data,error}=await supabase.from("cac_historico").select("fecha,valor").order("fecha",{ascending:true});if(!error&&data?.length)setCacData(mergeCACConBase(data));}catch{}
+    try{const{data,error}=await supabase.from("cac_historico").select("fecha,valor,valor_materiales,valor_mano_obra").order("fecha",{ascending:true});if(!error&&data?.length)setCacData(mergeCACConBase(data));}catch{}
   };
 
   if(authLoading)return <><style>{gCSS}</style><Spinner/></>;
@@ -1407,6 +1428,7 @@ function DeudaClienteCard({obra,presup,pagosCliente,cats,cacData,fetchCAC,tcRef,
   const [modal,setModal]=useState(false);
   const [draft,setDraft]=useState({fecha:todayISO(),monto:"",moneda:"ARS",descripcion:""});
   const [saving,setSaving]=useState(false);
+  const [cacTipo,setCacTipo]=useState("general");
 
   const cargos=presup.filter(p=>p.monto_cliente!=null&&p.monto_cliente>0).map(p=>{
     const catL=cats.find(c=>c.id===p.cat_id)?.label;
@@ -1431,8 +1453,8 @@ function DeudaClienteCard({obra,presup,pagosCliente,cats,cacData,fetchCAC,tcRef,
   const saldoNominalARS=totalPactadoARS-totalPagadoARS;
 
   const hayCAC=!!(cacData&&cacData.length);
-  const totalPactadoAjustadoARS=hayCAC?cargos.reduce((s,c)=>s+c.montoARS*calcFactorIndice(c.fecha,cacData),0):null;
-  const totalPagadoAjustadoARS=hayCAC?pagos.reduce((s,p)=>s-p.montoARS*calcFactorIndice(p.fecha,cacData),0):null;
+  const totalPactadoAjustadoARS=hayCAC?cargos.reduce((s,c)=>s+c.montoARS*calcFactorIndice(c.fecha,cacData,cacTipo),0):null;
+  const totalPagadoAjustadoARS=hayCAC?pagos.reduce((s,p)=>s-p.montoARS*calcFactorIndice(p.fecha,cacData,cacTipo),0):null;
   const saldoAjustadoARS=(totalPactadoAjustadoARS!=null&&totalPagadoAjustadoARS!=null)?totalPactadoAjustadoARS-totalPagadoAjustadoARS:null;
 
   const pctPagadoNominal=totalPactadoARS>0?Math.min(100,Math.round((totalPagadoARS/totalPactadoARS)*100)):null;
@@ -1466,9 +1488,12 @@ function DeudaClienteCard({obra,presup,pagosCliente,cats,cacData,fetchCAC,tcRef,
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:14}}>
       <div>
         <div style={{fontSize:14,fontWeight:700,color:C.t}}>💰 Deuda del cliente</div>
-        <div style={{fontSize:11,color:C.t3,marginTop:2}}>Presupuesto pactado con el cliente vs. pagos recibidos{hayCAC?" · ajustado por índice CAC":""}</div>
+        <div style={{fontSize:11,color:C.t3,marginTop:2}}>Presupuesto pactado con el cliente vs. pagos recibidos{hayCAC?` · ajustado por CAC (${CAC_TIPOS.find(t=>t.v===cacTipo)?.label})`:""}</div>
       </div>
-      {esAdmin&&<div style={{display:"flex",gap:8}}>
+      {esAdmin&&<div style={{display:"flex",gap:8,alignItems:"center"}}>
+        {hayCAC&&<div style={{display:"flex",background:C.bg3,borderRadius:8,border:`1px solid ${C.bd2}`,padding:3,gap:2}}>
+          {CAC_TIPOS.map(t=><button key={t.v} onClick={()=>setCacTipo(t.v)} style={{padding:"4px 9px",fontSize:11,border:"none",borderRadius:6,cursor:"pointer",background:cacTipo===t.v?"#5A3E1B":"transparent",color:cacTipo===t.v?"#fff":C.t2,fontWeight:cacTipo===t.v?700:400}}>{t.label}</button>)}
+        </div>}
         {!hayCAC&&<Btn small onClick={fetchCAC}>Cargar CAC</Btn>}
         <Btn primary small onClick={()=>setModal(true)}>+ Registrar pago</Btn>
       </div>}
@@ -1498,7 +1523,7 @@ function DeudaClienteCard({obra,presup,pagosCliente,cats,cacData,fetchCAC,tcRef,
       <tbody>
         {movimientos.map(m=>{
           runningNom+=m.montoARS;
-          const adj=hayCAC?m.montoARS*calcFactorIndice(m.fecha,cacData):null;
+          const adj=hayCAC?m.montoARS*calcFactorIndice(m.fecha,cacData,cacTipo):null;
           if(adj!=null)runningAdj+=adj;
           const esCargo=m.tipo==="cargo";
           return <tr key={m.id} style={{borderBottom:`1px solid ${C.bd}`}}>
@@ -1784,6 +1809,7 @@ function PresupuestoTab({obra,gastos,presup,pagosCliente=[],retirosGanancia=[],t
   const [showInfl,setShowInfl]=useState(false);
   const [expandedCat,setExpandedCat]=useState({});
   const [indiceAjuste,setIndiceAjuste]=useState("cac"); // "ipc" | "cac" | "usd"
+  const [cacTipo,setCacTipo]=useState("general"); // "general" | "materiales" | "mano_obra" — solo aplica si indiceAjuste==="cac"
   const enUSD=monedaVista==="USD";
   const fmt=n=>enUSD?fmtUSD(n):fmtARS(n);
 
@@ -1827,6 +1853,7 @@ function PresupuestoTab({obra,gastos,presup,pagosCliente=[],retirosGanancia=[],t
   const calcAjusteGeneral=useMemo(()=>{
     const data=indiceAjuste==="cac"?cacData:indiceAjuste==="ipc"?inflData:null;
     if(!data||!obra.created_at)return null;
+    const campo=indiceAjuste==="cac"&&cacTipo==="materiales"?"valor_materiales":indiceAjuste==="cac"&&cacTipo==="mano_obra"?"valor_mano_obra":"valor";
     const inicio=obra.created_at.slice(0,7);
     const serie=data
       .filter(x=>x.fecha.slice(0,7)>=inicio)
@@ -1834,10 +1861,11 @@ function PresupuestoTab({obra,gastos,presup,pagosCliente=[],retirosGanancia=[],t
     if(!serie.length)return null;
     let factor=1;
     return serie.map(x=>{
-      factor*=(1+x.valor/100);
-      return{ym:x.fecha.slice(0,7),val:x.valor,acum:+(((factor-1)*100).toFixed(2))};
+      const v=x[campo]??x.valor;
+      factor*=(1+v/100);
+      return{ym:x.fecha.slice(0,7),val:v,acum:+(((factor-1)*100).toFixed(2))};
     });
-  },[indiceAjuste,cacData,inflData,obra.created_at]);
+  },[indiceAjuste,cacTipo,cacData,inflData,obra.created_at]);
 
   const save=async()=>{
     if(!draft.monto||parseFloat(draft.monto)<=0)return;
@@ -1885,14 +1913,6 @@ function PresupuestoTab({obra,gastos,presup,pagosCliente=[],retirosGanancia=[],t
   const presupBaseARS=totalPMV>0?(enUSD?totalPMV*tcRef:totalPMV):obra.presupuesto_total?(obra.moneda_presupuesto==="USD"?obra.presupuesto_total*tcRef:obra.presupuesto_total):0;
   const ajusteAcum=calcAjusteGeneral?calcAjusteGeneral[calcAjusteGeneral.length-1]?.acum:null;
 
-  // Función pura: factor compuesto desde un mes (inclusive) al último dato disponible
-  const calcFactor=(fechaDesde,data)=>{
-    if(!fechaDesde||!data)return 1;
-    const desde=fechaDesde.slice(0,7);
-    const serie=data.filter(x=>x.fecha.slice(0,7)>=desde).sort((a,b)=>a.fecha<b.fecha?-1:1);
-    return serie.length>0?serie.reduce((f,x)=>f*(1+x.valor/100),1):1;
-  };
-
   // Presupuesto ajustado: cada ítem × factor desde su fecha, sumados — respeta el monto que le corresponde ver al usuario
   const presupAjustado=useMemo(()=>{
     if(indiceAjuste==="usd")return null;
@@ -1901,9 +1921,9 @@ function PresupuestoTab({obra,gastos,presup,pagosCliente=[],retirosGanancia=[],t
     return Math.round(presup.reduce((sum,p)=>{
       const montoUsar=esAdmin?p.monto:(p.monto_cliente??0);
       const montoARS=p.moneda==="USD"?montoUsar*tcRef:montoUsar;
-      return sum+montoARS*calcFactor(p.fecha,data);
+      return sum+montoARS*calcFactorIndice(p.fecha,data,indiceAjuste==="cac"?cacTipo:"general");
     },0));
-  },[presup,indiceAjuste,cacData,inflData,tcRef,esAdmin]);
+  },[presup,indiceAjuste,cacTipo,cacData,inflData,tcRef,esAdmin]);
 
   // Historial global: presupuesto inicial de obra (si existe y es distinto del total actual) + ítems
   const presupInicialObra=obra.presupuesto_total>0?{
@@ -1931,6 +1951,9 @@ function PresupuestoTab({obra,gastos,presup,pagosCliente=[],retirosGanancia=[],t
         <div style={{display:"flex",background:C.bg3,borderRadius:8,border:`1px solid ${C.bd2}`,padding:3,gap:2}}>
           {INDICES.map(idx=><button key={idx.v} onClick={()=>{setIndiceAjuste(idx.v);if(idx.v==="ipc"&&!inflData)fetchIPC();if(idx.v==="cac"&&!cacData)fetchCAC();}} style={{padding:"4px 10px",fontSize:11,border:"none",borderRadius:6,cursor:"pointer",background:indiceAjuste===idx.v?idx.color:"transparent",color:indiceAjuste===idx.v?"#fff":C.t2,fontWeight:indiceAjuste===idx.v?700:400,transition:"all .2s"}}>{idx.label}</button>)}
         </div>
+        {indiceAjuste==="cac"&&<div style={{display:"flex",background:C.bg3,borderRadius:8,border:`1px solid ${C.bd2}`,padding:3,gap:2}}>
+          {CAC_TIPOS.map(t=><button key={t.v} onClick={()=>setCacTipo(t.v)} style={{padding:"4px 9px",fontSize:11,border:"none",borderRadius:6,cursor:"pointer",background:cacTipo===t.v?"#5A3E1B":"transparent",color:cacTipo===t.v?"#fff":C.t2,fontWeight:cacTipo===t.v?700:400}}>{t.label}</button>)}
+        </div>}
         <Btn small onClick={doExport}>⬇ CSV</Btn>
         {esAdmin&&<Btn primary onClick={()=>{setDraft({cat_id:cats[0]?.id||"",sub_id:"",monto:"",monto_cliente:"",moneda:"ARS",fecha:todayISO(),descripcion:""});setModal(true);}}>+ Agregar presupuesto</Btn>}
       </div>
@@ -1942,7 +1965,7 @@ function PresupuestoTab({obra,gastos,presup,pagosCliente=[],retirosGanancia=[],t
       {esAdmin&&totalPMVCliente!==null&&<StatCard label={`Presupuesto cliente (${monedaVista})`} value={fmt(totalPMVCliente)} color={C.lima} icon="🌐"/>}
       {puedeVerEjecutado&&<StatCard label={`Ejecutado (${monedaVista})`} value={fmt(totalEMV)} color={C.green} icon="💸"/>}
       {puedeVerEjecutado&&<StatCard label={`Disponible (${monedaVista})`} value={fmt(Math.max(0,totalPMV-totalEMV))} color={totalPMV-totalEMV<0?C.red:C.lima} icon="✅"/>}
-      {presupAjustado&&<StatCard label={`Presup. ajustado (${INDICES.find(i=>i.v===indiceAjuste)?.label||indiceAjuste.toUpperCase()})`} value={fmt(enUSD?(presupAjustado/tcRef):presupAjustado)} color={INDICES.find(i=>i.v===indiceAjuste)?.color||C.amber} icon="📊" sub={totalPMV>0?`+${fmt(enUSD?((presupAjustado-totalPMV*tcRef)/tcRef):(presupAjustado-totalPMV))} vs original`:undefined}/>}
+      {presupAjustado&&<StatCard label={`Presup. ajustado (${INDICES.find(i=>i.v===indiceAjuste)?.label||indiceAjuste.toUpperCase()}${indiceAjuste==="cac"?" · "+CAC_TIPOS.find(t=>t.v===cacTipo)?.label:""})`} value={fmt(enUSD?(presupAjustado/tcRef):presupAjustado)} color={INDICES.find(i=>i.v===indiceAjuste)?.color||C.amber} icon="📊" sub={totalPMV>0?`+${fmt(enUSD?((presupAjustado-totalPMV*tcRef)/tcRef):(presupAjustado-totalPMV))} vs original`:undefined}/>}
     </div>
 
     {/* Tabla por categoría con historial expandible */}
@@ -3074,7 +3097,7 @@ function CACTab({cacData,fetchCAC,esAdmin,toast,refreshCAC}){
   useEffect(()=>{fetchCAC();},[]);
   const CAC_COLOR="#5A3E1B";
   const hoy=new Date();
-  const [draft,setDraft]=useState({fecha:"",valor:""});
+  const [draft,setDraft]=useState({fecha:"",valor:"",valor_materiales:"",valor_mano_obra:""});
   const [saving,setSaving]=useState(false);
   const [editId,setEditId]=useState(null);
 
@@ -3091,11 +3114,13 @@ function CACTab({cacData,fetchCAC,esAdmin,toast,refreshCAC}){
 
   const saveNuevo=async()=>{
     const v=parseFloat(draft.valor);
-    if(!draft.fecha||isNaN(v)||v<0||v>100)return toast.error("Fecha y valor (0-100) requeridos");
+    if(!draft.fecha||isNaN(v)||v<0||v>100)return toast.error("Fecha y variación general (0-100) requeridos");
+    const vm=draft.valor_materiales===""?null:parseFloat(draft.valor_materiales);
+    const vmo=draft.valor_mano_obra===""?null:parseFloat(draft.valor_mano_obra);
     setSaving(true);
-    const{error}=await supabase.from("cac_historico").upsert({fecha:draft.fecha.slice(0,7),valor:v},{onConflict:"fecha"});
+    const{error}=await supabase.from("cac_historico").upsert({fecha:draft.fecha.slice(0,7),valor:v,valor_materiales:vm,valor_mano_obra:vmo},{onConflict:"fecha"});
     if(error)toast.error("Error: "+error.message);
-    else{toast.success(`CAC ${draft.fecha.slice(0,7)} guardado (${v}%)`);setDraft(d=>({...d,valor:""}));await refreshCAC();}
+    else{toast.success(`CAC ${draft.fecha.slice(0,7)} guardado (${v}%)`);setDraft(d=>({...d,valor:"",valor_materiales:"",valor_mano_obra:""}));await refreshCAC();}
     setSaving(false);
   };
 
@@ -3149,11 +3174,20 @@ function CACTab({cacData,fetchCAC,esAdmin,toast,refreshCAC}){
           </select>
         </div>
         <div>
-          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Variación % mensual</div>
-          <input style={{...INP,width:110}} type="number" step="0.1" min="0" max="100" placeholder="Ej: 2.1" value={draft.valor} onChange={e=>setDraft(d=>({...d,valor:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&saveNuevo()}/>
+          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Variación % general</div>
+          <input style={{...INP,width:100}} type="number" step="0.1" min="0" max="100" placeholder="Ej: 2.1" value={draft.valor} onChange={e=>setDraft(d=>({...d,valor:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&saveNuevo()}/>
+        </div>
+        <div>
+          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>% Materiales</div>
+          <input style={{...INP,width:100}} type="number" step="0.1" placeholder="Opcional" value={draft.valor_materiales} onChange={e=>setDraft(d=>({...d,valor_materiales:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&saveNuevo()}/>
+        </div>
+        <div>
+          <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>% Mano de obra</div>
+          <input style={{...INP,width:100}} type="number" step="0.1" placeholder="Opcional" value={draft.valor_mano_obra} onChange={e=>setDraft(d=>({...d,valor_mano_obra:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&saveNuevo()}/>
         </div>
         <Btn primary onClick={saveNuevo} loading={saving}>Guardar</Btn>
       </div>
+      <div style={{fontSize:10,color:C.t3,marginTop:6}}>Materiales/Mano de obra son opcionales — si los dejás vacíos, ese mes usa la variación general como respaldo al calcular ajustes por esos índices.</div>
       {proximoMes&&<div style={{marginTop:10,fontSize:11,color:CAC_COLOR,fontWeight:600}}>
         Próximo mes a cargar: <b>{proximoMes}</b> · Verificá el dato en <a href="https://www.camarco.org.ar" target="_blank" rel="noreferrer" style={{color:CAC_COLOR}}>camarco.org.ar</a>
       </div>}
@@ -3196,7 +3230,7 @@ function CACTab({cacData,fetchCAC,esAdmin,toast,refreshCAC}){
       <Card style={{padding:0,overflow:"hidden"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
           <thead><tr style={{borderBottom:`2px solid ${C.bd2}`}}>
-            {["Mes","CAC %","Barra","Acum. 12m",esAdmin?"":""].filter(Boolean).map((h,i)=><th key={i} style={{padding:"8px 12px",textAlign:i>=1?"right":"left",color:C.t3,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>{h}</th>)}
+            {["Mes","General %","Materiales %","Mano de obra %","Acum. 12m",esAdmin?"":""].filter(Boolean).map((h,i)=><th key={i} style={{padding:"8px 12px",textAlign:i>=1?"right":"left",color:C.t3,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>{h}</th>)}
           </tr></thead>
           <tbody>
             {[...serie24].reverse().map((d,i,arr)=>{
@@ -3205,11 +3239,8 @@ function CACTab({cacData,fetchCAC,esAdmin,toast,refreshCAC}){
               return <tr key={d.fecha} style={{borderBottom:`1px solid ${C.bd}`}}>
                 <td style={{padding:"8px 12px",color:C.t2,fontWeight:500}}>{d.fecha.slice(0,7)}</td>
                 <td style={{padding:"8px 12px",textAlign:"right",fontWeight:700,color:d.valor>10?C.red:d.valor>5?C.amber:CAC_COLOR}}>{d.valor?.toFixed(1)}%</td>
-                <td style={{padding:"8px 12px",textAlign:"right"}}>
-                  <div style={{width:80,height:5,background:C.bg3,borderRadius:2,marginLeft:"auto"}}>
-                    <div style={{height:"100%",borderRadius:2,background:d.valor>10?C.red:d.valor>5?C.amber:CAC_COLOR,width:`${Math.min((d.valor/15)*100,100)}%`}}/>
-                  </div>
-                </td>
+                <td style={{padding:"8px 12px",textAlign:"right",color:C.t2}}>{d.valor_materiales!=null?d.valor_materiales.toFixed(1)+"%":"—"}</td>
+                <td style={{padding:"8px 12px",textAlign:"right",color:C.t2}}>{d.valor_mano_obra!=null?d.valor_mano_obra.toFixed(1)+"%":"—"}</td>
                 <td style={{padding:"8px 12px",textAlign:"right",color:CAC_COLOR,fontWeight:600}}>{+(((a12-1)*100).toFixed(1))}%</td>
                 {esAdmin&&<td style={{padding:"8px 12px",textAlign:"right"}}>
                   <button onClick={()=>deleteCAC(d.fecha)} style={{background:"none",border:"none",cursor:"pointer",color:C.t3,fontSize:14,padding:"2px 6px"}}>×</button>
