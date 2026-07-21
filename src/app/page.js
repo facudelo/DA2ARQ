@@ -3,23 +3,31 @@ import React, { useState, useMemo, useRef, useEffect, useCallback } from "react"
 import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
+import {
+  LayoutDashboard, Banknote, Ruler, HardHat, Wallet, Camera, RefreshCw, TrendingUp,
+  ClipboardList, Tags, Users, Lock, LineChart, CircleDollarSign, Building2, Target,
+  BarChart3, Receipt, CalendarRange, Calendar, CheckCircle2, Landmark, Globe,
+  Sun, Moon, ArrowLeftRight, Download, Upload, Plus, X, Check, AlertTriangle,
+  FileText, MessageCircle, Image as ImageIcon, Bell, Settings, LogOut, KeyRound,
+} from "lucide-react";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-const LOGO_IMG = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/7QCEUGhvdG9zaG9wIDMuMAA4QklNBAQAAAAAAGgcAigAYkZCTUQwYTAwMGFlNzAxMDAwMDY3MDMwMDAwOGYwNTAwMDBlMjA1MDAwMDJmMDYwMDAwMDYwYTAwMDBhMjBkMDAwMGZiMGQwMDAwNzAwZTAwMDBiMjBlMDAwMDViMTIwMDAwAP/bAIQABQYGCwgLCwsLCw0LCwsNDg4NDQ4ODw0ODg4NDxAQEBEREBAQEA8TEhMPEBETFBQTERMWFhYTFhUVFhkWGRYWEgEFBQUKBwoICQkICwgKCAsKCgkJCgoMCQoJCgkMDQsKCwsKCw0MCwsICwsMDAwNDQwMDQoLCg0MDQ0MExQTExOc/8IAEQgAlgCWAwEiAAIRAQMRAf/EALIAAQABBQEAAAAAAAAAAAAAAAAHAQMEBQYCEAABBAAFAAcGAwkAAAAAAAADAAECBBESExQVBRAgYoGR4SUxQVBxkkBCUiMkMDRRYaKj8BEAAQIBBggLBwQDAAAAAAAAAQACEQMSITGRoTIzNEFRYdHSBBATIkJxgaKxweEgI1JicpPwQ1CS8xQwshIAAQMBBwQDAQEBAAAAAAAAAQARITFBUWFxgZHwECCh8bHB0TBQ4f/aAAwDAQACAAMAAAABmUAAAAAAAACGplhomWlcAznNqU6RzesO3RdSlJSRd1Va9Qx8itQAAENTLDRMuq2urU0RTzSus2WsNQ8qU9dRyvV1r0921aMlzNu1Y6qmjzfdzPvarYevWRDUyw169zLg52DRznJ9byFPPp5Up1mwwM/16A3Vu7apTTeNwt2dVl6vxbtbzYaXdXsi9DUyw1cuzLgZ+FRzfI9rzdPOubEWvfpR5rVVIfj3r6UvtQtWLfi8t2szdafcZGTehqZYauXplwc7BNDzvRc5581UFVBVSpIeDnYHnzgPCxi+3mhsdtptxfyb0NTLDVy7MoOXyOYkalNPuIx7gZcdSccxvsHVnV+o2kQ8X45yzvMTlOmNhWOJGKw1MsNVrMoI2kfVeKU5vO6vDOJ6rc6g53eMo0mJ3WvOIvdhlHBSHY15zvecZdOvhqU4srWZQAAAAAAAKVFIbmWGiZUNCZUNCZUNCZUNCZUNCZUNCZUNCZUNCZUNCZYaD//aAAgBAQABBQL50YMStx4lx4lx4lY6LaTcOVcOVcOVN0cNDg0G/g2ICk2hTWhTWhTR6NUq4iuuIrriK6avTZBaDRebMtSK1IrUitSK1Ipnx67ExRbXprcU1uKasbEzbOgtlQWyoJjU2QXg8ZyHjIVd30K6HEEFnEs4lB2duoxoiY9yvOPs1ezV7NQLdaEd+Jb8S34kObTaRWipRC76YFAwBreCTWoOoyzdZi6bHuwybygt5QW8oKvdHk3q3q3qHPO0iYLWWsnOBa9dBNBRfHrNOUGNcnCPLgXLgXLgTdPQZc/Bc/Bc/BCnnjKcmWpNak09uK3kEKxmUXx6yvNkU9gceWMuWMuWMuWMuWMuWMuWMhSeUTmnB92Rbsi3c1u5oZiTUcesspsi2TjjzJFzJFzJFzJFzJFzJFzJEGTyiaZYvq2Fq2Fq2Fq2EORpKOPWbUwLO1CO/uLf3Fv7i39xb+4t/cW/uILyeJyEi+4Otwdbg63B0OZpKOPYsXtGc7M4KtbHYZAsxM5iacS3JjiEsSxx6tSKZ8erWhj2ekP5pXG29u2XSGMexsu2KvTaAeiBOOv0iSeaEmm0RRleALTt2jOQ+2HgCb1bPY6Rf96U47uwdtwbpOj+yq2mKGRR2XldhkHSnp9Dldo5M98JXplvNoWWlimHr2+wSmIj7ESaLM0K0IPKLSbYhwsrc9hDFBAck+S5RREOIaKoEE0EUhBIKRJZNAwAZ0RmaZYvYIOIlMQGy+MGSiNuHd6mru34h/MPN/ivzXRMM3IJC4y1YbP9r//2Q==";
+const LOGO_IMG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAYAAADimHc4AAAGW0lEQVR42u2daUxUVxTH/29YBhiWQVEElaIR7KBA1alt0SpqFJfU1oqNWrUSxLUBtQFrNNAN49KaqLTFrVaKKFpTjEnVqoWIWlFCEAEryqIgmyM4MAyMVKafICq8N8PAzBvmnf837rnLu+d3z93eAxj0ggIiB2khQOXtrWZ6WgdDTucXBkOO5xcEQ47nF4SInG8c6eszhhzPbzSIyPn8RoOInM8vBBG5hl+JaPTzGwUicj6/EGgKMpcpiEY/P1FAEWAOEUCjn78ooAgwt20oybRiaPqhCCAAJAJAAEgEgACQCAABIBEAAkAiAIKRtdA67GjvjIA3xsLbfQSc7V3AMAyU6meoa1Sg4FEuyhVlBMAYet9vGhZPXoF3fCfCSsTe7SfKapy8loTUzCNQqp8Z/bmMeht6e0+V3nm1Wi3Uz5ugblGhsr4CJdVFyCvLwZWCS1A01Bj8DK6O/RG/ZB8myKZ0q1y96ilijq7GzaKrwgDABSb7wXUkpe9HZuElaLX6P6671ANHItMwuL+XQW23tb1A1KEwXCm4KNxFmGEYvO0zAftWJuFIZBqGD/LVq5yttS0SViUb7HwAEImssH3Zjz2qw6J2QWOGj0dq9EXMkc/XmTdixgb4evr1uE2JnRPWzoomAC+P7G1LE7BsymrWPC4OUiwJjui1NmfLP4ZU0o8AvKyNH8Zi5tiPurRNDZgNB7GEtWzzczXiUjYgKMYHM+LG4oe0r/Hfi1Z2JzEivDtykmVtQ0tq7iPjzoWXRrYYUokrvAYMwyivQM6tYvvaELtwF26X3kJV/eNXbEFvTuYsu/vMN0jLOgEAaNKokJSeCKnEFeHTI1nL+HrKcD4nzXIA3K8sxJ6z8V3Pu2JHzHtvEcKmfQ4354Hs87PYEV+GxiPq4PJX0kd4yljLqJobcCYrtVP62VunOAH0c3ITzhTUpFEhOeMgFuychpziLM68waNDMHLwqFfSBjq7s+Yvqy2GprWlU3plXQV3xIGxrClIH9U1KrBu/6c4tvFPzu3n4knhiDu+sePnG0WZsBJZdZk3/2Ful+l2Nnbcz6JSCPMqQq1pwubf1iE1mv0wFOw/E6LUaLS1vQAAfPHLim63IxsawGl/XFcu3F3QvxX5uHY3ndUulbhCNsS/R22EjJnLab9576pwAQDA33fOcdpfXwe6I49+QzBHHspqf/SkBI8UpcIGcLs0m9PuNWCYwVcdWxfsgNhGzJonOeMgnYSfKLlvRJ3sXQyqN2JGFCb6TWW1KxpqOs4MggagamnktNvbOnS7zgmyKVij457n29RNXW5bBQdAwnG10H690B0FesuxK+wARAy7C9JuHEdG/gWj9qvPAOjvNIDT3tis1LuuAO9x+HlNCiRiR9Y8uaW3sO33zUbvV58BEDBMzml/WFuiVz3yEUFIXHMcEjsn1jzlijKsPxQGTauGALRr8qjpnPaiygKddcwaNw+Ja09wOr+qrgIRCaGoVz01Sb/6xEv54e4+CPYPYbXXq57ibkU+Zx0rQ9Zj7awYMAz7nU5V/WOsSAjtdLsqaABiGzHilyZwLpbpd853XEO8LltrW3y1aLfOt2jF1few+qeFqFVWm7R/Zg3AxUGKHcsT4cdxT6PVapFy5XCXNjfngdgdfhiB3tzrR05xFqIOfYYGtdLkfTRLAPa2Dpg7/hOET4+Eu9SD+4oi7xzuV97tlC4b4o89EUd1lj/9zzFsO7WZ842YRQLw8fRD1AdbOn62sbaFVOKKoW7eGO31FqytbHQfzpobsP30lk7pc+TzEbfwe4h1XDFX1pVD2VSPdbNj9HpmthdIPZHZfxfENfXE/LoKf+WeNVm7gVEewt2Gvq6df8R26fy+pj73baimVYPYlPVGeUFOAHQo+8F1fHdyE0prHsBSZPYAtFotsooykZxxAJmFl2FpsjYnRzc/V6OppbHj6+jc0mxcLbwMRUMtLFX0xzp4Fv2KEgEgACQCQABIBIAAkAgAASARAAJAIgAEgEQACACJAAgAQG/8S1aSYcrbW81QBPAsZmt6EADQa0me/N8eATQN8eB8WoTNbBdEUWDi0U8RYIbnAIoCE45+tgggCCZyPk1BZjgFURSYcPTrigCCYGTnA7q/jm4vSCflXnZ8d9cAigYjOF+fCKBoMJLjDQFAIIwwS1j3UoNacrph+h/k1PcPRTsOTQAAAABJRU5ErkJggg=="; // Logo por defecto de DA2ARQ (el anterior estaba corrupto/truncado — reemplazado). El arquitecto puede subir su propio logo desde el header de cada obra.
 
 const C = {
-  bg:"#F4F6F1",bg2:"#FFFFFF",bg3:"#EBF0E4",
-  bd:"rgba(42,80,28,0.10)",bd2:"rgba(42,80,28,0.18)",
-  t:"#182810",t2:"#3D5C2A",t3:"#7A9060",
-  green:"#2E6E18",lima:"#7CBF3A",limaBg:"#EBF5DF",
-  red:"#B84A3A",blue:"#2A6A5A",amber:"#7A6A1A",
+  bg:"var(--bg)",bg2:"var(--bg2)",bg3:"var(--bg3)",
+  bd:"var(--bd)",bd2:"var(--bd2)",
+  t:"var(--t)",t2:"var(--t2)",t3:"var(--t3)",
+  green:"var(--green)",lima:"var(--lima)",limaBg:"var(--limaBg)",
+  red:"var(--red)",blue:"var(--blue)",amber:"var(--amber)",
 };
-const gCSS=`*{box-sizing:border-box;margin:0;padding:0}html,body{background:${C.bg};color:${C.t};font-family:'Helvetica Neue',Arial,sans-serif;font-size:13px}::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-thumb{background:rgba(42,80,28,0.18);border-radius:4px}select option{background:#fff;color:${C.t}}@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}@keyframes spin{to{transform:rotate(360deg)}}.fu{animation:fadeUp .28s ease both}.spin{animation:spin .8s linear infinite}input[type=date]::-webkit-calendar-picker-indicator{opacity:.5}input,select,textarea,button{font-family:inherit}@media(max-width:640px){.hide-mobile{display:none!important}.show-mobile{display:flex!important}}@media(min-width:641px){.show-mobile{display:none!important}}.foto-card .foto-overlay{opacity:0;transition:opacity .22s}.foto-card:hover .foto-overlay{opacity:1}.foto-card:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(42,80,28,.18)}`;
-const INP={background:"#fff",border:`1px solid ${C.bd2}`,color:C.t,borderRadius:7,padding:"8px 11px",fontSize:13,outline:"none",width:"100%"};
+const THEME_VARS=`:root,[data-theme="light"]{--bg:#F4F6F1;--bg2:#FFFFFF;--bg3:#EBF0E4;--bd:rgba(42,80,28,0.10);--bd2:rgba(42,80,28,0.18);--t:#182810;--t2:#3D5C2A;--t3:#7A9060;--green:#2E6E18;--lima:#7CBF3A;--limaBg:#EBF5DF;--red:#B84A3A;--blue:#2A6A5A;--amber:#7A6A1A;}[data-theme="dark"]{--bg:#10140D;--bg2:#181F13;--bg3:#1F2818;--bd:rgba(255,255,255,0.08);--bd2:rgba(255,255,255,0.14);--t:#E9F1E1;--t2:#B7CBA6;--t3:#84A06E;--green:#5FBF3A;--lima:#9ADB5C;--limaBg:#20301A;--red:#E2776E;--blue:#4FA593;--amber:#D2B34A;}`;
+const gCSS=`${THEME_VARS}*{box-sizing:border-box;margin:0;padding:0}html,body{background:${C.bg};color:${C.t};font-family:'Helvetica Neue',Arial,sans-serif;font-size:13px;transition:background .2s,color .2s}::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-thumb{background:rgba(42,80,28,0.18);border-radius:4px}select option{background:${C.bg2};color:${C.t}}@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}@keyframes spin{to{transform:rotate(360deg)}}.fu{animation:fadeUp .28s ease both}.spin{animation:spin .8s linear infinite}input[type=date]::-webkit-calendar-picker-indicator{opacity:.5;filter:var(--date-icon-filter,none)}[data-theme="dark"] input[type=date]::-webkit-calendar-picker-indicator{filter:invert(1)}input,select,textarea,button{font-family:inherit}@media(max-width:640px){.hide-mobile{display:none!important}.show-mobile{display:flex!important}}@media(min-width:641px){.show-mobile{display:none!important}}.foto-card .foto-overlay{opacity:0;transition:opacity .22s}.foto-card:hover .foto-overlay{opacity:1}.foto-card:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(42,80,28,.18)}.tabpanel{animation:fadeUp .22s ease both}`;
+const INP={background:C.bg2,border:`1px solid ${C.bd2}`,color:C.t,borderRadius:7,padding:"8px 11px",fontSize:13,outline:"none",width:"100%"};
 const SEL={...INP,cursor:"pointer"};
 const ROL_LABEL={arquitecto:"Arquitecto",ayudante:"Ayudante",cliente:"Cliente"};
 const ROL_COLOR={arquitecto:C.green,ayudante:C.blue,cliente:C.lima};
@@ -61,6 +69,98 @@ const addMonths=(fechaISO,n)=>{const[y,m,d]=fechaISO.split("-").map(Number);cons
 // Reparte `total` en `n` cuotas cuya suma da EXACTO total (evita errores de redondeo): la diferencia en centavos se distribuye entre las primeras cuotas.
 const splitEnCuotas=(total,n)=>{const centavos=Math.round(total*100);const base=Math.floor(centavos/n);const resto=centavos-base*n;return Array.from({length:n},(_,i)=>(base+(i<resto?1:0))/100);};
 const exportCSV=(rows,fn)=>{if(!rows.length)return;const h=Object.keys(rows[0]);const csv="\uFEFF"+[h.join(","),...rows.map(r=>h.map(k=>'"'+(r[k]??'').toString().replace(/"/g,'""')+'"').join(","))].join("\n");const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));a.download=fn;a.click();};
+
+// ── REPORTE PDF DE AVANCE DE OBRA ───────────────────────────────────────────
+// Genera un PDF de una página con el estado de la obra para compartir con el cliente
+// (o con un tercero, ej. banco/familia). Se genera a demanda al hacer click — no es un
+// envío automático programado: eso requeriría un servicio de email configurado aparte.
+const generarReportePDF=async({obra,porCat,totalMV,presupMV,pct,monedaVista,fmt,hitos,esAdmin,disponibleMV,fotosCount})=>{
+  const{default:jsPDF}=await import("jspdf");
+  const{default:autoTable}=await import("jspdf-autotable");
+  const doc=new jsPDF();
+  const verdeOscuro=[42,110,24],verdeClaro=[124,191,58],grisTexto=[70,70,70];
+  let y=20;
+
+  doc.setFillColor(...verdeOscuro);doc.rect(0,0,210,16,"F");
+  doc.setTextColor(255,255,255);doc.setFontSize(12);doc.setFont(undefined,"bold");
+  doc.text("DA2ARQ · Reporte de avance de obra",14,10.5);
+
+  y=28;
+  doc.setTextColor(20,20,20);doc.setFontSize(18);doc.setFont(undefined,"bold");
+  doc.text(obra.nombre,14,y);
+  y+=7;
+  doc.setFontSize(10);doc.setFont(undefined,"normal");doc.setTextColor(...grisTexto);
+  doc.text(`${obra.direccion||""} · Estado: ${obra.estado||"—"}`,14,y);
+  y+=5;
+  doc.text(`Reporte generado el ${new Date().toLocaleDateString("es-AR",{day:"2-digit",month:"long",year:"numeric"})}`,14,y);
+  y+=12;
+
+  const kpis=[
+    [`Presupuesto (${monedaVista})`,fmt(presupMV)],
+    [`Total gastado (${monedaVista})`,fmt(totalMV)],
+    ["Avance de presupuesto",pct!=null?`${pct}%`:"—"],
+    ["Fotos de avance cargadas",String(fotosCount)],
+  ];
+  if(esAdmin&&disponibleMV!=null){
+    kpis.push([`Disponible (${monedaVista})`,fmt(disponibleMV)]);
+  }
+  const colW=(210-28)/2;
+  kpis.forEach((k,i)=>{
+    const col=i%2,fila=Math.floor(i/2);
+    const x=14+col*colW,yy=y+fila*20;
+    doc.setDrawColor(...verdeClaro);doc.setFillColor(240,247,235);
+    doc.roundedRect(x,yy,colW-6,16,2,2,"FD");
+    doc.setFontSize(8);doc.setTextColor(...grisTexto);doc.text(k[0],x+4,yy+6);
+    doc.setFontSize(13);doc.setFont(undefined,"bold");doc.setTextColor(...verdeOscuro);doc.text(String(k[1]),x+4,yy+13);
+    doc.setFont(undefined,"normal");
+  });
+  y+=Math.ceil(kpis.length/2)*20+8;
+
+  if(porCat.length){
+    doc.setFontSize(12);doc.setFont(undefined,"bold");doc.setTextColor(20,20,20);
+    doc.text("Gastado por categoría",14,y);
+    y+=4;
+    autoTable(doc,{
+      startY:y,
+      head:[["Categoría",`Monto (${monedaVista})`,"% del total"]],
+      body:porCat.map(c=>[c.label,fmt(c.total),totalMV>0?`${Math.round((c.total/totalMV)*100)}%`:"—"]),
+      theme:"plain",
+      headStyles:{fillColor:verdeOscuro,textColor:255,fontSize:9},
+      bodyStyles:{fontSize:9,textColor:grisTexto},
+      alternateRowStyles:{fillColor:[245,248,242]},
+      margin:{left:14,right:14},
+    });
+    y=doc.lastAutoTable.finalY+10;
+  }
+
+  const cambiosRecientes=hitos.slice(0,6);
+  if(cambiosRecientes.length){
+    if(y>250){doc.addPage();y=20;}
+    doc.setFontSize(12);doc.setFont(undefined,"bold");doc.setTextColor(20,20,20);
+    doc.text("Cambios / pedidos recientes",14,y);
+    y+=4;
+    autoTable(doc,{
+      startY:y,
+      head:[["Título","Estado"]],
+      body:cambiosRecientes.map(h=>[h.titulo,h.estado==="completado"?"Resuelto":h.estado==="en_progreso"?"En progreso":"Pendiente"]),
+      theme:"plain",
+      headStyles:{fillColor:verdeOscuro,textColor:255,fontSize:9},
+      bodyStyles:{fontSize:9,textColor:grisTexto},
+      alternateRowStyles:{fillColor:[245,248,242]},
+      margin:{left:14,right:14},
+    });
+  }
+
+  const pageCount=doc.internal.getNumberOfPages();
+  for(let p=1;p<=pageCount;p++){
+    doc.setPage(p);
+    doc.setFontSize(8);doc.setTextColor(150,150,150);
+    doc.text("Generado con DA2ARQ",14,290);
+  }
+
+  doc.save(`reporte_${obra.nombre.replace(/\s+/g,"_")}_${todayISO()}.pdf`);
+};
+
 
 // ── IMPORTACIÓN MASIVA DE GASTOS (Excel) ───────────────────────────────────────
 const CAT_MARCA_EJEMPLO="❌ EJEMPLO - borrar esta fila";
@@ -336,6 +436,17 @@ export default function App(){
   const [authLoading,setAuthLoading]=useState(true);
   const [obraActiva,setObraActiva]=useState(null);
   const [tab,setTab]=useState("dashboard");
+  const [theme,setTheme]=useState("light");
+  useEffect(()=>{
+    const saved=typeof window!=="undefined"?localStorage.getItem("da2arq-theme"):null;
+    const inicial=saved||(typeof window!=="undefined"&&window.matchMedia?.("(prefers-color-scheme: dark)").matches?"dark":"light");
+    setTheme(inicial);
+  },[]);
+  useEffect(()=>{
+    document.documentElement.setAttribute("data-theme",theme);
+    localStorage.setItem("da2arq-theme",theme);
+  },[theme]);
+  const toggleTheme=()=>setTheme(t=>t==="dark"?"light":"dark");
   const [tcOficial,setTcOficial]=useState(null);
   const [tcBlue,setTcBlue]=useState(null);
   const [tcManual,setTcManual]=useState(1300);
@@ -423,8 +534,8 @@ export default function App(){
   if(authLoading)return <><style>{gCSS}</style><Spinner/></>;
   if(needsPassword)return <><style>{gCSS}</style><SetPasswordScreen user={user} toast={toast} onDone={()=>{window.history.replaceState(null,"",window.location.pathname);setNeedsPassword(false);}}/><ToastContainer toasts={toast.toasts}/></>;
   if(!user)return <><style>{gCSS}</style><AuthScreen onLogin={setUser} toast={toast}/><ToastContainer toasts={toast.toasts}/></>;
-  if(!obraActiva)return <><style>{gCSS}</style><ObrasScreen user={user} onSelect={o=>{setObraActiva(o);setTab("dashboard");}} onLogout={async()=>{await supabase.auth.signOut();setUser(null);}} toast={toast}/><ToastContainer toasts={toast.toasts}/></>;
-  return <><style>{gCSS}</style><ObraApp user={user} obra={obraActiva} tab={tab} setTab={setTab} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} tcModo={tcModo} setTcModo={setTcModo} tcLoading={tcLoading} fetchTCs={fetchTCs} inflData={inflData} fetchIPC={fetchIPC} tcHistData={tcHistData} fetchTCHist={fetchTCHist} cacData={cacData} fetchCAC={fetchCAC} refreshCAC={refreshCAC} toast={toast} onBack={()=>setObraActiva(null)} onLogout={async()=>{await supabase.auth.signOut();setUser(null);setObraActiva(null);}}/><ToastContainer toasts={toast.toasts}/></>;
+  if(!obraActiva)return <><style>{gCSS}</style><ObrasScreen user={user} theme={theme} toggleTheme={toggleTheme} onSelect={o=>{setObraActiva(o);setTab("dashboard");}} onLogout={async()=>{await supabase.auth.signOut();setUser(null);}} toast={toast}/><ToastContainer toasts={toast.toasts}/></>;
+  return <><style>{gCSS}</style><ObraApp user={user} obra={obraActiva} tab={tab} setTab={setTab} theme={theme} toggleTheme={toggleTheme} tcOficial={tcOficial} tcBlue={tcBlue} tcManual={tcManual} setTcManual={setTcManual} tcModo={tcModo} setTcModo={setTcModo} tcLoading={tcLoading} fetchTCs={fetchTCs} inflData={inflData} fetchIPC={fetchIPC} tcHistData={tcHistData} fetchTCHist={fetchTCHist} cacData={cacData} fetchCAC={fetchCAC} refreshCAC={refreshCAC} toast={toast} onBack={()=>setObraActiva(null)} onLogout={async()=>{await supabase.auth.signOut();setUser(null);setObraActiva(null);}}/><ToastContainer toasts={toast.toasts}/></>;
 }
 
 // ── AUTH ──────────────────────────────────────────────────────────────────────
@@ -531,15 +642,53 @@ function SetPasswordScreen({user,toast,onDone}){
 }
 
 // ── OBRAS SCREEN ──────────────────────────────────────────────────────────────
-function ObrasScreen({user,onSelect,onLogout,toast}){
+function ObrasScreen({user,theme,toggleTheme,onSelect,onLogout,toast}){
   const [obras,setObras]=useState([]);
   const [loading,setLoading]=useState(true);
   const [modal,setModal]=useState(false);
   const [showPw,setShowPw]=useState(false);
   const [saving,setSaving]=useState(false);
+  const [alertas,setAlertas]=useState({});
   const [draft,setDraft]=useState({nombre:"",direccion:"",estado:"En ejecución",presupuesto_total:"",moneda_presupuesto:"ARS",presup_tipo:"total"});
   const loadObras=useCallback(async()=>{setLoading(true);const{data,error}=await supabase.from("obras").select("*, participantes!inner(rol,puede_cargar,user_id), creador:profiles!obras_created_by_fkey(logo_url)").eq("participantes.user_id",user.id).order("created_at",{ascending:false});if(!error)setObras(data||[]);setLoading(false);},[user.id]);
   useEffect(()=>{loadObras();},[loadObras]);
+
+  // Alertas multi-obra: solo para las obras donde el usuario es arquitecto/ayudante — no tiene sentido
+  // pedirle esto a un cliente, y RLS igual le mostraría solo su propia obra.
+  useEffect(()=>{
+    const miRolLocal=o=>o.participantes?.find(p=>p.user_id===user.id)?.rol||"cliente";
+    const idsAdmin=obras.filter(o=>["arquitecto","ayudante"].includes(miRolLocal(o))).map(o=>o.id);
+    if(idsAdmin.length===0)return;
+    (async()=>{
+      let tcOf=1300;
+      try{const r=await fetch("https://dolarapi.com/v1/dolares/oficial").then(x=>x.json());if(r?.venta)tcOf=r.venta;}catch{}
+      const[{data:fotosData},{data:presupData},{data:pagosData}]=await Promise.all([
+        supabase.from("fotos").select("obra_id,fecha").in("obra_id",idsAdmin).order("fecha",{ascending:false}),
+        supabase.from("presupuestos").select("obra_id,monto_cliente,moneda,fecha").in("obra_id",idsAdmin).not("monto_cliente","is",null),
+        supabase.from("pagos_cliente").select("obra_id,monto,moneda,tc_valor").in("obra_id",idsAdmin),
+      ]);
+      const hoy=new Date();
+      const out={};
+      idsAdmin.forEach(id=>{
+        const lista=[];
+        const ultimaFoto=(fotosData||[]).find(f=>f.obra_id===id)?.fecha;
+        if(ultimaFoto){
+          const dias=Math.floor((hoy-new Date(ultimaFoto))/86400000);
+          if(dias>=10)lista.push({tipo:"fotos",texto:`Sin fotos hace ${dias} días`});
+        }else{
+          const obraRef=obras.find(o=>o.id===id);
+          const diasObra=obraRef?.created_at?Math.floor((hoy-new Date(obraRef.created_at))/86400000):0;
+          if(diasObra>=10)lista.push({tipo:"fotos",texto:"Todavía sin fotos"});
+        }
+        const pactadoARS=(presupData||[]).filter(p=>p.obra_id===id).reduce((s,p)=>s+(p.moneda==="USD"?p.monto_cliente*tcOf:p.monto_cliente),0);
+        const pagadoARS=(pagosData||[]).filter(p=>p.obra_id===id).reduce((s,p)=>s+(p.moneda==="USD"?p.monto*(p.tc_valor||tcOf):p.monto),0);
+        const deuda=pactadoARS-pagadoARS;
+        if(deuda>10000)lista.push({tipo:"deuda",texto:`Deuda del cliente: ${fmtARS(deuda)}`});
+        if(lista.length)out[id]=lista;
+      });
+      setAlertas(out);
+    })();
+  },[obras,user.id]);
   const save=async()=>{
     if(!draft.nombre.trim())return;setSaving(true);
     const{data:obra,error:obraErr}=await supabase.from("obras").insert({nombre:draft.nombre.trim(),direccion:draft.direccion,estado:draft.estado,presupuesto_total:parseFloat(draft.presupuesto_total)||0,moneda_presupuesto:draft.moneda_presupuesto,created_by:user.id}).select().single();
@@ -557,7 +706,7 @@ function ObrasScreen({user,onSelect,onLogout,toast}){
   return <div style={{minHeight:"100vh",background:C.bg}}>
     <div style={{background:C.bg2,borderBottom:`1px solid ${C.bd}`,padding:"0 20px",display:"flex",alignItems:"center",justifyContent:"space-between",height:54}}>
       <div style={{display:"flex",alignItems:"center",gap:10}}><Logo size={40}/><div><div style={{fontWeight:800,fontSize:15,color:C.t}}>DA2ARQ</div><div style={{fontSize:10,color:C.t3}}>Gestión de obra</div></div></div>
-      <div style={{display:"flex",alignItems:"center",gap:10}}><span className="hide-mobile" style={{fontSize:12,color:C.t2}}>{user.email}</span><Btn small onClick={()=>setShowPw(true)}>🔒 Contraseña</Btn><Btn small onClick={onLogout}>Salir</Btn></div>
+      <div style={{display:"flex",alignItems:"center",gap:10}}><span className="hide-mobile" style={{fontSize:12,color:C.t2}}>{user.email}</span><button onClick={toggleTheme} aria-label="Cambiar tema" style={{background:"none",border:`1px solid ${C.bd2}`,borderRadius:8,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:C.t2}}>{theme==="dark"?<Sun size={16}/>:<Moon size={16}/>}</button><Btn small onClick={()=>setShowPw(true)}><KeyRound size={13} style={{marginRight:4,verticalAlign:-2}}/>Contraseña</Btn><Btn small onClick={onLogout}>Salir</Btn></div>
     </div>
     <div style={{padding:24,maxWidth:960,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:22}}>
@@ -567,10 +716,15 @@ function ObrasScreen({user,onSelect,onLogout,toast}){
       {loading&&<Spinner/>}
       {!loading&&obras.length===0&&<Card><div style={{textAlign:"center",padding:"40px 0",color:C.t3}}>No tenés obras asignadas todavía.</div></Card>}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
-        {obras.map(o=>{const rol=miRol(o);return <div key={o.id} className="fu" onClick={()=>onSelect(o)} style={{background:C.bg2,border:`1px solid ${C.bd2}`,borderLeft:`4px solid ${C.green}`,borderRadius:12,padding:"18px 20px",cursor:"pointer",transition:"box-shadow .2s"}} onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 20px rgba(42,110,24,.13)"} onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}><div style={{width:40,height:40,borderRadius:10,background:C.limaBg,border:`1px solid ${C.lima}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>🏗️</div><Tag label={o.estado} color={C.green}/></div>
+        {obras.map(o=>{const rol=miRol(o);const alertasObra=alertas[o.id]||[];return <div key={o.id} className="fu" onClick={()=>onSelect(o)} style={{background:C.bg2,border:`1px solid ${C.bd2}`,borderLeft:`4px solid ${alertasObra.length?C.amber:C.green}`,borderRadius:12,padding:"18px 20px",cursor:"pointer",transition:"box-shadow .2s"}} onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 20px rgba(42,110,24,.13)"} onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}><div style={{width:40,height:40,borderRadius:10,background:C.limaBg,border:`1px solid ${C.lima}44`,display:"flex",alignItems:"center",justifyContent:"center"}}><Building2 size={19} color={C.green}/></div><Tag label={o.estado} color={C.green}/></div>
           <div style={{fontWeight:700,fontSize:14,color:C.t,marginBottom:3}}>{o.nombre}</div>
           <div style={{fontSize:12,color:C.t3,marginBottom:12}}>{o.direccion}</div>
+          {alertasObra.length>0&&<div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:12}}>
+            {alertasObra.map((a,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:6,background:C.amber+"14",border:`1px solid ${C.amber}33`,borderRadius:7,padding:"5px 9px"}}>
+              <AlertTriangle size={12} color={C.amber}/><span style={{fontSize:11,color:C.amber,fontWeight:500}}>{a.texto}</span>
+            </div>)}
+          </div>}
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><Tag label={ROL_LABEL[rol]} color={ROL_COLOR[rol]}/><span style={{fontSize:11,color:C.t3}}>{o.created_at?.slice(0,10)}</span></div>
         </div>;})}
       </div>
@@ -605,7 +759,7 @@ function ObrasScreen({user,onSelect,onLogout,toast}){
 
 // ── OBRA APP ──────────────────────────────────────────────────────────────────
 function ObraApp(props){
-  const{user,obra,tab,setTab,tcOficial,tcBlue,tcManual,setTcManual,tcModo,setTcModo,tcLoading,fetchTCs,inflData,fetchIPC,tcHistData,fetchTCHist,cacData,fetchCAC,refreshCAC,toast,onBack,onLogout}=props;
+  const{user,obra,tab,setTab,theme,toggleTheme,tcOficial,tcBlue,tcManual,setTcManual,tcModo,setTcModo,tcLoading,fetchTCs,inflData,fetchIPC,tcHistData,fetchTCHist,cacData,fetchCAC,refreshCAC,toast,onBack,onLogout}=props;
   const [gastos,setGastos]=useState([]);
   const [partic,setPartic]=useState([]);
   const [presup,setPresup]=useState([]);
@@ -680,21 +834,21 @@ function ObraApp(props){
 
   // Tabs permitidas para clientes (guardadas por participante en participantes.tabs_permitidas)
   const TABS=[
-    ...(esAdmin||tabsCliente.includes("dashboard")?[{id:"dashboard",label:"Dashboard",icon:"📊"}]:[]),
-    ...(esAdmin||tabsCliente.includes("gastos")?[{id:"gastos",label:"Gastos",icon:"💸",badge:totalNotifs}]:[]),
-    ...(esAdmin||tabsCliente.includes("presupuesto")?[{id:"presupuesto",label:"Presupuesto",icon:"📐"}]:[]),
-    ...(esAdmin?[{id:"contratistas",label:"Contratistas",icon:"👷"}]:[]),
-    ...(esAdmin?[{id:"ganancia",label:"Ganancia",icon:"💰"}]:[]),
-    ...(esAdmin||tabsCliente.includes("fotos")?[{id:"fotos",label:"Fotos",icon:"📷"}]:[]),
-    ...(esAdmin||tabsCliente.includes("objetivos")?[{id:"objetivos",label:"Cambios/Pedidos",icon:"🔄"}]:[]),
-    ...(esAdmin||tabsCliente.includes("reportes")?[{id:"reportes",label:"Reportes",icon:"📈"}]:[]),
-    ...(!esAdmin&&tabsCliente.includes("resumen")?[{id:"resumen",label:"Mi Resumen",icon:"📋"}]:[]),
-    ...(esAdmin?[{id:"categorias",label:"Categorías",icon:"🏷️"}]:[]),
-    ...(esAdmin?[{id:"participantes",label:"Participantes",icon:"👥"}]:[]),
-    ...(esAdmin?[{id:"accesos",label:"Accesos",icon:"🔐"}]:[]),
-    ...(esAdmin||tabsCliente.includes("ipc")?[{id:"ipc",label:"IPC",icon:"📉"}]:[]),
-    ...(esAdmin||tabsCliente.includes("usd")?[{id:"usd",label:"USD",icon:"💵"}]:[]),
-    ...(esAdmin||tabsCliente.includes("cac")?[{id:"cac",label:"CAC",icon:"🏗️"}]:[]),
+    ...(esAdmin||tabsCliente.includes("dashboard")?[{id:"dashboard",label:"Dashboard",icon:<LayoutDashboard size={16}/>}]:[]),
+    ...(esAdmin||tabsCliente.includes("gastos")?[{id:"gastos",label:"Gastos",icon:<Banknote size={16}/>,badge:totalNotifs}]:[]),
+    ...(esAdmin||tabsCliente.includes("presupuesto")?[{id:"presupuesto",label:"Presupuesto",icon:<Ruler size={16}/>}]:[]),
+    ...(esAdmin?[{id:"contratistas",label:"Contratistas",icon:<HardHat size={16}/>}]:[]),
+    ...(esAdmin?[{id:"ganancia",label:"Ganancia",icon:<Wallet size={16}/>}]:[]),
+    ...(esAdmin||tabsCliente.includes("fotos")?[{id:"fotos",label:"Fotos",icon:<Camera size={16}/>}]:[]),
+    ...(esAdmin||tabsCliente.includes("objetivos")?[{id:"objetivos",label:"Cambios/Pedidos",icon:<RefreshCw size={16}/>}]:[]),
+    ...(esAdmin||tabsCliente.includes("reportes")?[{id:"reportes",label:"Reportes",icon:<TrendingUp size={16}/>}]:[]),
+    ...(!esAdmin&&tabsCliente.includes("resumen")?[{id:"resumen",label:"Mi Resumen",icon:<ClipboardList size={16}/>}]:[]),
+    ...(esAdmin?[{id:"categorias",label:"Categorías",icon:<Tags size={16}/>}]:[]),
+    ...(esAdmin?[{id:"participantes",label:"Participantes",icon:<Users size={16}/>}]:[]),
+    ...(esAdmin?[{id:"accesos",label:"Accesos",icon:<Lock size={16}/>}]:[]),
+    ...(esAdmin||tabsCliente.includes("ipc")?[{id:"ipc",label:"IPC",icon:<LineChart size={16}/>}]:[]),
+    ...(esAdmin||tabsCliente.includes("usd")?[{id:"usd",label:"USD",icon:<CircleDollarSign size={16}/>}]:[]),
+    ...(esAdmin||tabsCliente.includes("cac")?[{id:"cac",label:"CAC",icon:<Building2 size={16}/>}]:[]),
   ];
   const tabsIds=TABS.map(t=>t.id).join(",");
   useEffect(()=>{const ids=tabsIds.split(",").filter(Boolean);if(ids.length&&!ids.includes(tab))setTab(ids[0]);},[tabsIds,tab,setTab]);
@@ -713,7 +867,8 @@ function ObraApp(props){
             {["ARS","USD"].map(m=><button key={m} onClick={()=>setMonedaVista(m)} style={{padding:"4px 12px",fontSize:11,border:"none",borderRadius:16,cursor:"pointer",background:monedaVista===m?C.green:"transparent",color:monedaVista===m?"#fff":C.t2,fontWeight:monedaVista===m?700:400,transition:"all .2s"}}>{m}</button>)}
           </div>
           <Tag label={ROL_LABEL[miRol]} color={ROL_COLOR[miRol]}/>
-          <Btn small onClick={()=>setShowPw(true)}>🔒</Btn>
+          <button onClick={toggleTheme} aria-label="Cambiar tema" style={{background:"none",border:`1px solid ${C.bd2}`,borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:C.t2,flexShrink:0}}>{theme==="dark"?<Sun size={15}/>:<Moon size={15}/>}</button>
+          <Btn small onClick={()=>setShowPw(true)}><KeyRound size={13}/></Btn>
           <Btn small onClick={onLogout}>Salir</Btn>
         </div>
       </div>
@@ -739,7 +894,7 @@ function ObraApp(props){
       </div>
       {/* TABS desktop */}
       <div className="hide-mobile" style={{display:"flex",overflowX:"auto",marginBottom:-1}}>
-        {TABS.map(t=><button key={t.id} onClick={()=>goTab(t.id)} style={{padding:"8px 14px",fontSize:12,border:"none",borderBottom:tab===t.id?`2px solid ${C.green}`:"2px solid transparent",cursor:"pointer",background:"transparent",color:tab===t.id?C.green:C.t3,fontWeight:tab===t.id?600:400,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:5,position:"relative"}}>
+        {TABS.map(t=><button key={t.id} onClick={()=>goTab(t.id)} style={{padding:"8px 14px",fontSize:12,border:"none",borderBottom:tab===t.id?`2px solid ${C.green}`:"2px solid transparent",cursor:"pointer",background:"transparent",color:tab===t.id?C.green:C.t3,fontWeight:tab===t.id?600:400,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:5,position:"relative",transition:"color .15s,border-color .15s"}}>
           <span>{t.icon}</span>{t.label}
           {t.badge>0&&<span style={{background:C.red,color:"#fff",fontSize:9,fontWeight:700,borderRadius:10,padding:"1px 5px",marginLeft:2,lineHeight:1.4}}>{t.badge}</span>}
         </button>)}
@@ -826,27 +981,32 @@ function DashboardTab({obra,gastos,esAdmin,presup,tcRef,partic,cats,fotos,hitos=
   }).filter(c=>c.total>0).sort((a,b)=>b.total-a.total);
 
   return <div className="fu">
+    {esAdmin&&<div style={{display:"flex",justifyContent:"flex-end",marginBottom:14}}>
+      <Btn small onClick={()=>generarReportePDF({obra,porCat,totalMV,presupMV,pct,monedaVista,fmt,hitos,esAdmin,disponibleMV:gan?toMV(gan.gananciaDisponibleHoy):null,fotosCount:fotos.length})}>
+        <FileText size={13} style={{marginRight:5,verticalAlign:-2}}/>Generar reporte PDF
+      </Btn>
+    </div>}
     {/* FILA 1: KPIs generales — igual para todos los roles */}
     {!esAdmin&&<div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:20}}>
-      <StatCard label={`Total gastado (${monedaVista})`} value={fmt(totalMV)} color={C.green} icon="💸"/>
-      {presupMV>0&&<StatCard label={`Presupuesto (${monedaVista})`} value={fmt(presupMV)} color={C.blue} icon="📐"/>}
-      {presupMV>0&&<StatCard label="Avance presupuesto" value={pct!==null?`${pct}%`:"—"} color={pct>100?C.red:pct>80?C.amber:C.green} icon="📊"/>}
-      <StatCard label="Participantes" value={partic.length} color={C.lima} icon="👥"/>
+      <StatCard label={`Total gastado (${monedaVista})`} value={fmt(totalMV)} color={C.green} icon={<Banknote size={13}/>}/>
+      {presupMV>0&&<StatCard label={`Presupuesto (${monedaVista})`} value={fmt(presupMV)} color={C.blue} icon={<Ruler size={13}/>}/>}
+      {presupMV>0&&<StatCard label="Avance presupuesto" value={pct!==null?`${pct}%`:"—"} color={pct>100?C.red:pct>80?C.amber:C.green} icon={<BarChart3 size={13}/>}/>}
+      <StatCard label="Participantes" value={partic.length} color={C.lima} icon={<Users size={13}/>}/>
     </div>}
 
     {/* FILA 1B: Presupuesto + Ganancia — solo arquitecto/ayudante, el cliente nunca ve esto */}
     {esAdmin&&<>
     <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:10}}>
-      <StatCard label={`Presupuesto real (${monedaVista})`} value={fmt(toMV(gan.presupuestoRealARS))} color={C.blue} icon="📐"/>
-      <StatCard label={`Total gastado (${monedaVista})`} value={fmt(toMV(gan.totalGastosARS))} color={C.amber} icon="🧾"/>
-      <StatCard label={`Total retirado (${monedaVista})`} value={fmt(toMV(gan.totalRetirosARS))} color={C.t2} icon="🏦"/>
-      <StatCard label={`Disponible (${monedaVista})`} value={fmt(toMV(gan.gananciaDisponibleHoy))} color={gan.gananciaDisponibleHoy<0?C.red:C.green} icon="💰"/>
+      <StatCard label={`Presupuesto real (${monedaVista})`} value={fmt(toMV(gan.presupuestoRealARS))} color={C.blue} icon={<Ruler size={13}/>}/>
+      <StatCard label={`Total gastado (${monedaVista})`} value={fmt(toMV(gan.totalGastosARS))} color={C.amber} icon={<Receipt size={13}/>}/>
+      <StatCard label={`Total retirado (${monedaVista})`} value={fmt(toMV(gan.totalRetirosARS))} color={C.t2} icon={<Landmark size={13}/>}/>
+      <StatCard label={`Disponible (${monedaVista})`} value={fmt(toMV(gan.gananciaDisponibleHoy))} color={gan.gananciaDisponibleHoy<0?C.red:C.green} icon={<Wallet size={13}/>}/>
     </div>
     <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:20}}>
-      <StatCard label="% presupuesto utilizado" value={gan.pctPresupuestoUtilizado!==null?`${gan.pctPresupuestoUtilizado}%`:"—"} color={gan.pctPresupuestoUtilizado>100?C.red:gan.pctPresupuestoUtilizado>85?C.amber:C.green} icon="📊"/>
-      <StatCard label={`Ganancia estimada (${monedaVista})`} value={fmt(toMV(gan.gananciaEstimadaARS))} color={gan.gananciaEstimadaARS<0?C.red:C.lima} icon="🎯"/>
-      <StatCard label={`Estimada disponible por retirar (${monedaVista})`} value={fmt(toMV(gan.restanteEstimadoARS))} color={gan.restanteEstimadoARS<0?C.red:C.green} icon="💸"/>
-      <StatCard label="% retiro vs. ganancia estimada" value={gan.pctRetiradoVsEstimada!==null?`${gan.pctRetiradoVsEstimada}%`:"—"} color={gan.pctRetiradoVsEstimada>100?C.red:gan.pctRetiradoVsEstimada>85?C.amber:C.green} icon="📈"/>
+      <StatCard label="% presupuesto utilizado" value={gan.pctPresupuestoUtilizado!==null?`${gan.pctPresupuestoUtilizado}%`:"—"} color={gan.pctPresupuestoUtilizado>100?C.red:gan.pctPresupuestoUtilizado>85?C.amber:C.green} icon={<BarChart3 size={13}/>}/>
+      <StatCard label={`Ganancia estimada (${monedaVista})`} value={fmt(toMV(gan.gananciaEstimadaARS))} color={gan.gananciaEstimadaARS<0?C.red:C.lima} icon={<Target size={13}/>}/>
+      <StatCard label={`Estimada disponible por retirar (${monedaVista})`} value={fmt(toMV(gan.restanteEstimadoARS))} color={gan.restanteEstimadoARS<0?C.red:C.green} icon={<Banknote size={13}/>}/>
+      <StatCard label="% retiro vs. ganancia estimada" value={gan.pctRetiradoVsEstimada!==null?`${gan.pctRetiradoVsEstimada}%`:"—"} color={gan.pctRetiradoVsEstimada>100?C.red:gan.pctRetiradoVsEstimada>85?C.amber:C.green} icon={<TrendingUp size={13}/>}/>
     </div>
     </>}
 
@@ -1194,7 +1354,7 @@ function GastoRapidoModal({user,obra,cats,tcOficial,tcBlue,tcManual,setTcManual,
   return <Modal title="Cargar gasto" onClose={onClose} wide={modo==="excel"}>
     {esAdmin&&<div style={{display:"flex",gap:8,marginBottom:16,background:C.bg3,borderRadius:8,padding:4}}>
       <button onClick={()=>setModo("uno")} style={{flex:1,padding:"7px",fontSize:12,border:"none",borderRadius:6,cursor:"pointer",background:modo==="uno"?C.bg2:"transparent",color:modo==="uno"?C.t:C.t3,fontWeight:modo==="uno"?700:400}}>Un gasto</button>
-      <button onClick={irAModoExcel} style={{flex:1,padding:"7px",fontSize:12,border:"none",borderRadius:6,cursor:"pointer",background:modo==="excel"?C.bg2:"transparent",color:modo==="excel"?C.t:C.t3,fontWeight:modo==="excel"?700:400}}>📥 Importar Excel (varios)</button>
+      <button onClick={irAModoExcel} style={{flex:1,padding:"7px",fontSize:12,border:"none",borderRadius:6,cursor:"pointer",background:modo==="excel"?C.bg2:"transparent",color:modo==="excel"?C.t:C.t3,fontWeight:modo==="excel"?700:400}}><Upload size={13} style={{verticalAlign:-2,marginRight:4}}/>Importar Excel (varios)</button>
     </div>}
 
     {modo==="uno"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -1487,7 +1647,7 @@ function DeudaClienteCard({obra,presup,pagosCliente,cats,cacData,fetchCAC,tcRef,
   return <Card style={{marginTop:14,border:`1px solid ${C.blue}33`}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:14}}>
       <div>
-        <div style={{fontSize:14,fontWeight:700,color:C.t}}>💰 Deuda del cliente</div>
+        <div style={{fontSize:14,fontWeight:700,color:C.t}}><Wallet size={15} style={{verticalAlign:-2,marginRight:5}}/>Deuda del cliente</div>
         <div style={{fontSize:11,color:C.t3,marginTop:2}}>Presupuesto pactado con el cliente vs. pagos recibidos{hayCAC?` · ajustado por CAC (${CAC_TIPOS.find(t=>t.v===cacTipo)?.label})`:""}</div>
       </div>
       {esAdmin&&<div style={{display:"flex",gap:8,alignItems:"center"}}>
@@ -1500,10 +1660,10 @@ function DeudaClienteCard({obra,presup,pagosCliente,cats,cacData,fetchCAC,tcRef,
     </div>
 
     <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
-      <StatCard label={`Pactado con cliente (${monedaVista})`} value={fmt(toMV(totalPactadoARS))} color={C.blue} icon="📐"/>
-      <StatCard label={`Pagado (${monedaVista})`} value={fmt(toMV(totalPagadoARS))} color={C.green} icon="✅" sub={pctPagadoNominal!=null?`${pctPagadoNominal}% del pactado (nominal)`:undefined}/>
-      <StatCard label={`Saldo pendiente nominal (${monedaVista})`} value={fmt(toMV(saldoNominalARS))} color={saldoNominalARS>0?C.amber:C.green} icon="🧾"/>
-      {saldoAjustadoARS!=null&&<StatCard label={`Saldo pendiente ajustado CAC (${monedaVista})`} value={fmt(toMV(saldoAjustadoARS))} color={saldoAjustadoARS>0?C.red:C.green} icon="📊" sub={pctPagadoAjustado!=null?`${pctPagadoAjustado}% del compromiso actualizado ya cubierto`:undefined}/>}
+      <StatCard label={`Pactado con cliente (${monedaVista})`} value={fmt(toMV(totalPactadoARS))} color={C.blue} icon={<Ruler size={13}/>}/>
+      <StatCard label={`Pagado (${monedaVista})`} value={fmt(toMV(totalPagadoARS))} color={C.green} icon={<CheckCircle2 size={13}/>} sub={pctPagadoNominal!=null?`${pctPagadoNominal}% del pactado (nominal)`:undefined}/>
+      <StatCard label={`Saldo pendiente nominal (${monedaVista})`} value={fmt(toMV(saldoNominalARS))} color={saldoNominalARS>0?C.amber:C.green} icon={<Receipt size={13}/>}/>
+      {saldoAjustadoARS!=null&&<StatCard label={`Saldo pendiente ajustado CAC (${monedaVista})`} value={fmt(toMV(saldoAjustadoARS))} color={saldoAjustadoARS>0?C.red:C.green} icon={<BarChart3 size={13}/>} sub={pctPagadoAjustado!=null?`${pctPagadoAjustado}% del compromiso actualizado ya cubierto`:undefined}/>}
     </div>
 
     {!hayCAC&&<div style={{fontSize:11,color:C.t3,background:C.bg3,borderRadius:8,padding:"8px 12px",marginBottom:14}}>ℹ️ Sin datos de CAC cargados: se muestra solo el saldo nominal (sin ajuste por índice).{esAdmin?" Presioná \"Cargar CAC\" para ver el saldo ajustado.":""}</div>}
@@ -1612,7 +1772,7 @@ function GananciaTab({obra,gastos,presup,pagosCliente,retirosGanancia,cats,cacDa
   };
 
   return <div className="fu">
-    <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:4}}>💰 Ganancia / Beneficio</div>
+    <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:4}}><Wallet size={15} style={{verticalAlign:-2,marginRight:5}}/>Ganancia / Beneficio</div>
     <div style={{fontSize:12,color:C.t3,marginBottom:16}}>Presupuesto (lo que cobrás del cliente) = Gastos ejecutados + Ganancia. Acá anotás lo que vas retirando.</div>
 
     {!hayCAC&&<div style={{fontSize:11,color:C.t3,background:C.bg3,borderRadius:8,padding:"8px 12px",marginBottom:14}}>
@@ -1620,10 +1780,10 @@ function GananciaTab({obra,gastos,presup,pagosCliente,retirosGanancia,cats,cacDa
     </div>}
 
     <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:8}}>
-      <StatCard label={`Cobrado del cliente (${monedaVista})`} value={fmt(toMV(totalPagadoNominalARS))} color={C.blue} icon="🌐"/>
-      <StatCard label={`Gastado / ejecutado (${monedaVista})`} value={fmt(toMV(totalGastosARS))} color={C.amber} icon="🧾"/>
-      <StatCard label={`Ya retirado (${monedaVista})`} value={fmt(toMV(totalRetirosARS))} color={C.t2} icon="🏦"/>
-      <StatCard label={`Disponible (${monedaVista})`} value={fmt(toMV(gananciaDisponibleHoy))} color={gananciaDisponibleHoy<0?C.red:C.green} icon="💰"/>
+      <StatCard label={`Cobrado del cliente (${monedaVista})`} value={fmt(toMV(totalPagadoNominalARS))} color={C.blue} icon={<Globe size={13}/>}/>
+      <StatCard label={`Gastado / ejecutado (${monedaVista})`} value={fmt(toMV(totalGastosARS))} color={C.amber} icon={<Receipt size={13}/>}/>
+      <StatCard label={`Ya retirado (${monedaVista})`} value={fmt(toMV(totalRetirosARS))} color={C.t2} icon={<Landmark size={13}/>}/>
+      <StatCard label={`Disponible (${monedaVista})`} value={fmt(toMV(gananciaDisponibleHoy))} color={gananciaDisponibleHoy<0?C.red:C.green} icon={<Wallet size={13}/>}/>
     </div>
     <div style={{fontSize:11,color:C.t3,marginBottom:16}}>
       {gananciaTeoricaTotal!=null&&<>Ganancia total estimada del proyecto si se cobrara hoy todo lo pactado (ajustado): <b style={{color:C.t2}}>{fmt(toMV(gananciaTeoricaTotal))}</b></>}
@@ -1631,7 +1791,7 @@ function GananciaTab({obra,gastos,presup,pagosCliente,retirosGanancia,cats,cacDa
     </div>
 
     <Card style={{marginBottom:16,border:`1px solid ${C.lima}44`}}>
-      <div style={{fontSize:13,fontWeight:700,color:C.t,marginBottom:2}}>🎯 Ganancia estimada del proyecto</div>
+      <div style={{fontSize:13,fontWeight:700,color:C.t,marginBottom:2}}><Target size={15} style={{verticalAlign:-2,marginRight:5}}/>Ganancia estimada del proyecto</div>
       <div style={{fontSize:11,color:C.t3,marginBottom:14}}>Pactado con el cliente ({fmt(toMV(presupuestoPactadoARS))}) − presupuesto real de costos ({fmt(toMV(presupuestoRealARS))}). Se recalcula sola si ajustás el presupuesto — puede no ser exacta hasta el final de la obra.</div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:6,flexWrap:"wrap",gap:8}}>
         <span style={{fontSize:20,fontWeight:700,color:gananciaEstimadaARS<0?C.red:C.t}}>{fmt(toMV(gananciaEstimadaARS))}</span>
@@ -1733,7 +1893,7 @@ function ContratistasTab({gastos,presup,cats,tcRef,monedaVista}){
   const totalGeneral=porCat.reduce((s,c)=>s+c.totalGasto,0);
 
   return <div className="fu">
-    <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:4}}>👷 Contratistas</div>
+    <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:4}}><HardHat size={15} style={{verticalAlign:-2,marginRight:5}}/>Contratistas</div>
     <div style={{fontSize:12,color:C.t3,marginBottom:16}}>Avance de presupuesto por subcategoría — cuánto gastaste vs. lo pactado con cada contratista/rubro</div>
 
     {porCat.length===0&&<Card><div style={{textAlign:"center",padding:"32px 0",color:C.t3,fontSize:12}}>Todavía no hay gastos ni presupuesto cargados por subcategoría.</div></Card>}
@@ -1781,17 +1941,17 @@ function GananciaResumenCard({presup,pagosCliente,gastos,retirosGanancia,tcRef,c
   const toMV=ars=>enUSD?(tcRef>0?ars/tcRef:0):ars;
   const{totalPagadoNominalARS,totalGastosARS,totalRetirosARS,gananciaDisponibleHoy,gananciaEstimadaARS,pctRetiradoVsEstimada}=calcGanancia({presup,pagosCliente,gastos,retirosGanancia,tcRef,cacData});
   return <Card style={{marginTop:14,border:`1px solid ${C.green}33`}}>
-    <div style={{fontSize:14,fontWeight:700,color:C.t,marginBottom:2}}>💰 Ganancia</div>
+    <div style={{fontSize:14,fontWeight:700,color:C.t,marginBottom:2}}><Wallet size={15} style={{verticalAlign:-2,marginRight:5}}/>Ganancia</div>
     <div style={{fontSize:11,color:C.t3,marginBottom:14}}>Cobrado, gastado y retirado, en pesos reales ya movidos (sin ajustar) — vista completa en la solapa "Ganancia"</div>
     <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-      <StatCard label={`Cobrado del cliente (${monedaVista})`} value={fmt(toMV(totalPagadoNominalARS))} color={C.blue} icon="🌐"/>
-      <StatCard label={`Gastado (${monedaVista})`} value={fmt(toMV(totalGastosARS))} color={C.amber} icon="🧾"/>
-      <StatCard label={`Ya retirado (${monedaVista})`} value={fmt(toMV(totalRetirosARS))} color={C.t2} icon="🏦"/>
-      <StatCard label={`Disponible (${monedaVista})`} value={fmt(toMV(gananciaDisponibleHoy))} color={gananciaDisponibleHoy<0?C.red:C.green} icon="💰"/>
+      <StatCard label={`Cobrado del cliente (${monedaVista})`} value={fmt(toMV(totalPagadoNominalARS))} color={C.blue} icon={<Globe size={13}/>}/>
+      <StatCard label={`Gastado (${monedaVista})`} value={fmt(toMV(totalGastosARS))} color={C.amber} icon={<Receipt size={13}/>}/>
+      <StatCard label={`Ya retirado (${monedaVista})`} value={fmt(toMV(totalRetirosARS))} color={C.t2} icon={<Landmark size={13}/>}/>
+      <StatCard label={`Disponible (${monedaVista})`} value={fmt(toMV(gananciaDisponibleHoy))} color={gananciaDisponibleHoy<0?C.red:C.green} icon={<Wallet size={13}/>}/>
     </div>
     {gananciaEstimadaARS>0&&<div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${C.bd}`}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:5,flexWrap:"wrap",gap:6}}>
-        <span style={{fontSize:11,color:C.t3}}>🎯 Ganancia estimada: <b style={{color:C.t}}>{fmt(toMV(gananciaEstimadaARS))}</b></span>
+        <span style={{fontSize:11,color:C.t3}}><Target size={12} style={{verticalAlign:-2,marginRight:3}}/>Ganancia estimada: <b style={{color:C.t}}>{fmt(toMV(gananciaEstimadaARS))}</b></span>
         <span style={{fontSize:11,color:C.t3}}>Retirado: <b style={{color:C.t2}}>{pctRetiradoVsEstimada}%</b></span>
       </div>
       <div style={{height:6,borderRadius:3,background:C.bg3}}>
@@ -1961,11 +2121,11 @@ function PresupuestoTab({obra,gastos,presup,pagosCliente=[],retirosGanancia=[],t
 
     {/* Resumen total */}
     <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
-      <StatCard label={`Presupuesto ${esAdmin?"real":""} (${monedaVista})`} value={fmt(totalPMV)} color={C.blue} icon="📐"/>
-      {esAdmin&&totalPMVCliente!==null&&<StatCard label={`Presupuesto cliente (${monedaVista})`} value={fmt(totalPMVCliente)} color={C.lima} icon="🌐"/>}
-      {puedeVerEjecutado&&<StatCard label={`Ejecutado (${monedaVista})`} value={fmt(totalEMV)} color={C.green} icon="💸"/>}
-      {puedeVerEjecutado&&<StatCard label={`Disponible (${monedaVista})`} value={fmt(Math.max(0,totalPMV-totalEMV))} color={totalPMV-totalEMV<0?C.red:C.lima} icon="✅"/>}
-      {presupAjustado&&<StatCard label={`Presup. ajustado (${INDICES.find(i=>i.v===indiceAjuste)?.label||indiceAjuste.toUpperCase()}${indiceAjuste==="cac"?" · "+CAC_TIPOS.find(t=>t.v===cacTipo)?.label:""})`} value={fmt(enUSD?(presupAjustado/tcRef):presupAjustado)} color={INDICES.find(i=>i.v===indiceAjuste)?.color||C.amber} icon="📊" sub={totalPMV>0?`+${fmt(enUSD?((presupAjustado-totalPMV*tcRef)/tcRef):(presupAjustado-totalPMV))} vs original`:undefined}/>}
+      <StatCard label={`Presupuesto ${esAdmin?"real":""} (${monedaVista})`} value={fmt(totalPMV)} color={C.blue} icon={<Ruler size={13}/>}/>
+      {esAdmin&&totalPMVCliente!==null&&<StatCard label={`Presupuesto cliente (${monedaVista})`} value={fmt(totalPMVCliente)} color={C.lima} icon={<Globe size={13}/>}/>}
+      {puedeVerEjecutado&&<StatCard label={`Ejecutado (${monedaVista})`} value={fmt(totalEMV)} color={C.green} icon={<Banknote size={13}/>}/>}
+      {puedeVerEjecutado&&<StatCard label={`Disponible (${monedaVista})`} value={fmt(Math.max(0,totalPMV-totalEMV))} color={totalPMV-totalEMV<0?C.red:C.lima} icon={<CheckCircle2 size={13}/>}/>}
+      {presupAjustado&&<StatCard label={`Presup. ajustado (${INDICES.find(i=>i.v===indiceAjuste)?.label||indiceAjuste.toUpperCase()}${indiceAjuste==="cac"?" · "+CAC_TIPOS.find(t=>t.v===cacTipo)?.label:""})`} value={fmt(enUSD?(presupAjustado/tcRef):presupAjustado)} color={INDICES.find(i=>i.v===indiceAjuste)?.color||C.amber} icon={<BarChart3 size={13}/>} sub={totalPMV>0?`+${fmt(enUSD?((presupAjustado-totalPMV*tcRef)/tcRef):(presupAjustado-totalPMV))} vs original`:undefined}/>}
     </div>
 
     {/* Tabla por categoría con historial expandible */}
@@ -2132,6 +2292,60 @@ function PresupuestoTab({obra,gastos,presup,pagosCliente=[],retirosGanancia=[],t
 }
 
 // ── FOTOS ─────────────────────────────────────────────────────────────────────
+function ComparadorFotos({fotos,onClose}){
+  const ordenadas=useMemo(()=>[...fotos].sort((a,b)=>(a.fecha||"").localeCompare(b.fecha||"")),[fotos]);
+  const [antesId,setAntesId]=useState(ordenadas[0]?.id);
+  const [despuesId,setDespuesId]=useState(ordenadas[ordenadas.length-1]?.id);
+  const [pos,setPos]=useState(50);
+  const antes=fotos.find(f=>f.id===antesId);
+  const despues=fotos.find(f=>f.id===despuesId);
+  const containerRef=useRef(null);
+  const dragging=useRef(false);
+
+  const mover=clientX=>{
+    if(!containerRef.current)return;
+    const rect=containerRef.current.getBoundingClientRect();
+    setPos(Math.min(100,Math.max(0,((clientX-rect.left)/rect.width)*100)));
+  };
+
+  return <Modal title="Comparar antes / después" onClose={onClose} wide>
+    <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
+      <div style={{flex:1,minWidth:160}}>
+        <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Antes</div>
+        <select style={SEL} value={antesId||""} onChange={e=>setAntesId(e.target.value)}>
+          {ordenadas.map(f=><option key={f.id} value={f.id}>{f.fecha} — {f.titulo||f.etapa||f.ambiente||"Foto"}</option>)}
+        </select>
+      </div>
+      <div style={{flex:1,minWidth:160}}>
+        <div style={{fontSize:11,color:C.t2,marginBottom:4,fontWeight:600}}>Después</div>
+        <select style={SEL} value={despuesId||""} onChange={e=>setDespuesId(e.target.value)}>
+          {ordenadas.map(f=><option key={f.id} value={f.id}>{f.fecha} — {f.titulo||f.etapa||f.ambiente||"Foto"}</option>)}
+        </select>
+      </div>
+    </div>
+    {antes&&despues?
+      <div ref={containerRef}
+           onMouseMove={e=>{if(dragging.current)mover(e.clientX);}}
+           onMouseUp={()=>dragging.current=false}
+           onMouseLeave={()=>dragging.current=false}
+           onTouchMove={e=>mover(e.touches[0].clientX)}
+           onTouchEnd={()=>dragging.current=false}
+           style={{position:"relative",width:"100%",aspectRatio:"4/3",borderRadius:12,overflow:"hidden",userSelect:"none",background:C.bg3,touchAction:"none"}}>
+        <img src={despues.url} alt="Después" draggable={false} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}}/>
+        <img src={antes.url} alt="Antes" draggable={false} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",clipPath:`inset(0 ${100-pos}% 0 0)`}}/>
+        <div onMouseDown={()=>dragging.current=true} onTouchStart={()=>dragging.current=true}
+             style={{position:"absolute",top:0,bottom:0,left:`calc(${pos}% - 1px)`,width:2,background:"#fff",cursor:"ew-resize"}}>
+          <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",width:36,height:36,borderRadius:"50%",background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 2px 8px rgba(0,0,0,.35)",cursor:"ew-resize"}}>
+            <ArrowLeftRight size={16} color="#182810"/>
+          </div>
+        </div>
+        <div style={{position:"absolute",top:10,left:10,background:"rgba(0,0,0,.55)",color:"#fff",fontSize:11,padding:"3px 9px",borderRadius:20}}>Antes · {antes.fecha}</div>
+        <div style={{position:"absolute",top:10,right:10,background:"rgba(0,0,0,.55)",color:"#fff",fontSize:11,padding:"3px 9px",borderRadius:20}}>Después · {despues.fecha}</div>
+      </div>
+    :<div style={{textAlign:"center",padding:"40px 0",color:C.t3}}>Elegí dos fotos para comparar.</div>}
+  </Modal>;
+}
+
 function FotosTab({obra,fotos,puedoCargar,esAdmin,user,toast,reload,obraEtapas}){
   const [modal,setModal]=useState(false);
   const [editFoto,setEditFoto]=useState(null);
@@ -2146,6 +2360,7 @@ function FotosTab({obra,fotos,puedoCargar,esAdmin,user,toast,reload,obraEtapas})
   const [saving,setSaving]=useState(false);
   const [lightboxIdx,setLightboxIdx]=useState(null);
   const [gestionModal,setGestionModal]=useState(false);
+  const [comparador,setComparador]=useState(false);
   const fileRef=useRef();
   const touchStartX=useRef(null);
 
@@ -2274,10 +2489,12 @@ function FotosTab({obra,fotos,puedoCargar,esAdmin,user,toast,reload,obraEtapas})
         <div style={{fontSize:12,color:C.t3}}>{fotos.length} foto{fotos.length!==1?"s":""} · {etapas.length} etapa{etapas.length!==1?"s":""} · {ambientes.length} ambiente{ambientes.length!==1?"s":""}</div>
       </div>
       <div style={{display:"flex",gap:8}}>
-        {esAdmin&&<Btn small onClick={()=>setGestionModal(true)}>⚙ Etapas / Ambientes</Btn>}
+        {fotos.length>=2&&<Btn small onClick={()=>setComparador(true)}><ArrowLeftRight size={13} style={{verticalAlign:-2,marginRight:4}}/>Comparar antes/después</Btn>}
+        {esAdmin&&<Btn small onClick={()=>setGestionModal(true)}><Settings size={13} style={{verticalAlign:-2,marginRight:4}}/>Etapas / Ambientes</Btn>}
         {puedoCargar&&<Btn primary onClick={()=>setModal(true)}>+ Subir foto</Btn>}
       </div>
     </div>
+    {comparador&&<ComparadorFotos fotos={fotos} onClose={()=>setComparador(false)}/>}
 
     <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
       <div style={{display:"flex",background:C.bg3,borderRadius:8,border:`1px solid ${C.bd2}`,padding:3}}>
@@ -2681,9 +2898,9 @@ function ResumenClienteTab({obra,gastos,presup,tcRef,cats,fotos,hitos=[],monedaV
 
   return <div className="fu">
     <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
-      <StatCard label={`Total gastado (${monedaVista})`} value={fmt(totalGastado)} color={C.green} icon="💸"/>
-      {presupMV>0&&<StatCard label={`Presupuesto (${monedaVista})`} value={fmt(presupMV)} color={C.blue} icon="📐"/>}
-      {pct!==null&&<StatCard label="Avance presupuesto" value={`${pct}%`} color={pct>100?C.red:pct>80?C.amber:C.green} icon="📊"/>}
+      <StatCard label={`Total gastado (${monedaVista})`} value={fmt(totalGastado)} color={C.green} icon={<Banknote size={13}/>}/>
+      {presupMV>0&&<StatCard label={`Presupuesto (${monedaVista})`} value={fmt(presupMV)} color={C.blue} icon={<Ruler size={13}/>}/>}
+      {pct!==null&&<StatCard label="Avance presupuesto" value={`${pct}%`} color={pct>100?C.red:pct>80?C.amber:C.green} icon={<BarChart3 size={13}/>}/>}
     </div>
 
     {presupMV>0&&<Card style={{marginBottom:14}}>
@@ -2976,16 +3193,16 @@ function CategoriasTab({cats,obra,toast,reload}){
 // ── ACCESOS TAB ───────────────────────────────────────────────────────────────
 function AccesosTab({obra,partic,toast,reload}){
   const TABS_DISPONIBLES=[
-    {id:"dashboard",label:"Dashboard",icon:"📊",desc:"Resumen general de la obra"},
-    {id:"gastos",label:"Gastos",icon:"💸",desc:"Lista de gastos (solo los marcados como públicos)"},
-    {id:"presupuesto",label:"Presupuesto",icon:"📐",desc:"Presupuesto por categoría y ajustes por índice"},
-    {id:"fotos",label:"Fotos",icon:"📷",desc:"Galería de fotos de avance"},
-    {id:"objetivos",label:"Cambios/Pedidos",icon:"🔄",desc:"Cambios y pedidos entre cliente y arquitecto"},
-    {id:"reportes",label:"Reportes",icon:"📈",desc:"Gráficos y reportes de gastos"},
-    {id:"resumen",label:"Mi Resumen",icon:"📋",desc:"Vista simplificada del cliente"},
-    {id:"ipc",label:"IPC",icon:"📉",desc:"Índice de inflación (INDEC)"},
-    {id:"usd",label:"USD / Dólar",icon:"💵",desc:"Cotizaciones y evolución del dólar"},
-    {id:"cac",label:"CAC",icon:"🏗️",desc:"Índice costo de construcción"},
+    {id:"dashboard",label:"Dashboard",icon:<LayoutDashboard size={16}/>,desc:"Resumen general de la obra"},
+    {id:"gastos",label:"Gastos",icon:<Banknote size={16}/>,desc:"Lista de gastos (solo los marcados como públicos)"},
+    {id:"presupuesto",label:"Presupuesto",icon:<Ruler size={16}/>,desc:"Presupuesto por categoría y ajustes por índice"},
+    {id:"fotos",label:"Fotos",icon:<Camera size={16}/>,desc:"Galería de fotos de avance"},
+    {id:"objetivos",label:"Cambios/Pedidos",icon:<RefreshCw size={16}/>,desc:"Cambios y pedidos entre cliente y arquitecto"},
+    {id:"reportes",label:"Reportes",icon:<TrendingUp size={16}/>,desc:"Gráficos y reportes de gastos"},
+    {id:"resumen",label:"Mi Resumen",icon:<ClipboardList size={16}/>,desc:"Vista simplificada del cliente"},
+    {id:"ipc",label:"IPC",icon:<LineChart size={16}/>,desc:"Índice de inflación (INDEC)"},
+    {id:"usd",label:"USD / Dólar",icon:<CircleDollarSign size={16}/>,desc:"Cotizaciones y evolución del dólar"},
+    {id:"cac",label:"CAC",icon:<Building2 size={16}/>,desc:"Índice costo de construcción"},
   ];
   const DEFAULT=["dashboard","gastos","fotos","objetivos","reportes","resumen","ipc","usd","cac"];
   const clientes=partic.filter(p=>p.rol==="cliente");
@@ -3014,7 +3231,7 @@ function AccesosTab({obra,partic,toast,reload}){
 
   return <div className="fu">
     <div style={{marginBottom:18}}>
-      <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:4}}>🔐 Control de accesos</div>
+      <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:4}}><Lock size={15} style={{verticalAlign:-2,marginRight:5}}/>Control de accesos</div>
       <div style={{fontSize:12,color:C.t3}}>Configurá qué puede ver <b style={{color:C.lima}}>cada cliente</b> — cada uno tiene su propia configuración, no es global para la obra.</div>
     </div>
 
@@ -3057,7 +3274,7 @@ function AccesosTab({obra,partic,toast,reload}){
       </Card>}
 
       <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-        <Btn primary onClick={save} loading={saving}>💾 Guardar accesos de {sel.nombre}</Btn>
+        <Btn primary onClick={save} loading={saving}><Check size={13} style={{verticalAlign:-2,marginRight:4}}/>Guardar accesos de {sel.nombre}</Btn>
         <Btn onClick={resetAll}>Restablecer</Btn>
         <span style={{fontSize:11,color:C.t3,marginLeft:4}}>{tabs.length} de {TABS_DISPONIBLES.length} solapas activas</span>
       </div>
@@ -3148,7 +3365,7 @@ function CACTab({cacData,fetchCAC,esAdmin,toast,refreshCAC}){
   const acumAnios=Object.entries(porAnio).map(([y,v])=>({anio:y,pct:+(((v.reduce((f,x)=>f*(1+x/100),1)-1)*100).toFixed(1))})).sort((a,b)=>a.anio>b.anio?1:-1);
 
   return <div className="fu">
-    <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:4}}>🏗️ Índice CAC — Costo de la Construcción</div>
+    <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:4}}><Building2 size={16} style={{verticalAlign:-3,marginRight:6}}/>Índice CAC — Costo de la Construcción</div>
     <div style={{fontSize:12,color:C.t3,marginBottom:6}}>Cámara Argentina de la Construcción · Variación % mensual</div>
     <div style={{fontSize:11,color:C.t3,marginBottom:16,background:C.bg3,borderRadius:8,padding:"8px 12px",border:`1px solid ${C.bd}`}}>
       El CAC mide la variación del costo de un edificio tipo en CABA, combinando <b style={{color:C.t}}>materiales</b> y <b style={{color:C.t}}>mano de obra</b> (UOCRA). Es el índice estándar para ajustar presupuestos de obra en Argentina.
@@ -3196,9 +3413,9 @@ function CACTab({cacData,fetchCAC,esAdmin,toast,refreshCAC}){
     {!cacData&&<Card><div style={{textAlign:"center",padding:"32px 0",color:C.t3}}>Cargando datos CAC...</div></Card>}
     {cacData&&<>
       <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
-        <StatCard label="Último mes" value={last?`${last.valor}%`:"—"} color={CAC_COLOR} icon="📅" sub={last?.fecha?.slice(0,7)}/>
-        <StatCard label="Acum. 12 meses" value={`${acum12p}%`} color={CAC_COLOR} icon="📈"/>
-        {acumAnioP!==null&&<StatCard label={`Acum. ${hoy.getFullYear()}`} value={`${acumAnioP}%`} color={C.blue} icon="📆"/>}
+        <StatCard label="Último mes" value={last?`${last.valor}%`:"—"} color={CAC_COLOR} icon={<Calendar size={13}/>} sub={last?.fecha?.slice(0,7)}/>
+        <StatCard label="Acum. 12 meses" value={`${acum12p}%`} color={CAC_COLOR} icon={<TrendingUp size={13}/>}/>
+        {acumAnioP!==null&&<StatCard label={`Acum. ${hoy.getFullYear()}`} value={`${acumAnioP}%`} color={C.blue} icon={<CalendarRange size={13}/>}/>}
       </div>
 
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
@@ -3277,14 +3494,14 @@ function IPCTab({inflData}){
   const maxV=Math.max(...serie24.map(x=>x.valor),1);
 
   return <div className="fu">
-    <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:4}}>📉 Inflación IPC (INDEC)</div>
+    <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:4}}><LineChart size={16} style={{verticalAlign:-3,marginRight:6}}/>Inflación IPC (INDEC)</div>
     <div style={{fontSize:12,color:C.t3,marginBottom:16}}>argentinadatos.com · Variación % mensual</div>
     {!inflData&&<Card><div style={{textAlign:"center",padding:"32px 0",color:C.t3}}>Cargando datos IPC...</div></Card>}
     {inflData&&<>
       <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
-        <StatCard label="Último mes" value={last?`${last.valor}%`:"—"} color={C.amber} icon="📅" sub={last?.fecha?.slice(0,7)}/>
-        <StatCard label="Acum. 12 meses" value={`${acum12p}%`} color={C.red} icon="📈"/>
-        {acumAnioP!==null&&<StatCard label={`Acum. ${hoy.getFullYear()}`} value={`${acumAnioP}%`} color={C.blue} icon="📆"/>}
+        <StatCard label="Último mes" value={last?`${last.valor}%`:"—"} color={C.amber} icon={<Calendar size={13}/>} sub={last?.fecha?.slice(0,7)}/>
+        <StatCard label="Acum. 12 meses" value={`${acum12p}%`} color={C.red} icon={<TrendingUp size={13}/>}/>
+        {acumAnioP!==null&&<StatCard label={`Acum. ${hoy.getFullYear()}`} value={`${acumAnioP}%`} color={C.blue} icon={<CalendarRange size={13}/>}/>}
       </div>
 
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
@@ -3379,17 +3596,17 @@ function USDTab({tcHistData,inflData,tcOficial,tcBlue}){
   const maxBl=Math.max(...br.map(b=>b.bl||0),1);
 
   return <div className="fu">
-    <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:4}}>💵 Dólar & Tipo de Cambio</div>
+    <div style={{fontSize:16,fontWeight:700,color:C.t,marginBottom:4}}><CircleDollarSign size={16} style={{verticalAlign:-3,marginRight:6}}/>Dólar & Tipo de Cambio</div>
     <div style={{fontSize:12,color:C.t3,marginBottom:16}}>dolarapi.com & argentinadatos.com · Variación % mensual</div>
     {!tcHistData&&<Card><div style={{textAlign:"center",padding:"32px 0",color:C.t3}}>Cargando cotizaciones...</div></Card>}
     {tcHistData&&<>
       <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
-        <StatCard label="Oficial hoy" value={tcOficial?("$"+tcOficial.toLocaleString("es-AR")):last?.of?("$"+last.of.toLocaleString("es-AR")):"—"} color={C.green} icon="🏛️"/>
-        <StatCard label="Blue hoy" value={tcBlue?("$"+tcBlue.toLocaleString("es-AR")):last?.bl?("$"+last.bl.toLocaleString("es-AR")):"—"} color={C.lima} icon="💵"/>
-        <StatCard label="Blue var. último mes" value={last?.varBl!=null?`${last.varBl>0?"+":""}${last.varBl}%`:"—"} color={last?.varBl>10?C.red:last?.varBl>5?C.amber:C.lima} icon="📅"/>
-        <StatCard label="Blue acum. 12m" value={`${acum12BlP>0?"+":""}${acum12BlP}%`} color={C.lima} icon="📈"/>
-        {acumAnioActualBl!=null&&<StatCard label={`Blue acum. ${hoy.getFullYear()}`} value={`${acumAnioActualBl>0?"+":""}${acumAnioActualBl}%`} color={C.blue} icon="📆"/>}
-        <StatCard label="Brecha" value={last?.gap!=null?(last.gap+"%"):"—"} color={brechaColor} icon="📊"/>
+        <StatCard label="Oficial hoy" value={tcOficial?("$"+tcOficial.toLocaleString("es-AR")):last?.of?("$"+last.of.toLocaleString("es-AR")):"—"} color={C.green} icon={<Building2 size={13}/>}/>
+        <StatCard label="Blue hoy" value={tcBlue?("$"+tcBlue.toLocaleString("es-AR")):last?.bl?("$"+last.bl.toLocaleString("es-AR")):"—"} color={C.lima} icon={<CircleDollarSign size={13}/>}/>
+        <StatCard label="Blue var. último mes" value={last?.varBl!=null?`${last.varBl>0?"+":""}${last.varBl}%`:"—"} color={last?.varBl>10?C.red:last?.varBl>5?C.amber:C.lima} icon={<Calendar size={13}/>}/>
+        <StatCard label="Blue acum. 12m" value={`${acum12BlP>0?"+":""}${acum12BlP}%`} color={C.lima} icon={<TrendingUp size={13}/>}/>
+        {acumAnioActualBl!=null&&<StatCard label={`Blue acum. ${hoy.getFullYear()}`} value={`${acumAnioActualBl>0?"+":""}${acumAnioActualBl}%`} color={C.blue} icon={<CalendarRange size={13}/>}/>}
+        <StatCard label="Brecha" value={last?.gap!=null?(last.gap+"%"):"—"} color={brechaColor} icon={<BarChart3 size={13}/>}/>
       </div>
 
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
